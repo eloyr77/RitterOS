@@ -14,9 +14,12 @@ program has its page too (`man NAME`, `man` lists them).
   refuses to start it. The old BIOS mode (CSM) is not needed.
 - **A USB stick of 256 MB or more.** Everything on it is lost. At the
   first start RitterOS grows its file system to the whole stick.
-- **The stick image**, `stick-STEP-x86_64.img` (256 MiB). An image for 64-bit
-  ARM (`stick-STEP-aarch64.img`) runs in QEMU; real ARM machines are not
-  supported yet.
+- **The stick image**: from the [Releases](https://github.com/eloyr77/RitterOS/releases)
+  page, `ritteros-2026.11-x86_64.img.gz` (uncompress it with `gunzip`
+  first; Rufus and balenaEtcher take the `.gz` as it is), or made from the
+  source (below) as `stick-STEP-x86_64.img`; 256 MiB either way. An image
+  for 64-bit ARM (`ritteros-2026.11-aarch64.img.gz`) runs in QEMU and in
+  UTM on Apple Silicon Macs; real ARM machines are not supported yet.
 
 ### Making the image from the source
 

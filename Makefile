@@ -140,8 +140,11 @@ USER_LDFLAGS := -T user/user.ld -nostdlib -static -z max-page-size=4096 -z norel
 # SIMD (ARM) registers so that exception handlers need not save them.
 # (Its headers are the toolchain's own, as the programs': with zig the same
 # as COMMON_CFLAGS'.)
+# (68k) Its debug information names the checkout as `.`, never the folder
+# it was built in: a release's kernel is the same bytes wherever 2026.11 is
+# built (our cc ignores the flag; it writes no debug information).
 KERNEL_CFLAGS  := -target $($(ARCH)_KERNEL_TARGET) -fno-pic -fno-pie -mgeneral-regs-only \
-                  $($(ARCH)_KERNEL_FLAGS) -g $(subst $(ZIG_LIB)/include,$(USER_SYSTEM_INC),$(COMMON_CFLAGS)) -Ikernel \
+                  $($(ARCH)_KERNEL_FLAGS) -g -ffile-prefix-map=$(CURDIR)=. $(subst $(ZIG_LIB)/include,$(USER_SYSTEM_INC),$(COMMON_CFLAGS)) -Ikernel \
                   -Idrivers/include -DRITTEROS_KERNEL
 # (67b) A module sees only the driver interface: drivers/include/ is its
 # one include folder (and the toolchain's freestanding headers).

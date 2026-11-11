@@ -63,7 +63,10 @@ ARM `virt` under HVF), and run on real PCs.
 - The release is the file `VERSION` (year.month; a second in a month
   year.month.N), tagged with the same name. make writes `build/version.h`
   (the release and the commit) only when it changes; only
-  `kernel/release.c` includes it. `uname -a` shows both.
+  `kernel/release.c` includes it. `uname -a` shows both. The kernel's
+  debug information names the checkout `.` (`-ffile-prefix-map`), so
+  every checkout of a tag builds the same kernel as its release's images
+  (GitHub Releases: `ritteros-VERSION-<arch>.img.gz`, SHA256SUMS).
 - `build/` and `tools/` are not in git: `make` and
   `scripts/setup-toolchain.sh` recreate them.
 - No machine's addresses, network names, MAC addresses or firmware tables
