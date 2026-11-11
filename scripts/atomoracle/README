@@ -1,0 +1,9 @@
+Stand-ins for the Linux kernel headers that AMD's atom.c (Linux's AtomBIOS
+interpreter, fetched into tools/src/atom-<ver> by setup-toolchain.sh)
+includes, so scripts/atomhost.c can build it on the Mac as the oracle for
+amdgpu's own interpreter (drivers/amdgpu_atom.c). Ours; only what atom.c
+uses. Never part of RitterOS.
+
+oracle.c builds atom.c behind a plain interface (oracle_parse, oracle_run,
+oracle_destroy) on atomhost.c's machine; pptable.h is empty (atombios.h
+includes the power play tables, which atom.c never uses).

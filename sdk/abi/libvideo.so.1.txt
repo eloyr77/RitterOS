@@ -1,0 +1,11 @@
+# libvideo.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+function	video_audio	int video_audio(struct video *v, struct audio_buffer *out)
+function	video_close	void video_close(struct video *v)
+function	video_info	void video_info(struct video *v, int *w, int *h, int *fps, int *has_audio)
+function	video_open	int video_open(const char *path, struct video **v)
+function	video_read_frame	int video_read_frame(struct video *v, struct image *frame, int64_t *pts_ns)
+type	enum pixel_format	enum pixel_format { PIXEL_RGBA8888, PIXEL_RGB888, PIXEL_GRAY8 }
+type	enum sample_format	enum sample_format { SAMPLE_S16, SAMPLE_F32 }
+type	struct audio_buffer	struct audio_buffer { int rate; int channels; enum sample_format format; long frames; void *samples; }
+type	struct image	struct image { int w, h; int stride; enum pixel_format format; uint8_t *pixels; }

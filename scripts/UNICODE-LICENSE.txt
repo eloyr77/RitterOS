@@ -1,0 +1,79 @@
+Unicode data: the capitals of the exFAT up-case table
+
+What: scripts/exfat_upcase.c carries, as 183 runs, the one-to-one capitals
+of the characters of the Basic Multilingual Plane: data of the Unicode
+Character Database (version 13.0, as Python 3.9.6's str.upper() gives it),
+which until step 63a Python supplied at build time (scripts/exfat_upcase.py,
+since step 46c). From them the build makes the exFAT up-case table that
+`format -t exfat` (user/lib/mkfs_exfat.c) writes onto every exFAT volume;
+scripts/exfat.py (the tests' images) makes the same table from Python.
+
+License: the Unicode License v3, below as Unicode publishes it
+(https://www.unicode.org/license.txt, downloaded 2026-10-25,
+sha256 e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96).
+It permits using, copying, modifying and distributing the data, provided
+this copyright and permission notice appears with the copies or in their
+documentation (docs/manual.md, under format, points here). This is the
+user's agreed exception to RitterOS's public-domain rule (roadmap item 9,
+confirmed 2026-10-25).
+
+Also under this notice (roadmap item 27, step 27s, accepted by the user
+2026-10-26): the English names in user/lib/js/intl.c, iBrowser's and js's
+Intl -- time zone names ("Eastern Standard Time", "EST"), unit and
+currency names and symbols, the likely-subtag entries and the date and
+number patterns -- which follow the Unicode Common Locale Data Repository
+(CLDR) as the Mac's JavaScriptCore (ICU) gives it. docs/manual.md, under
+js, points here.
+
+Also under this notice (step 27s-2, accepted by the user 2026-10-26): the
+JavaScript engine's case tables, user/lib/js/casetab.h, made by
+scripts/casetab.py from the Unicode Character Database 17.0.0's
+UnicodeData.txt, SpecialCasing.txt, CaseFolding.txt and
+DerivedCoreProperties.txt (https://www.unicode.org/Public/17.0.0/ucd/,
+downloaded 2026-10-26; the files are not kept in the tree; sha256
+UnicodeData.txt 2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c,
+SpecialCasing.txt efc25faf19de21b92c1194c111c932e03d2a5eaf18194e33f1156e96de4c9588,
+CaseFolding.txt ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183,
+DerivedCoreProperties.txt 24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08).
+
+------------------------------------------------------------------------
+
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2026 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+FILES OR SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall
+not be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written
+authorization of the copyright holder.

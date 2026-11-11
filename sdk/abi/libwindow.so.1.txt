@@ -1,0 +1,180 @@
+# libwindow.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+constant	WFONT_DIR	"/system/fonts"
+constant	WFONT_TRANSPARENT	0xFFFFFFFFu
+constant	WINDOW_CLOSED	3
+constant	WINDOW_COLOR_ACCENT	7
+constant	WINDOW_COLOR_BACKGROUND	0
+constant	WINDOW_COLOR_EDGE	6
+constant	WINDOW_COLOR_FACE	2
+constant	WINDOW_COLOR_FACE_PRESSED	3
+constant	WINDOW_COLOR_HOVER	4
+constant	WINDOW_COLOR_PANEL	1
+constant	WINDOW_COLOR_SELECTION	8
+constant	WINDOW_COLOR_TEXT	5
+constant	WINDOW_CURSOR_ARROW	0
+constant	WINDOW_CURSOR_HAND	2
+constant	WINDOW_CURSOR_TEXT	1
+constant	WINDOW_DOUBLE_CLICK	6
+constant	WINDOW_DROP	15
+constant	WINDOW_ENTER	12
+constant	WINDOW_FOCUS	11
+constant	WINDOW_KEY	2
+constant	WINDOW_KEY_DOWN	8
+constant	WINDOW_KEY_UP	9
+constant	WINDOW_LEAVE	13
+constant	WINDOW_MENU	5
+constant	WINDOW_NONE	0
+constant	WINDOW_POINTER	1
+constant	WINDOW_RESIZE	4
+constant	WINDOW_SCROLL	7
+constant	WINDOW_SCROLLBAR_W	12
+constant	WINDOW_TEXT	14
+constant	WINDOW_TIMER	10
+constant	WINDOW_TRANSPARENT	0xFFFFFFFFu
+constant	WKEY_0	0x27
+constant	WKEY_1	0x1E
+constant	WKEY_2	0x1F
+constant	WKEY_3	0x20
+constant	WKEY_4	0x21
+constant	WKEY_5	0x22
+constant	WKEY_6	0x23
+constant	WKEY_7	0x24
+constant	WKEY_8	0x25
+constant	WKEY_9	0x26
+constant	WKEY_A	0x04
+constant	WKEY_APOSTROPHE	0x34
+constant	WKEY_B	0x05
+constant	WKEY_BACKSLASH	0x31
+constant	WKEY_BACKSPACE	0x2A
+constant	WKEY_C	0x06
+constant	WKEY_CAPSLOCK	0x39
+constant	WKEY_COMMA	0x36
+constant	WKEY_D	0x07
+constant	WKEY_DELETE	0x4C
+constant	WKEY_DOWN	0x51
+constant	WKEY_E	0x08
+constant	WKEY_END	0x4D
+constant	WKEY_ENTER	0x28
+constant	WKEY_EQUAL	0x2E
+constant	WKEY_ESCAPE	0x29
+constant	WKEY_F	0x09
+constant	WKEY_F1	0x3A
+constant	WKEY_F10	0x43
+constant	WKEY_F11	0x44
+constant	WKEY_F12	0x45
+constant	WKEY_F2	0x3B
+constant	WKEY_F3	0x3C
+constant	WKEY_F4	0x3D
+constant	WKEY_F5	0x3E
+constant	WKEY_F6	0x3F
+constant	WKEY_F7	0x40
+constant	WKEY_F8	0x41
+constant	WKEY_F9	0x42
+constant	WKEY_G	0x0A
+constant	WKEY_GRAVE	0x35
+constant	WKEY_H	0x0B
+constant	WKEY_HOME	0x4A
+constant	WKEY_I	0x0C
+constant	WKEY_INSERT	0x49
+constant	WKEY_J	0x0D
+constant	WKEY_K	0x0E
+constant	WKEY_L	0x0F
+constant	WKEY_LALT	0xE2
+constant	WKEY_LBRACKET	0x2F
+constant	WKEY_LCTRL	0xE0
+constant	WKEY_LEFT	0x50
+constant	WKEY_LGUI	0xE3
+constant	WKEY_LSHIFT	0xE1
+constant	WKEY_M	0x10
+constant	WKEY_MINUS	0x2D
+constant	WKEY_N	0x11
+constant	WKEY_O	0x12
+constant	WKEY_P	0x13
+constant	WKEY_PAGEDOWN	0x4E
+constant	WKEY_PAGEUP	0x4B
+constant	WKEY_PAUSE	0x48
+constant	WKEY_PERIOD	0x37
+constant	WKEY_PRINTSCREEN	0x46
+constant	WKEY_Q	0x14
+constant	WKEY_R	0x15
+constant	WKEY_RALT	0xE6
+constant	WKEY_RBRACKET	0x30
+constant	WKEY_RCTRL	0xE4
+constant	WKEY_RGUI	0xE7
+constant	WKEY_RIGHT	0x4F
+constant	WKEY_RSHIFT	0xE5
+constant	WKEY_S	0x16
+constant	WKEY_SCROLLLOCK	0x47
+constant	WKEY_SEMICOLON	0x33
+constant	WKEY_SLASH	0x38
+constant	WKEY_SPACE	0x2C
+constant	WKEY_T	0x17
+constant	WKEY_TAB	0x2B
+constant	WKEY_U	0x18
+constant	WKEY_UP	0x52
+constant	WKEY_V	0x19
+constant	WKEY_W	0x1A
+constant	WKEY_X	0x1B
+constant	WKEY_Y	0x1C
+constant	WKEY_Z	0x1D
+function	utf8_next	uint32_t utf8_next(const char **s)
+function	wfont_bold	const struct font *wfont_bold(void)
+function	wfont_find	const struct font *wfont_find(const char *name)
+function	wfont_height	int wfont_height(const struct font *font)
+function	wfont_layout	int wfont_layout(uint32_t *buf, uint32_t stride, uint32_t bw, uint32_t bh, const struct font *font, int x, int y, int width, const char *utf8, uint32_t fg, uint32_t bg)
+function	wfont_open	const struct font *wfont_open(const char *path, int size)
+function	wfont_regular	const struct font *wfont_regular(void)
+function	wfont_text	int wfont_text(uint32_t *buf, uint32_t stride, uint32_t bw, uint32_t bh, const struct font *font, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)
+function	wfont_text_width	int wfont_text_width(const struct font *font, const char *utf8)
+function	wfont_width	int wfont_width(const struct font *font)
+function	wfont_wrap	int wfont_wrap(const struct font *font, const char *utf8, int width)
+function	window_app_for	int window_app_for(const char *path, char *buf, size_t size)
+function	window_app_opens	int window_app_opens(const char *bundle, const char *file)
+function	window_blit	void window_blit(struct window *win, int x, int y, int w, int h, const uint32_t *src)
+function	window_choose	int window_choose(struct window *parent, const char *title, const char *folder, int (*accept)(const char *path, void *data), void *data, char *path, int size)
+function	window_choose_file	int window_choose_file(struct window *parent, const char *title, const char *folder, char *path, int size)
+function	window_clipboard_get	int window_clipboard_get(struct window *win, char *buf, size_t size)
+function	window_clipboard_set	int window_clipboard_set(struct window *win, const char *utf8, size_t n)
+function	window_close	void window_close(struct window *win)
+function	window_color	uint32_t window_color(int which)
+function	window_dialog_open	struct window *window_dialog_open(struct window *parent, int w, int h, const char *title)
+function	window_drag	int window_drag(struct window *win, const char *text, size_t n)
+function	window_drop_text	const char *window_drop_text(struct window *win)
+function	window_fd	int window_fd(struct window *win)
+function	window_field_draw	void window_field_draw(struct window_field *f)
+function	window_field_event	int window_field_event(struct window_field *f, const struct window_event *ev)
+function	window_field_focus	void window_field_focus(struct window_field *f, int on)
+function	window_field_focused	int window_field_focused(const struct window_field *f)
+function	window_field_free	void window_field_free(struct window_field *f)
+function	window_field_height	int window_field_height(const struct window_field *f)
+function	window_field_new	struct window_field *window_field_new(struct window *win, int x, int y, int w)
+function	window_field_place	void window_field_place(struct window_field *f, int x, int y, int w)
+function	window_field_set_text	void window_field_set_text(struct window_field *f, const char *utf8)
+function	window_field_text	const char *window_field_text(const struct window_field *f)
+function	window_fill	void window_fill(struct window *win, int x, int y, int w, int h, uint32_t color)
+function	window_flush	void window_flush(struct window *win)
+function	window_fullscreen	void window_fullscreen(struct window *win, int on)
+function	window_height	int window_height(struct window *win)
+function	window_minimize	void window_minimize(struct window *win)
+function	window_notify	int window_notify(struct window *win, const char *title, const char *text)
+function	window_open	struct window *window_open(int w, int h, const char *title)
+function	window_pixels	uint32_t *window_pixels(struct window *win)
+function	window_popup_menu	int window_popup_menu(struct window *win, int x, int y, const struct window_menu_item *items, int count)
+function	window_resize	int window_resize(struct window *win, int w, int h)
+function	window_rgb	uint32_t window_rgb(struct window *win, int r, int g, int b)
+function	window_scrollbar	void window_scrollbar(struct window *win, int x, int y, int h, int first, int shown, int total)
+function	window_scrollbar_hit	int window_scrollbar_hit(int y, int h, int py, int shown, int total)
+function	window_set_cursor	void window_set_cursor(struct window *win, int shape)
+function	window_set_limits	void window_set_limits(struct window *win, int min_w, int min_h, int max_w, int max_h)
+function	window_set_menu	int window_set_menu(struct window *win, const struct window_menu *menus, int count)
+function	window_shifts	void window_shifts(struct window *win, int *red, int *green, int *blue)
+function	window_text	void window_text(struct window *win, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)
+function	window_text_font	void window_text_font(struct window *win, const struct font *font, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)
+function	window_timer	int window_timer(struct window *win, int ms, int id)
+function	window_wait	int window_wait(struct window *win, struct window_event *ev)
+function	window_wait_timeout	int window_wait_timeout(struct window *win, struct window_event *ev, int ms)
+function	window_width	int window_width(struct window *win)
+type	struct window_event	struct window_event { int type; int x, y; unsigned buttons; int key; int menu; }
+type	struct window_menu	struct window_menu { const char *title; const struct window_menu_item *items; int count; }
+type	struct window_menu_item	struct window_menu_item { int id; const char *label; }

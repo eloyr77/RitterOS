@@ -1,0 +1,12 @@
+# libimage.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+function	image_free	void image_free(struct image *img)
+function	image_info	int image_info(const char *path, struct image *out)
+function	image_load	int image_load(const char *path, struct image *out)
+function	image_load_memory	int image_load_memory(const void *data, long n, struct image *out)
+function	image_save	int image_save(const char *path, const struct image *img)
+function	image_scale	int image_scale(const struct image *src, int w, int h, struct image *out)
+type	enum pixel_format	enum pixel_format { PIXEL_RGBA8888, PIXEL_RGB888, PIXEL_GRAY8 }
+type	enum sample_format	enum sample_format { SAMPLE_S16, SAMPLE_F32 }
+type	struct audio_buffer	struct audio_buffer { int rate; int channels; enum sample_format format; long frames; void *samples; }
+type	struct image	struct image { int w, h; int stride; enum pixel_format format; uint8_t *pixels; }

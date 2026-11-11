@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ping *)",
+      "Bash(ping6 *)",
+      "Bash(python3 scripts/ritterfs.py ls *)",
+      "Bash(python3 scripts/ritterfs.py check *)",
+      "Bash(python3 scripts/ritterfs.py cat *)",
+      "Bash(shasum *)",
+      "Bash(ioreg *)",
+      "Bash(objdump *)",
+      "Bash(system_profiler *)",
+      "Bash(diskutil list)",
+      "Bash(diskutil list *)",
+      "Bash(diskutil info *)",
+      "Bash(python3 scripts/gptcheck.py *)",
+      "Bash(nm *)",
+      "Bash(python3 scripts/doccheck.py)",
+      "Bash(arp -a)",
+      "Bash(sw_vers)",
+      "Bash(codesign -d *)",
+      "Bash(otool *)",
+      "Bash(plutil -p *)"
+    ]
+  }
+}

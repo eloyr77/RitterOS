@@ -1,0 +1,169 @@
+# driver-api.3: the kernel's driver interface 3.0 (drivers/include/), recorded by
+# scripts/abicheck.py --update. Removing or changing a line breaks modules built
+# before: that needs a new major version. Adding raises DRIVER_API_MINOR.
+# minor version 0
+constant	DRIVER_API_MAJOR	3
+constant	EDID_DETAILED	16
+constant	EDID_TIMINGS	64
+constant	ETH_FRAME_MAX	1514
+constant	ETH_HEADER	14
+constant	GPU_OUTPUTS	8
+constant	MODULE_ANY	0xFFFF
+constant	MODULE_BY_CLASS	0xFFFE
+constant	MODULE_MAGIC	0x32444F4DU
+constant	MODULE_USB_MAGIC	0x31535553U
+constant	NET_BATCH_MAX	32
+constant	PAGE_SIZE	4096ULL
+constant	PCI_CAP_MSI	0x05
+constant	PCI_CAP_MSIX	0x11
+constant	PCI_COMMAND	0x04
+constant	PCI_COMMAND_BUS_MASTER	0x0004
+constant	PCI_COMMAND_INTX_OFF	0x0400
+constant	PCI_COMMAND_IO	0x0001
+constant	PCI_COMMAND_MEMORY	0x0002
+constant	SOUND_BITS	16
+constant	SOUND_CHANNELS	2
+constant	SOUND_RATE	48000
+constant	TIMER_HZ	100
+constant	USB_ANY	0xFFFF
+constant	USB_DESC_CONFIGURATION	2
+constant	USB_DESC_DEVICE	1
+constant	USB_DESC_ENDPOINT	5
+constant	USB_DESC_INTERFACE	4
+constant	USB_DESC_SS_COMPANION	0x30
+constant	USB_DESC_STRING	3
+constant	USB_DIR_IN	0x80
+constant	USB_FEATURE_HALT	0
+constant	USB_LANG_EN_US	0x0409
+constant	USB_RECIPIENT_ENDPOINT	0x02
+constant	USB_REQ_CLEAR_FEATURE	1
+constant	USB_REQ_GET_DESCRIPTOR	6
+constant	USB_REQ_SET_CONFIGURATION	9
+constant	USB_TYPE_CLASS_INTERFACE	0x21
+constant	WLAN_FRAME_MAX	2400
+constant	WLAN_KEY_GROUP	2
+constant	WLAN_KEY_PAIRWISE	1
+function	acpi_find_table	const struct acpi_header *acpi_find_table(const char *signature)
+function	acpi_pci_method	int acpi_pci_method(const struct pci_device *d, const char *method, uint64_t function, const void *in, uint32_t in_length, void *out, uint32_t out_size)
+function	arch_counter	uint64_t arch_counter(void)
+function	arch_counter_hz	uint64_t arch_counter_hz(void)
+function	arch_cpu_relax	DRIVER_WRAPPED void arch_cpu_relax(void)
+function	arch_irq_restore	DRIVER_WRAPPED void arch_irq_restore(uint64_t state)
+function	arch_irq_save	DRIVER_WRAPPED uint64_t arch_irq_save(void)
+function	arch_read_barrier	DRIVER_WRAPPED void arch_read_barrier(void)
+function	arch_write_barrier	DRIVER_WRAPPED void arch_write_barrier(void)
+function	firmware_load	void *firmware_load(const char *name, uint64_t *size)
+function	gpu_output_monitor	const struct edid_info *gpu_output_monitor(struct gpu_card *card, int i)
+function	gpu_output_name	const char *gpu_output_name(struct gpu_card *card, int i)
+function	gpu_register	DRIVER_WRAPPED void gpu_register(struct gpu_card *card)
+function	kfree	void kfree(void *ptr)
+function	kmalloc	void *kmalloc(size_t size)
+function	kprintf	void kprintf(const char *fmt, ...)
+function	ksnprintf	int ksnprintf(char *buf, size_t size, const char *fmt, ...)
+function	kzalloc	void *kzalloc(size_t size)
+function	memcmp	int memcmp(const void *a, const void *b, size_t n)
+function	memcpy	void *memcpy(void *dst, const void *src, size_t n)
+function	memset	void *memset(void *dst, int value, size_t n)
+function	mmio_read16	DRIVER_WRAPPED uint16_t mmio_read16(const volatile void *address)
+function	mmio_read32	DRIVER_WRAPPED uint32_t mmio_read32(const volatile void *address)
+function	mmio_read64	DRIVER_WRAPPED uint64_t mmio_read64(const volatile void *address)
+function	mmio_read8	DRIVER_WRAPPED uint8_t mmio_read8(const volatile void *address)
+function	mmio_write16	DRIVER_WRAPPED void mmio_write16(volatile void *address, uint16_t value)
+function	mmio_write32	DRIVER_WRAPPED void mmio_write32(volatile void *address, uint32_t value)
+function	mmio_write64	DRIVER_WRAPPED void mmio_write64(volatile void *address, uint64_t value)
+function	mmio_write8	DRIVER_WRAPPED void mmio_write8(volatile void *address, uint8_t value)
+function	mutex_lock	void mutex_lock(struct mutex *m)
+function	mutex_try_lock	bool mutex_try_lock(struct mutex *m)
+function	mutex_unlock	void mutex_unlock(struct mutex *m)
+function	net_batch_begin	void net_batch_begin(void)
+function	net_batch_end	void net_batch_end(void)
+function	net_card_new	struct net_card *net_card_new(void)
+function	net_receive	void net_receive(struct net_card *card, const void *frame, size_t length)
+function	net_receiving	bool net_receiving(void)
+function	net_register	void net_register(struct net_card *card)
+function	net_rename	void net_rename(struct net_card *card)
+function	paging_map_mmio	volatile void *paging_map_mmio(uint64_t phys, uint64_t size)
+function	paging_write_combining	bool paging_write_combining(uint64_t phys, uint64_t size)
+function	pci_aspm_off	void pci_aspm_off(struct pci_device *dev, int *was_dev, int *was_port)
+function	pci_enable_dma	void pci_enable_dma(struct pci_device *dev)
+function	pci_find_capability	uint8_t pci_find_capability(const struct pci_device *dev, uint8_t id)
+function	pci_msi_enable	bool pci_msi_enable(struct pci_device *dev, irq_handler_fn handler, void *context, uint64_t *address, uint32_t *data)
+function	pci_msix_enable	bool pci_msix_enable(struct pci_device *dev, irq_handler_fn handler, void *context, uint64_t *address, uint32_t *data, uint16_t *entries)
+function	pci_read16	uint16_t pci_read16(const struct pci_device *dev, uint16_t offset)
+function	pci_read32	uint32_t pci_read32(const struct pci_device *dev, uint16_t offset)
+function	pci_read8	uint8_t pci_read8(const struct pci_device *dev, uint16_t offset)
+function	pci_write16	void pci_write16(const struct pci_device *dev, uint16_t offset, uint16_t value)
+function	pci_write32	void pci_write32(const struct pci_device *dev, uint16_t offset, uint32_t value)
+function	phys_to_virt	DRIVER_WRAPPED void *phys_to_virt(uint64_t phys)
+function	pmm_alloc_page	uint64_t pmm_alloc_page(void)
+function	pmm_alloc_pages	uint64_t pmm_alloc_pages(size_t count)
+function	pmm_alloc_pages_below	uint64_t pmm_alloc_pages_below(size_t count, uint64_t limit)
+function	pmm_free_page	void pmm_free_page(uint64_t addr)
+function	pmm_free_pages	void pmm_free_pages(uint64_t addr, size_t count)
+function	sound_register	void sound_register(struct sound_card *card)
+function	spin_lock	DRIVER_WRAPPED uint64_t spin_lock(struct spinlock *lock)
+function	spin_unlock	DRIVER_WRAPPED void spin_unlock(struct spinlock *lock, uint64_t state)
+function	strcmp	int strcmp(const char *a, const char *b)
+function	strlen	size_t strlen(const char *s)
+function	thread_create	struct thread *thread_create(const char *name, void (*fn)(void *arg), void *arg)
+function	thread_stop_requested	bool thread_stop_requested(void)
+function	timer_add_tick_handler	bool timer_add_tick_handler(void (*fn)(void *context), void *context)
+function	timer_sleep_ms	void timer_sleep_ms(uint32_t ms)
+function	timer_ticks	uint64_t timer_ticks(void)
+function	usb_bulk_clear_halt	bool usb_bulk_clear_halt(struct usb_device *dev, uint8_t endpoint)
+function	usb_bulk_configure	bool usb_bulk_configure(struct usb_device *dev, const struct usb_endpoint_descriptor *in, const struct usb_endpoint_descriptor *out, unsigned in_burst, unsigned out_burst)
+function	usb_bulk_stats	bool usb_bulk_stats(struct usb_device *dev, uint8_t endpoint, struct usb_bulk_stats *out)
+function	usb_bulk_transfer	int usb_bulk_transfer(struct usb_device *dev, uint8_t endpoint, uint64_t phys, uint32_t length, bool *stalled)
+function	usb_bulk_transfer_timeout	int usb_bulk_transfer_timeout(struct usb_device *dev, uint8_t endpoint, uint64_t phys, uint32_t length, bool *stalled, uint32_t timeout_ms)
+function	usb_configuration	int usb_configuration(struct usb_device *dev, uint8_t *buf, uint16_t size)
+function	usb_control	int usb_control(struct usb_device *dev, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *data, uint16_t length)
+function	usb_device_descriptor	const struct usb_device_descriptor *usb_device_descriptor(const struct usb_device *dev)
+function	usb_device_name	const char *usb_device_name(const struct usb_device *dev)
+function	usb_device_product	const char *usb_device_product(const struct usb_device *dev)
+function	usb_interrupt_in	bool usb_interrupt_in(struct usb_device *dev, const struct usb_endpoint_descriptor *endpoint, usb_data_handler handler, void *context)
+function	usb_log_label	void usb_log_label(const char *name)
+function	usb_report	void usb_report(struct usb_device *dev)
+function	usb_string	void usb_string(struct usb_device *dev, uint8_t index, char *out, size_t size)
+function	virt_to_phys	DRIVER_WRAPPED uint64_t virt_to_phys(const void *virt)
+function	wait_cancel	void wait_cancel(void)
+function	wait_commit	bool wait_commit(uint64_t deadline)
+function	wait_prepare	void wait_prepare(struct wait_queue *q, uint64_t deadline)
+function	wait_queue_wake_all	void wait_queue_wake_all(struct wait_queue *q)
+function	wait_queue_wake_one	void wait_queue_wake_one(struct wait_queue *q)
+function	wlan_link_lost	void wlan_link_lost(struct net_card *card, const char *why)
+function	wlan_receive	void wlan_receive(struct net_card *card, const void *frame, size_t length, int channel, int signal)
+function	wlan_receive_decrypted	void wlan_receive_decrypted(struct net_card *card, const void *frame, size_t length, int channel, int signal, uint64_t pn, int key_index, bool bad)
+function	wlan_register	DRIVER_WRAPPED void wlan_register(struct net_card *card, struct wifi_card *wifi)
+function	wlan_scan_done	void wlan_scan_done(struct net_card *card)
+macro	MODULE	#define MODULE(name, start, pci_table)
+macro	MODULE_CLASS	#define MODULE_CLASS(class, subclass)
+macro	MUTEX_INIT	#define MUTEX_INIT(n)
+macro	SPINLOCK_INIT	#define SPINLOCK_INIT(n)
+macro	USB_MODULE	#define USB_MODULE(name, attach, detach, usb_table)
+macro	wait_event	#define wait_event(q, cond)
+macro	wait_event_until	#define wait_event_until(q, cond, deadline)
+type	struct acpi_header	struct acpi_header { char signature[4]; uint32_t length; uint8_t revision; uint8_t checksum; char oem_id[6]; char oem_table_id[8]; uint32_t oem_revision; uint32_t creator_id; uint32_t creator_revision; }
+type	struct edid_detailed	struct edid_detailed { uint32_t clock_khz; uint32_t hactive, hsync_start, hsync_end, htotal; uint32_t vactive, vsync_start, vsync_end, vtotal; bool hsync_high, vsync_high; uint32_t refresh_mhz; }
+type	struct edid_info	struct edid_info { bool valid; uint32_t blocks; char name[14]; struct edid_timing native; struct edid_timing timings[EDID_TIMINGS]; int count; struct edid_detailed detailed[EDID_DETAILED]; int detailed_count; }
+type	struct edid_timing	struct edid_timing { uint32_t width, height; uint32_t refresh_mhz; }
+type	struct gpu_card	struct gpu_card { const char *model; struct pci_device *pci; int output_count; struct gpu_card_output outputs[GPU_OUTPUTS]; void *priv; bool (*read_edid)(struct gpu_card *card, int i, uint32_t offset, uint8_t *buf, uint32_t len); bool (*showing)(struct gpu_card *card, int i); void (*report)(struct gpu_card *card); bool (*set_mode)(struct gpu_card *card, int i, const struct edid_detailed *t, struct gpu_screen *screen, char *why, size_t why_size); bool (*wait_vblank)(struct gpu_card *card, int i, uint64_t *frame, uint32_t timeout_ms); bool (*flip)(struct gpu_card *card, int i, int buffer, uint64_t *frame); bool (*buffers)(struct gpu_card *card, int i, uint64_t *phys, uint64_t *slot, int *count, uint32_t *stride); bool (*backlight)(struct gpu_card *card, int i, bool on); void *state; }
+type	struct gpu_card_output	struct gpu_card_output { const char *kind; const char *where; }
+type	struct gpu_screen	struct gpu_screen { volatile uint32_t *base; uint32_t width, height, stride; uint8_t red_shift, green_shift, blue_shift; }
+type	struct module_info	struct module_info { uint32_t magic; uint16_t api_major, api_minor; char name[16]; bool (*start)(struct pci_device *device); const struct module_pci *pci; uint32_t pci_count; }
+type	struct module_pci	struct module_pci { uint16_t vendor, device; }
+type	struct module_usb	struct module_usb { uint16_t vendor, product; uint16_t interface_class, interface_subclass, interface_protocol; }
+type	struct module_usb_info	struct module_usb_info { uint32_t magic; uint16_t api_major, api_minor; char name[16]; bool (*attach)(struct usb_device *device); void (*detach)(struct usb_device *device); const struct module_usb *usb; uint32_t usb_count; }
+type	struct mutex	struct mutex { struct thread *owner; unsigned depth; struct wait_queue waiters; const char *name; struct spinlock lock; }
+type	struct net_card	struct net_card { char name[8]; uint8_t mac[6]; const char *driver; char model[40]; char where[16]; uint32_t (*link_speed)(struct net_card *card); bool (*send)(struct net_card *card, const void *frame, size_t length); const struct pci_device *pci; void (*details)(struct net_card *card); void (*set_multicast)(struct net_card *card, const uint8_t (*macs)[6], int count); void *priv; struct wlan *wlan; volatile uint64_t rx_frames, rx_bytes, tx_frames, tx_bytes, tx_dropped; volatile bool gone; }
+type	struct pci_bar	struct pci_bar { uint64_t address; uint64_t size; bool is_io; bool is_64bit; bool prefetchable; }
+type	struct pci_device	struct pci_device { uint8_t bus, device, function; uint16_t vendor_id, device_id; uint8_t class_code, subclass, prog_if, revision; struct pci_bar bars[6]; struct pci_device_kernel *kernel; }
+type	struct sound_card	struct sound_card { const char *driver; struct pci_device *pci; int kind; char outputs[96]; void *priv; long (*write)(struct sound_card *card, const void *buf, size_t n); void (*drain)(struct sound_card *card); }
+type	struct spinlock	struct spinlock { volatile uint32_t next; volatile uint32_t serving; volatile int holder; const char *name; int check_class; }
+type	struct usb_bulk_stats	struct usb_bulk_stats { uint64_t transfers, errors, timeouts, cancels, stale, resets, failed_commands; uint32_t last_error; int32_t end_trb, stale_trb; uint32_t end_trbs, end_code, end_residual, stale_trbs, stale_code, stale_residual; }
+type	struct usb_config_descriptor	struct usb_config_descriptor { uint8_t length; uint8_t type; uint16_t total_length; uint8_t interfaces; uint8_t value; uint8_t name; uint8_t attributes; uint8_t max_power; }
+type	struct usb_device_descriptor	struct usb_device_descriptor { uint8_t length; uint8_t type; uint16_t usb_version; uint8_t device_class, device_subclass, device_protocol; uint8_t max_packet0; uint16_t vendor_id, product_id; uint16_t device_version; uint8_t manufacturer, product, serial; uint8_t configurations; }
+type	struct usb_endpoint_descriptor	struct usb_endpoint_descriptor { uint8_t length; uint8_t type; uint8_t address; uint8_t attributes; uint16_t max_packet; uint8_t interval; }
+type	struct usb_interface_descriptor	struct usb_interface_descriptor { uint8_t length; uint8_t type; uint8_t number, alternate; uint8_t endpoints; uint8_t interface_class, interface_subclass, interface_protocol; uint8_t name; }
+type	struct wait_queue	struct wait_queue { struct thread *head; bool pollable; struct poll_entry *watchers; struct spinlock lock; }
+type	struct wifi_card	struct wifi_card { bool (*transmit)(struct net_card *card, const void *frame, size_t length); bool (*set_channel)(struct net_card *card, int channel); bool (*scan)(struct net_card *card, const uint8_t *ssid, size_t length); bool (*set_country)(struct net_card *card, const char *cc); bool (*join)(struct net_card *card, const uint8_t *bssid, uint16_t aid, int channel, const struct wlan_ht *ht, bool powersave); bool (*set_key)(struct net_card *card, int kind, int index, const uint8_t key[16]); bool (*block_ack)(struct net_card *card, int tid, bool sending, bool on, uint16_t ssn, uint16_t window); void (*leave)(struct net_card *card); uint8_t channels[64]; int nchannels; struct wlan_state *state; }
+type	struct wlan_ht	struct wlan_ht { bool on; uint16_t cap; uint8_t ampdu; uint8_t mcs[10]; bool wmm; bool vht; uint32_t vht_cap; uint16_t vht_rx_mcs, vht_tx_mcs; int width; int center; }

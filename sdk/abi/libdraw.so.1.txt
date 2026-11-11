@@ -1,0 +1,17 @@
+# libdraw.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+function	draw_circle	void draw_circle(struct draw_canvas *c, float cx, float cy, float r, float line, uint32_t color)
+function	draw_clip	void draw_clip(struct draw_canvas *c, int x, int y, int w, int h)
+function	draw_ellipse	void draw_ellipse(struct draw_canvas *c, float cx, float cy, float rx, float ry, float line, uint32_t color)
+function	draw_gradient	void draw_gradient(struct draw_canvas *c, float x, float y, float w, float h, float x0, float y0, uint32_t from, float x1, float y1, uint32_t to)
+function	draw_image	void draw_image(struct draw_canvas *c, const struct image *img, float x, float y, float w, float h, float angle)
+function	draw_line	void draw_line(struct draw_canvas *c, float x0, float y0, float x1, float y1, float width, uint32_t color)
+function	draw_polygon	void draw_polygon(struct draw_canvas *c, const float *xy, int n, float line, uint32_t color)
+function	draw_rect	void draw_rect(struct draw_canvas *c, float x, float y, float w, float h, float line, uint32_t color)
+function	draw_rgba	uint32_t draw_rgba(int r, int g, int b, int a)
+function	draw_round_rect	void draw_round_rect(struct draw_canvas *c, float x, float y, float w, float h, float radius, float line, uint32_t color)
+type	enum pixel_format	enum pixel_format { PIXEL_RGBA8888, PIXEL_RGB888, PIXEL_GRAY8 }
+type	enum sample_format	enum sample_format { SAMPLE_S16, SAMPLE_F32 }
+type	struct audio_buffer	struct audio_buffer { int rate; int channels; enum sample_format format; long frames; void *samples; }
+type	struct draw_canvas	struct draw_canvas { uint32_t *pixels; int w, h, stride; int red_shift, green_shift, blue_shift; uint32_t opaque; int clipped; int clip_x, clip_y, clip_w, clip_h; }
+type	struct image	struct image { int w, h; int stride; enum pixel_format format; uint8_t *pixels; }

@@ -1,0 +1,73 @@
+Fonts: the X11 "misc-fixed" fonts, the faces with Unicode (ISO10646-1)
+encodings, each regular and (B) bold where the package has both:
+
+  6x13  6x13B   -Misc-Fixed-*-R-SemiCondensed--13-120-75-75-C-60-ISO10646-1
+  7x13  7x13B   -Misc-Fixed-*-R-Normal--13-120-75-75-C-70-ISO10646-1
+  7x14  7x14B   -Misc-Fixed-*-R-Normal--14-130-75-75-C-70-ISO10646-1
+  8x13  8x13B   -Misc-Fixed-*-R-Normal--13-120-75-75-C-80-ISO10646-1
+  9x15  9x15B   -Misc-Fixed-*-R-Normal--15-140-75-75-C-90-ISO10646-1
+  9x18  9x18B   -Misc-Fixed-*-R-Normal--18-120-100-100-C-90-ISO10646-1
+  10x20         -Misc-Fixed-Medium-R-Normal--20-200-75-75-C-100-ISO10646-1
+
+Source: X.Org font-misc-misc 1.1.3
+  https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz
+  (sha256 79abe361f58bb21ade9f565898e486300ce1cc621d5285bec26e14b6a8618fed)
+
+License, as stated in the package's COPYING file and in each font file:
+  "Public domain font.  Share and enjoy."
+
+The files are unmodified. All of them are installed as /system/fonts/NAME.bdf,
+read by libwindow when a program asks for one (wfont_find). scripts/bdf2c.c
+also compiles 9x15 and 9x15B into C tables at build time: the kernel's console
+font, and libwindow's default (the fallback when a font file is missing or
+cannot be read).
+
+Proportional fonts for iBrowser (step 27k; the user's choice on 2026-10-25,
+an agreed exception to the public-domain rule): X.Org's Adobe bitmap fonts
+at 100 dpi, Helvetica (helv), Times (tim) and Courier (cour), each regular
+(R), bold (B) and oblique or italic (O, I; BO, BI), at 8, 10, 12, 14, 18 and
+24 points (11, 14, 17, 20, 25 and 34 pixels):
+
+  helvR08 ... helvR24   -Adobe-Helvetica-Medium-R-Normal--*-*-100-100-P-*-ISO8859-1
+  timR08 ... timR24     -Adobe-Times-Medium-R-Normal--*-*-100-100-P-*-ISO8859-1
+  courR08 ... courR24   -Adobe-Courier-Medium-R-Normal--*-*-100-100-M-*-ISO8859-1
+  (and their B, O/I, BO/BI faces)
+
+Source: X.Org font-adobe-100dpi 1.0.4
+  https://www.x.org/releases/individual/font/font-adobe-100dpi-1.0.4.tar.xz
+  (sha256 b67aff445e056328d53f9732d39884f55dd8d303fc25af3dbba33a8ba35a9ccf)
+
+License: Adobe's and Digital Equipment Corporation's permission notice, in
+ADOBE-COPYING.txt beside them (the package's COPYING file, unmodified): free
+to use, copy, modify, distribute and sell, with the copyright notices and
+the permission notice kept in supporting documentation. The files are
+unmodified and installed with the others as /system/fonts/NAME.bdf.
+
+Scalable fonts (41c; the user's choice on 2026-11-09): GNU FreeFont,
+TrueType outlines, each regular and bold:
+
+  FreeSans  FreeSansBold     sans-serif (Helvetica's proportions)
+  FreeSerif FreeSerifBold    serif (Times's proportions)
+  FreeMono  FreeMonoBold     fixed-width (Courier's proportions)
+
+Source: GNU FreeFont 20120503
+  https://ftp.gnu.org/gnu/freefont/freefont-ttf-20120503.zip
+  (sha256 7c85baf1bf82a1a1845d1322112bc6ca982221b484e3b3925022e25b5cae89af;
+  its signature freefont-ttf-20120503.zip.sig checked against GNU's keyring:
+  a good signature by Steve White, FreeFont's maintainer, DSA key
+  506361DBA36FDD52)
+
+The same faces with CFF outlines (41c-2, the user's choice: installed too,
+as /system/fonts/NAME.otf): GNU FreeFont 20120503's OpenType package
+  https://ftp.gnu.org/gnu/freefont/freefont-otf-20120503.tar.gz
+  (sha256 3a6c51868c71b006c33c4bcde63d90927e6fcca8f51c965b8ad62d021614a860;
+  its signature checked the same way: good, the same key; its README and
+  COPYING are the same files as the TrueType package's)
+
+License: GPL-3.0-or-later with the font exception (a document that embeds
+the fonts is not covered by the GPL for that alone), as stated in the
+package's README, beside them as FreeFont-README.txt; the GPL itself as
+FreeFont-COPYING.txt (the package's COPYING; the same text as the
+repository's LICENSE but for http links). The files are unmodified and
+installed as /system/fonts/NAME.ttf and NAME.otf, read by libwindow when a
+program asks for one (wfont_open, 41c-3).

@@ -1,0 +1,36 @@
+Firmware: MediaTek's for the MT7921 (MT7961) Wi-Fi chip, as the Linux
+firmware project distributes it. The driver (kernel/mt7921.c) loads these
+into the chip at the boot:
+
+  WIFI_MT7961_patch_mcu_1_2_hdr.bin   92192 bytes   the ROM patch
+  WIFI_RAM_CODE_MT7961_1.bin         792036 bytes   the RAM firmware
+
+Source: https://gitlab.com/kernel-firmware/linux-firmware (mediatek/), the
+  files the mt7921 driver uses (see that tree's WHENCE), downloaded
+  2026-10-21
+  (sha256 a276c06c2b772adb50b86639d33c82824ff4c21d617feb78caea74c040b873f6
+   and b94217a951518a9c14095765f367bc5dd7698f2dc033941d6f18fc2ebd6a2ab9).
+
+License: MediaTek's, LICENCE.mediatek beside this file (redistributable for
+use with MediaTek chips; binary only, not under the GPL). This is the
+user's agreed exception to RitterOS's public-domain rule (roadmap item 24).
+
+Installed as /system/firmware/<name>, read by the driver through the file
+system. To update, download the files again from the address above and
+note the new checksums here.
+
+Firmware: Intel's for the Dual Band Wireless-AC 8265 (8086:24fd), as the
+Linux firmware project distributes it. The driver (drivers/intelwifi.c,
+roadmap item 36) loads it into the chip:
+
+  iwlwifi-8265-36.ucode   2432528 bytes   version 36.c8e8e144.0 (WHENCE)
+
+Source: https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+  (intel/iwlwifi/), the same bytes from https://gitlab.com/kernel-firmware/linux-firmware,
+  downloaded 2026-11-03
+  (sha256 1336afcd028ed094d1fe33893c84c273bb5711be52970040344a75a12f276d56).
+
+License: Intel's, LICENCE.iwlwifi beside this file (LICENSES/LICENCE.iwlwifi_firmware
+there; redistributable in binary form without modification, the notice
+kept, no reverse engineering; not under the GPL). The user's agreed
+exception (roadmap item 36), as MediaTek's.

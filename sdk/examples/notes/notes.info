@@ -1,0 +1,4 @@
+# notes' app file: the desktop menu lists it as "Notes" (installed as
+# /system/<arch>/apps/notes.program/info, beside the program, by make deploy).
+name = Notes
+about = a note kept in ~/notes.txt

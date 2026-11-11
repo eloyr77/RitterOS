@@ -1,0 +1,22 @@
+Root certificates: Mozilla's trusted root certificate authorities (the CA
+certificates of Mozilla's certdata.txt trusted for TLS servers), as curl's
+project extracts them into one PEM file:
+
+  cacert.pem   118 certificates, "Certificate data from Mozilla as of:
+               Tue Oct 20 13:32:40 2026 GMT"
+
+Source: https://curl.se/ca/cacert.pem (see https://curl.se/docs/caextract.html),
+  downloaded 2026-10-21
+  (sha256 796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe,
+  the same as curl's https://curl.se/ca/cacert.pem.sha256)
+
+License: the certificate data is Mozilla's, from its NSS source tree
+(security/nss/lib/ckfw/builtins/certdata.txt), under the Mozilla Public
+License, version 2.0 (https://mozilla.org/MPL/2.0/): its source form is that
+file, available at the address in cacert.pem's header. This is the user's
+agreed exception to RitterOS's public-domain rule (roadmap item 23).
+
+The file is unmodified. It is installed as /system/certs/cacert.pem, where
+libtls (tls_default_ca_cert_file) reads the roots it trusts. To update it,
+download the file again from the address above, check its sha256 against
+curl's, and note the new date and checksum here.

@@ -1,0 +1,4 @@
+# imageview's app file (41g), installed as the bundle's info (42b): the desktop menu lists it by name.
+name = Image viewer
+about = shows a picture
+types = ppm bmp png jpg jpeg
