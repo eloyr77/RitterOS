@@ -15,7 +15,7 @@ once. It came in step 41g-2 (macOS's `open` is the model).
   `~/.config/filetypes`, `ENDING = PROGRAM` lines (in small or capital
   letters), made with these when missing: pictures (`.ppm`, `.bmp`,
   `.png`, `.jpg`, `.jpeg`) in `Imageview`, videos (`.rvid`) in `Reel`, web
-  pages (`.html`, `.htm`) in `compass` (the web browser, installed apart
+  pages (`.html`, `.htm`) in `Compass` (the web browser, installed apart
   from the system; 69k), sounds (`.wav`) in `tune`, text
   (`.txt`, `.md`, `.c`, `.h`) in `edit`. Change or add lines to choose
   others (an ending missing there is looked up in `/system/config/

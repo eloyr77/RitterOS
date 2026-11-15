@@ -167,8 +167,8 @@
     "jpg = Imageview\n" \
     "jpeg = Imageview\n" \
     "rvid = Reel\n" \
-    "html = compass\n" \
-    "htm = compass\n" \
+    "html = Compass\n" \
+    "htm = Compass\n" \
     "wav = tune\n" \
     "txt = edit\n" \
     "md = edit\n" \

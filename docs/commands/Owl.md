@@ -32,7 +32,7 @@ item, by where the file lives:
 - a file opens in the program its ending has in your file types,
   `~/.config/filetypes` (42a; the same as [`open`](open.md)): a picture
   (`.ppm`, `.bmp`, `.png`, `.jpg`, `.jpeg`) in `Imageview`, a video
-  (`.rvid`) in `Reel`, a web page (`.html`, `.htm`) in `compass`, a sound
+  (`.rvid`) in `Reel`, a web page (`.html`, `.htm`) in `Compass`, a sound
   (`.wav`) in `tune` in a terminal window, text (`.txt`, `.md`, `.c`, `.h`)
   in `edit` in a terminal window, until you change them (the endings in
   small or capital letters; a program in `bin` runs in a terminal);

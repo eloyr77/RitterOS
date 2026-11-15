@@ -3972,12 +3972,12 @@ for a file is yours to choose, by its ending, in `~/.config/filetypes`:
 ```
 png = imageview
 rvid = reel
-html = compass
+html = Compass
 wav = tune
 txt = edit
 ```
 
-(`ppm`, `bmp`, `jpg`, `jpeg` in `Imageview`, `htm` in `compass` (the web browser, installed apart from the
+(`ppm`, `bmp`, `jpg`, `jpeg` in `Imageview`, `htm` in `Compass` (the web browser, installed apart from the
 system), `md`,
 `c`, `h` in `edit` too.) An app (in `/system/<arch>/apps`) opens the file
 in its window, a command-line program (in `bin`, as `tune` and `edit`) in
