@@ -9,6 +9,10 @@
 #ifndef RITTEROS_WINDOW_H
 #define RITTEROS_WINDOW_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -26,7 +30,10 @@ struct window;
                                  * user's double_click time and 4 pixels (after the second
                                  * press's WINDOW_POINTER); the same rule for every program */
 #define WINDOW_SCROLL   7       /* the mouse wheel turned over the window: y = steps, negative
-                                 * up (away from the user); a list moves 3 rows a step (15o) */
+                                 * up (away from the user); a list moves 3 rows a step (15o);
+                                 * (68m-1) x = steps sideways, positive to the right (a
+                                 * horizontal wheel, two fingers on a touchpad, or Shift with
+                                 * the wheel); either may be 0 */
 #define WINDOW_KEY_DOWN 8       /* a physical key pressed: `key` is its WKEY_* number (the USB
                                  * HID usage ID), modifiers too; once, not repeated (15p) */
 #define WINDOW_KEY_UP   9       /* that key released (also when the window loses the front) */
@@ -41,6 +48,9 @@ struct window;
                                  * escape sequence) */
 #define WINDOW_DROP     15      /* (41f-6) a drag was let go over the window at (x, y): its text
                                  * is window_drop_text's */
+#define WINDOW_SETTINGS 16      /* (69b) the window system's settings changed (theme, accent,
+                                 * text size...): window_color and wfont_open(path, 0) give the
+                                 * new ones now; draw again with them */
 
 /* Physical keys (WINDOW_KEY_DOWN/UP): the USB HID usage IDs, the same for
  * every keyboard and layout (where the key is, not what it types: WKEY_A
@@ -215,6 +225,11 @@ uint32_t *window_pixels(struct window *win);
 
 /* Show what was drawn (windowd recomposites). */
 void window_flush(struct window *win);
+/* (68s) The same for a w x h rectangle at (x, y) in the window only (clipped
+ * to it; nothing outside it is shown again): a video picture or a cursor
+ * costs windowd its own area, not the whole window's. Rectangles shown
+ * within one frame of the screen are joined into the box around them. */
+void window_flush_rect(struct window *win, int x, int y, int w, int h);
 
 /* Wait for the next event; 1 with *ev filled, or 0 when the window closed. */
 int window_wait(struct window *win, struct window_event *ev);
@@ -248,6 +263,12 @@ void window_set_cursor(struct window *win, int shape);
  * keep to: at least min_w x min_h, at most max_w x max_h (0: no limit
  * that way). The window's present size is not changed. */
 void window_set_limits(struct window *win, int min_w, int min_h, int max_w, int max_h);
+
+/* (69b) Ask windowd to read the window system's settings (~/.config/windows)
+ * again, after a program changed them: windowd uses them at once and every
+ * window gets WINDOW_SETTINGS (this one too). 0, or -1 when windowd could not
+ * be told. */
+int window_settings_reload(struct window *win);
 
 /* (41f-6) window_fullscreen(win, 1): the window fills the screen, without
  * its frame and title bar, in front of the other windows and the taskbar
@@ -291,7 +312,8 @@ int window_notify(struct window *win, const char *title, const char *text);
 
 /* (41g-5) The user's colours, as 0xRRGGBB (window_rgb takes them apart):
  * `theme = dark` (the default) or `light`, and `accent = RRGGBB`, in
- * ~/.config/windows, else /system/config/windows; read once. The accent,
+ * ~/.config/windows, else /system/config/windows; read once, and (69b) again
+ * after WINDOW_SETTINGS. The accent,
  * when set, is both ACCENT and SELECTION; otherwise each is the theme's.
  * An unknown `which` gives the theme's TEXT. */
 #define WINDOW_COLOR_BACKGROUND   0     /* a window's background */
@@ -356,5 +378,9 @@ int window_choose(struct window *parent, const char *title, const char *folder,
  * its program NAME) open `file`: does its info's `types` list the file's
  * ending (any case)? 1 or 0. */
 int window_app_opens(const char *bundle, const char *file);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

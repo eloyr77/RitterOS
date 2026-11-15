@@ -5,11 +5,18 @@
 #ifndef RITTEROS_TIME_H
 #define RITTEROS_TIME_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef RITTEROS_TIME_TYPES
+#define RITTEROS_TIME_TYPES
 typedef int64_t time_t;
 typedef long clock_t;
+#endif
 
 #define CLOCKS_PER_SEC 1000000L
 
@@ -71,6 +78,54 @@ typedef int clockid_t;
 #define CLOCK_MONOTONIC          1
 #define CLOCK_PROCESS_CPUTIME_ID 2
 int clock_gettime(clockid_t clock, struct timespec *ts);
+/* (68l) The clock set (CLOCK_REALTIME only; root only: EPERM), the
+ * firmware's too, so the next start has it: 0, or -1 with errno set
+ * (EINVAL: another clock, a time before 1970 or nanoseconds out of range). */
+int clock_settime(clockid_t clock, const struct timespec *ts);
 int nanosleep(const struct timespec *req, struct timespec *rem);
+
+/* (43a) POSIX's beside C's:
+ * - timegm: mktime for a date in UTC; tzset: takes /system/config/time's
+ *   zone again (it is read at every call anyway);
+ * - asctime_r, ctime_r: into buf (26 bytes or more);
+ * - strptime: text to a date by a format of strftime's conversions (the
+ *   C locale's names; %z +hhmm, %s seconds since 1970): the place after
+ *   what was read, or 0;
+ * - clock_getres: how fine a clock is; clock_nanosleep: nanosleep on a
+ *   clock, TIMER_ABSTIME to sleep until a time; an error number, not -1;
+ * - more clocks under Linux's names: CLOCK_MONOTONIC_RAW, _COARSE and
+ *   CLOCK_BOOTTIME are CLOCK_MONOTONIC here, CLOCK_REALTIME_COARSE is
+ *   CLOCK_REALTIME; (43b-6) CLOCK_THREAD_CPUTIME_ID the calling thread's
+ *   CPU time (pthread_getcpuclockid gives it for the calling thread only). */
+#define CLOCK_THREAD_CPUTIME_ID  3
+#define CLOCK_MONOTONIC_RAW      4
+#define CLOCK_REALTIME_COARSE    5
+#define CLOCK_MONOTONIC_COARSE   6
+#define CLOCK_BOOTTIME           7
+#define TIMER_ABSTIME            1
+time_t timegm(struct tm *tm);
+void tzset(void);
+char *asctime_r(const struct tm *tm, char *buf);
+char *ctime_r(const time_t *t, char *buf);
+char *strptime(const char *text, const char *format, struct tm *tm);
+int clock_getres(clockid_t clock, struct timespec *resolution);
+int clock_nanosleep(clockid_t clock, int flags, const struct timespec *request, struct timespec *remain);
+
+/* (43b-4) A timer's setting (timerfd_settime): the first expiry, then
+ * the time between (0: once). */
+struct itimerspec {
+    struct timespec it_interval;
+    struct timespec it_value;
+};
+
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+size_t strftime_l(char *s, size_t max, const char *format, const struct tm *tm, locale_t l);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

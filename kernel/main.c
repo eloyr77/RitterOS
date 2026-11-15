@@ -309,6 +309,7 @@ __attribute__((noreturn)) void kernel_main(struct boot_info *handover)
     sched_init();
     if (selftest)
         sched_self_test();
+    arch_counter_refine_start();        /* (68u) the counter's rate measured again */
     console_start_updates();
     terminal_init();
 
@@ -479,9 +480,9 @@ __attribute__((noreturn)) void kernel_main(struct boot_info *handover)
             sound_announce();                   /* (67g) pcm0, ... from the sound cards */
             if (cmdline_get(info->cmdline, "hdatone", flag, sizeof(flag)))
                 sound_test_tone();              /* (a short tone on pcm0) */
-            cpu_clock_load();                   /* the processor's clock setting (64t) */
+            cpu_clock_load(0, 0);               /* the processor's clock setting (64t) */
             gpu_load_settings();                /* the screens' modes (66b-6) */
-            acpi_events_settings();             /* (37c-2) what the power button does */
+            acpi_events_settings(0, 0);         /* (37c-2) what the power button does */
             /* (65e-37) The check beside the boot: 1.08 s of the laptop's
              * 4.78 s kernel boot was the check's. Its thread holds the
              * file system to read meanwhile (changes wait for it). */

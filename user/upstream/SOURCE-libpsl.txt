@@ -1,0 +1,33 @@
+RitterOS's libpsl (46c): /system/<arch>/lib/libpsl.so.5 (the Public Suffix
+List's questions: is a name a public suffix, which part of a host name is
+registrable, may a cookie be set for a domain) with the header
+/system/include/libpsl.h.
+
+It is libpsl 0.23.3 by Tim Rühsen and its contributors, built unchanged
+from its source archive (https://github.com/rockdaboot/libpsl/releases/
+download/0.23.3/libpsl-0.23.3.tar.gz; the project signs it but publishes
+no hash, so user/upstream/versions has the SHA-256 of the one downloaded on
+2026-11-12), which scripts/setup-toolchain.sh downloads into tools/src:
+none of its sources are kept in this repository. Only the build is
+RitterOS's: its own Meson through the SDK's sdk/ritteros.meson, with the
+list built in (-Dbuiltin=true) and no IDNA library (-Druntime=no: programs
+give it host names in ASCII; WebKit converts international names itself),
+in the Makefile's "nghttp2, brotli and libpsl" part.
+
+The list built in is the one libpsl 0.23.3's archive carries
+(list/public_suffix_list.dat, 16,406 lines; the archive's own compiled
+form of it, src/suffixes_dafsa.h, is what the build uses: the same as the
+one psl-make-dafsa makes from that list, but for the file time it
+records), the Public Suffix List of
+https://publicsuffix.org, which is Mozilla's: under the Mozilla Public
+License, version 2.0 (https://mozilla.org/MPL/2.0/); its source form is
+that file, in the archive named above and at
+https://publicsuffix.org/list/public_suffix_list.dat. Taking it in was
+agreed for item 46 (2026-11-12), as Mozilla's root certificates were.
+
+Licence of the library: the MIT licence, and for the code libpsl took
+from Chromium (psl-make-dafsa, lookup_string_in_fixed_set.c) Chromium's
+BSD licence: both in user/upstream/LICENCE-libpsl.txt (libpsl's LICENSE
+and src/LICENSE.chromium; installed as /system/doc/licences/libpsl.txt),
+compatible with the GPL.
+Upstream: https://rockdaboot.github.io/libpsl, https://github.com/rockdaboot/libpsl

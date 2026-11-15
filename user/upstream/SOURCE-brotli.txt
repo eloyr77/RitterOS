@@ -1,0 +1,18 @@
+RitterOS's brotli (46c): /system/<arch>/lib/libbrotlicommon.so.1,
+libbrotlidec.so.1 and libbrotlienc.so.1 (the Brotli compressed format,
+RFC 7932: decoding and encoding) with the headers /system/include/brotli/.
+
+It is Brotli 1.2.1 by the Brotli Authors (Google), built unchanged from
+its source archive (the project's tag archive https://github.com/google/
+brotli/archive/refs/tags/v1.2.1.tar.gz; the project publishes no hash, so
+user/upstream/versions has the SHA-256 of the one downloaded on
+2026-11-12), which scripts/setup-toolchain.sh downloads into tools/src:
+none of its sources are kept in this repository. Only the build is
+RitterOS's: its own CMake through the SDK's sdk/ritteros.cmake (shared, no
+command line tool, no tests), in the Makefile's "nghttp2, brotli and
+libpsl" part.
+
+Licence: the MIT licence (user/upstream/LICENCE-brotli.txt, brotli's
+LICENSE; installed as /system/doc/licences/brotli.txt), compatible with
+the GPL; taking it in was agreed for item 46 (2026-11-12).
+Upstream: https://github.com/google/brotli

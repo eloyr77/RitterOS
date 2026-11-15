@@ -7,6 +7,10 @@
 #ifndef RITTEROS_WCTYPE_H
 #define RITTEROS_WCTYPE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef RITTEROS_WINT_T
 #define RITTEROS_WINT_T
 typedef __WINT_TYPE__ wint_t;
@@ -36,5 +40,33 @@ wint_t towlower(wint_t wc);
 wint_t towupper(wint_t wc);
 wint_t towctrans(wint_t wc, wctrans_t mapping);
 wctrans_t wctrans(const char *name);
+
+/* (43a-2) The same in a given locale (POSIX's *_l). */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int iswalnum_l(wint_t c, locale_t l);
+int iswalpha_l(wint_t c, locale_t l);
+int iswblank_l(wint_t c, locale_t l);
+int iswcntrl_l(wint_t c, locale_t l);
+int iswdigit_l(wint_t c, locale_t l);
+int iswgraph_l(wint_t c, locale_t l);
+int iswlower_l(wint_t c, locale_t l);
+int iswprint_l(wint_t c, locale_t l);
+int iswpunct_l(wint_t c, locale_t l);
+int iswspace_l(wint_t c, locale_t l);
+int iswupper_l(wint_t c, locale_t l);
+int iswxdigit_l(wint_t c, locale_t l);
+wint_t towlower_l(wint_t c, locale_t l);
+wint_t towupper_l(wint_t c, locale_t l);
+int iswctype_l(wint_t c, wctype_t type, locale_t l);
+wctype_t wctype_l(const char *name, locale_t l);
+wint_t towctrans_l(wint_t c, wctrans_t t, locale_t l);
+wctrans_t wctrans_l(const char *name, locale_t l);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

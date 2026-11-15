@@ -8,11 +8,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <wchar.h>
 #include "fpconv.h"
 #include "wideformat.h"
+#include "mbconv.h"
 
 struct sink {
     int fd;                         /* -1: into buffer[0..size) (or wide[0..size)) */
@@ -47,18 +49,54 @@ static void put(struct sink *s, char c)
     s->total++;
 }
 
-/* A wide character: itself into wide[], else the byte of its value. */
+/* A wide character: itself into wide[], else its bytes in the locale
+ * (43a-2: UTF-8's in C.UTF-8; the C locale's one byte of its value). */
 static void put_wide(struct sink *s, unsigned wc)
 {
     if (s->wide) {
         if (s->total + 1 < s->size)
             s->wide[s->total] = (wchar_t)wc;
         s->total++;
-    } else if (wc > 255) {
-        s->bad = true;
-    } else {
-        put(s, (char)wc);
+        return;
     }
+    char bytes[8];
+    size_t n = mb_encode(bytes, (wchar_t)wc, 0);
+    if (n == (size_t)-1) {
+        s->bad = true;
+        return;
+    }
+    for (size_t i = 0; i < n; i++)
+        put(s, bytes[i]);
+}
+
+/* (43a-2) Bytes of text: as they are into bytes; into wide characters
+ * through the locale (UTF-8 in C.UTF-8). */
+static void put_text(struct sink *s, const char *str, int n)
+{
+    if (!s->wide) {
+        for (int i = 0; i < n; i++)
+            put(s, str[i]);
+        return;
+    }
+    mbstate_t state = { 0, 0 };
+    for (int i = 0; i < n;) {
+        wchar_t wc;
+        size_t k = mb_decode(&wc, str + i, (size_t)(n - i), &state);
+        if (k == (size_t)-1 || k == (size_t)-2) {
+            s->bad = true;
+            return;
+        }
+        put_wide(s, (unsigned)wc);
+        i += k ? (int)k : 1;
+    }
+}
+
+/* (43a-2) The bytes wc takes in the locale (-1: none). */
+static int bytes_of(wchar_t wc)
+{
+    char bytes[8];
+    size_t n = mb_encode(bytes, wc, 0);
+    return n == (size_t)-1 ? -1 : (int)n;
 }
 
 static void put_repeated(struct sink *s, char c, int n)
@@ -116,7 +154,10 @@ static void format(struct sink *s, struct format_text *f, va_list ap)
 {
     for (; C && !s->bad; NEXT) {
         if (C != '%') {
-            put_wide(s, C);
+            if (f->w)
+                put_wide(s, C);
+            else
+                put(s, (char)C);                /* (a byte format's bytes as they are) */
             continue;
         }
         NEXT;
@@ -230,16 +271,24 @@ static void format(struct sink *s, struct format_text *f, va_list ap)
                 put_repeated(s, ' ', width - length);
             break;
         }
-        case 'c':
+        case 'c': {
+            /* (43a-2: a wide character into bytes takes its bytes' room) */
+            wint_t wc = l ? va_arg(ap, wint_t) : 0;
+            int room = l && !s->wide ? bytes_of((wchar_t)wc) : 1;
+            if (room < 0) {
+                s->bad = true;
+                break;
+            }
             if (!left)
-                put_repeated(s, ' ', width - 1);
+                put_repeated(s, ' ', width - room);
             if (l)
-                put_wide(s, (unsigned)va_arg(ap, wint_t));
+                put_wide(s, (unsigned)wc);
             else
                 put(s, (char)va_arg(ap, int));
             if (left)
-                put_repeated(s, ' ', width - 1);
+                put_repeated(s, ' ', width - room);
             break;
+        }
         case 's': {
             const char *str = 0;
             const wchar_t *wstr = 0;
@@ -252,18 +301,37 @@ static void format(struct sink *s, struct format_text *f, va_list ap)
                 if (!str)
                     str = "(null)";
             }
-            int n = 0;
-            while ((l ? wstr[n] != 0 : str[n] != 0) && (precision < 0 || n < precision))
-                n++;
+            /* n: the characters to write; room: what they count for the
+             * width and precision (43a-2: a wide string into bytes counts
+             * bytes, whole characters only, as C says) */
+            int n = 0, room = 0;
+            if (l && !s->wide) {
+                for (; wstr[n]; n++) {
+                    int b = bytes_of(wstr[n]);
+                    if (b < 0) {
+                        s->bad = true;
+                        break;
+                    }
+                    if (precision >= 0 && room + b > precision)
+                        break;
+                    room += b;
+                }
+            } else {
+                while ((l ? wstr[n] != 0 : str[n] != 0) && (precision < 0 || n < precision))
+                    n++;
+                room = n;
+            }
+            if (s->bad)
+                break;
             if (!left)
-                put_repeated(s, ' ', width - n);
-            for (int i = 0; i < n; i++)
-                if (l)
+                put_repeated(s, ' ', width - room);
+            if (l)
+                for (int i = 0; i < n; i++)
                     put_wide(s, (unsigned)wstr[i]);
-                else
-                    put(s, str[i]);
+            else
+                put_text(s, str, n);
             if (left)
-                put_repeated(s, ' ', width - n);
+                put_repeated(s, ' ', width - room);
             break;
         }
         case 'n': {                         /* (22v) the characters written so far */
@@ -285,7 +353,10 @@ static void format(struct sink *s, struct format_text *f, va_list ap)
             return;
         default:                            /* unknown: show it as written */
             put(s, '%');
-            put_wide(s, conv);
+            if (f->w)
+                put_wide(s, conv);
+            else
+                put(s, (char)conv);
             break;
         }
     }
@@ -415,4 +486,33 @@ int putchar(int c)
 int putchar_unlocked(int c)
 {
     return putchar(c);
+}
+
+/* (43a) printf into a new string: measured first, then written. */
+int vasprintf(char **out, const char *format, va_list ap)
+{
+    va_list again;
+    va_copy(again, ap);
+    int n = vsnprintf(0, 0, format, again);
+    va_end(again);
+    *out = 0;
+    if (n < 0)
+        return -1;
+    char *s = malloc((size_t)n + 1);
+    if (!s) {
+        errno = ENOMEM;
+        return -1;
+    }
+    vsnprintf(s, (size_t)n + 1, format, ap);
+    *out = s;
+    return n;
+}
+
+int asprintf(char **out, const char *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+    int n = vasprintf(out, format, ap);
+    va_end(ap);
+    return n;
 }

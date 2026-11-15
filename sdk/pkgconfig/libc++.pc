@@ -1,0 +1,12 @@
+# libc++.pc (43d): RitterOS's C++ libraries (LLVM's libc++, libc++abi and
+# libunwind), for builds outside the tree; the compile flags are
+# sdk/ritteros.cmake's and sdk/ritteros.meson's (C++ through them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libc++
+Description: LLVM's C++ standard library for RitterOS (C++23)
+Version: 22.1.8
+Requires: ritteros
+Libs: ${libdir}/libc++.so.1 ${libdir}/libc++abi.so.1 ${libdir}/libunwind.so.1

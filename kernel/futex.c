@@ -33,10 +33,11 @@ static struct bucket *bucket_of(const void *program, uint64_t addr)
     return &buckets[(((uintptr_t)program >> 4) ^ (addr >> 2)) % BUCKETS];
 }
 
-int64_t futex_wait(const void *program, uint64_t addr, uint32_t value, uint64_t timeout_ns)
+int64_t futex_wait(const void *program, uint64_t where, uint64_t addr, uint32_t value,
+                   uint64_t timeout_ns)
 {
-    struct bucket *b = bucket_of(program, addr);
-    struct waiter w = { program, addr, false, 0 };
+    struct bucket *b = bucket_of(program, where);
+    struct waiter w = { program, where, false, 0 };
     uint64_t state = spin_lock(&lock);
     struct waiter **end = &b->list;
     while (*end)
@@ -51,8 +52,10 @@ int64_t futex_wait(const void *program, uint64_t addr, uint32_t value, uint64_t 
     } else if (now != value) {
         result = -ERR_AGAIN;
     } else {
-        const uint64_t per_tick = 1000000000 / TIMER_HZ;
-        uint64_t deadline = timeout_ns ? timer_ticks() + (timeout_ns + per_tick - 1) / per_tick + 1 : 0;
+        /* (45a) A precise deadline (arch_counter): until 45a the tick after it. */
+        uint64_t deadline = timeout_ns ? sched_counter_after_ns(timeout_ns) : 0;
+        if (timeout_ns && !deadline)
+            deadline = 1;                       /* (no counter rate yet: at once) */
         struct thread *self = thread_current();
         state = arch_irq_save();
         while (!w.woken) {
@@ -62,12 +65,12 @@ int64_t futex_wait(const void *program, uint64_t addr, uint32_t value, uint64_t 
             }
             /* (65a-3) On the queue before the look at w.woken: a wake that
              * sets it afterwards finds us there. */
-            wait_prepare(&b->queue, deadline);
+            wait_prepare_at(&b->queue, deadline);
             if (w.woken || self->stop_requested) {
                 wait_cancel();
                 continue;
             }
-            if (!wait_commit(deadline)) {
+            if (!wait_commit_at(deadline)) {
                 result = -ERR_TIMEDOUT;
                 break;
             }

@@ -42,6 +42,8 @@ enum { MODE_PIE, MODE_STATIC, MODE_SHARED, MODE_LDSO };
 static int mode = MODE_PIE;
 static uint64_t base = BASE;
 static const char *soname;
+static char *runpath;                           /* (43e) -rpath's folders, ':' between (0: none) */
+static bool old_dtags;                          /* (43e) --disable-new-dtags: DT_RPATH instead */
 static bool relro = true;
 static char **exports;                          /* a version script's global names (0: all) */
 static int nexports;
@@ -74,6 +76,18 @@ static char *copy_string(const char *s)
     char *p = alloc(n + 1);
     memcpy(p, s, n);
     return p;
+}
+
+/* (43e) One -rpath: its folders after those before, ':' between (as lld). */
+static void add_runpath(const char *folders)
+{
+    size_t had = runpath ? strlen(runpath) : 0, n = strlen(folders);
+    char *joined = alloc(had + n + 2);
+    if (had)
+        memcpy(joined, runpath, had), joined[had++] = ':';
+    memcpy(joined + had, folders, n);
+    free(runpath);
+    runpath = joined;
 }
 
 static uint64_t get(const unsigned char *p, int n)
@@ -825,8 +839,15 @@ static void scan_relocations(void)
                 if (!sym)
                     continue;
                 if (sym->binding != STB_LOCAL && !sym->defined) {
-                    if (sym->binding == STB_WEAK)
-                        continue;               /* (an undefined weak symbol is 0) */
+                    if (sym->binding == STB_WEAK) {
+                        /* (an undefined weak symbol is 0; read through the
+                         * GOT, its slot must exist and hold the 0: without one,
+                         * 43b-1 found, the address was the slot before the
+                         * GOT's start, another symbol's) */
+                        if (is_got_reloc(type))
+                            need_got(sym);
+                        continue;
+                    }
                     fail("undefined symbol: %s (referenced by %s)", sym->name, o->name);
                 }
                 if (type == X_TLSGD || type == A_TLSDESC_ADR_PAGE21 || type == A_TLSDESC_LD64_LO12 ||
@@ -2135,6 +2156,12 @@ int main(int argc, char **argv)
             efi_mode = true;                    /* (62g) a UEFI application (PE32+) */
         else if (strcmp(a, "--no-dynamic-linker") == 0)
             no_dynamic_linker = true;
+        else if ((strcmp(a, "-rpath") == 0 || strcmp(a, "--rpath") == 0 || strcmp(a, "-R") == 0) && i + 1 < argc)
+            add_runpath(argv[++i]);             /* (43e) */
+        else if (strncmp(a, "-rpath=", 7) == 0 || strncmp(a, "--rpath=", 8) == 0)
+            add_runpath(strchr(a, '=') + 1);
+        else if (strcmp(a, "--enable-new-dtags") == 0 || strcmp(a, "--disable-new-dtags") == 0)
+            old_dtags = a[2] == 'd';
         else if (strcmp(a, "-soname") == 0 && i + 1 < argc)
             soname = argv[++i];
         else if (strncmp(a, "-soname=", 8) == 0)
@@ -2269,6 +2296,7 @@ int main(int argc, char **argv)
         if (l->needed)
             dynstr_add(l->soname);
     uint32_t soname_at = soname ? dynstr_add(soname) : 0;
+    uint32_t runpath_at = runpath && mode != MODE_STATIC ? dynstr_add(runpath) : 0;
     uint32_t *dyn_names = alloc(sizeof(uint32_t) * (size_t)(ndyn + 1));
     for (int i = 0; i < ndyn; i++)
         dyn_names[i] = dynstr_add(dyn_list[i]->name);
@@ -2532,6 +2560,8 @@ int main(int argc, char **argv)
         }
         if (soname)
             DYN(14, soname_at);                 /* DT_SONAME */
+        if (runpath_at)
+            DYN(old_dtags ? 15 : 29, runpath_at);   /* DT_RPATH, DT_RUNPATH (43e) */
         DYN(30, 8);                             /* DT_FLAGS: BIND_NOW */
         DYN(0x6FFFFFFB, mode == MODE_PIE ? 0x08000001 : 1);  /* DT_FLAGS_1: NOW (| PIE) */
         DYN(0, 0);

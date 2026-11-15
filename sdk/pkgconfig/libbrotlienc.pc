@@ -1,0 +1,14 @@
+# libbrotlienc.pc (46e): libbrotlienc.so.1, a system library from upstream, for builds outside
+# the tree (sdk/ritteros.cmake and sdk/ritteros.meson set arch). Version:
+# user/upstream/versions' (sdk_shell_test compares them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/build/upstream/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libbrotlienc
+Description: Brotli encoding
+Version: 1.2.1
+Requires: libbrotlicommon
+Cflags: -I${includedir}
+Libs: ${libdir}/libbrotlienc.so.1

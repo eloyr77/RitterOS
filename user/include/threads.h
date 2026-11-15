@@ -11,9 +11,15 @@
 #ifndef RITTEROS_THREADS_H
 #define RITTEROS_THREADS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <time.h>
 
-#define thread_local _Thread_local
+#ifndef __cplusplus
+#define thread_local _Thread_local      /* (C++'s keyword there) */
+#endif
 #define ONCE_FLAG_INIT { 0 }
 #define TSS_DTOR_ITERATIONS 4
 
@@ -83,5 +89,9 @@ int tss_create(tss_t *key, tss_dtor_t dtor);
 void *tss_get(tss_t key);
 int tss_set(tss_t key, void *value);
 void tss_delete(tss_t key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -25,6 +25,9 @@
  * that the typed f takes to full screen and back, m minimises and q ends;
  * each size it is given and its focus printed. `widgettest drop`: a window
  * at full screen prints the first drag let go on it (where, and its text).
+ * (68m-2) `widgettest entry`: a one-line entry holding 80 digits (wider
+ * than its 300x80 window) and Done; the entry's cursor printed at the end
+ * (a click at its left edge lands where the text was scrolled to).
  */
 #include <stdio.h>
 #include <string.h>
@@ -209,6 +212,31 @@ static int hover_events(void)
             seen++;
         }
     }
+    window_close(win);
+    printf("widgettest: done\n");
+    return 0;
+}
+
+static int entry(void)
+{
+    struct window *win = window_open(300, 80, "entry");
+    if (!win) {
+        printf("widgettest: cannot open a window\n");
+        return 1;
+    }
+    char digits[81];
+    for (int i = 0; i < 80; i++)
+        digits[i] = (char)('0' + i % 10);
+    digits[80] = 0;
+    struct widget *root = widget_column(), *line = widget_editor(digits, 1);
+    struct widget *done = widget_button("Done");
+    widget_add(root, line);
+    widget_add(root, done);
+    widget_on(done, big, root);
+    printf("widgettest: ready\n");
+    int r = widget_run(win, root);
+    printf("widgettest: run %d, entry cursor %d\n", r, widget_value(line));
+    widget_free(root);
     window_close(win);
     printf("widgettest: done\n");
     return 0;
@@ -402,6 +430,8 @@ int main(int argc, char **argv)
         return drops();
     if (argc > 1 && !strcmp(argv[1], "dialog"))
         return dialogs();
+    if (argc > 1 && !strcmp(argv[1], "entry"))
+        return entry();
     if (argc > 1 && !strcmp(argv[1], "editor"))
         return editors();
     if (argc > 1 && !strcmp(argv[1], "text"))

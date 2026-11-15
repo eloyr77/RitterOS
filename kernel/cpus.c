@@ -11,6 +11,7 @@
 #include "ritterfs.h"
 #include "arch.h"
 #include "cmdline.h"
+#include "cpuclock.h"
 #include "heap.h"
 #include "kprintf.h"
 #include "memory.h"
@@ -34,6 +35,7 @@ static struct cpu *by_index[MAX_CPUS] = { &boot_cpu };  /* (65e-39) */
 void cpu_online(struct cpu *c)
 {
     c->start_counts = arch_counter() - c->start_counts;
+    cpu_clock_core();                       /* (69a) the clock setting, as every core's */
     __atomic_store_n(&c->state, CPU_ONLINE, __ATOMIC_RELEASE);
     /* Cores start one at a time: no other core adds itself meanwhile. */
     by_index[c->index] = c;
@@ -126,6 +128,10 @@ void cpus_answer(void)
         heap_cache_flush();
         __atomic_store_n(&me->heap_asked, 0, __ATOMIC_RELEASE);
     }
+    if (__atomic_load_n(&me->clock_set_asked, __ATOMIC_ACQUIRE)) {
+        cpu_clock_core();
+        __atomic_store_n(&me->clock_set_asked, 0, __ATOMIC_RELEASE);
+    }
     if (__atomic_load_n(&me->clock_asked, __ATOMIC_ACQUIRE)) {
         me->clock_valid = arch_clock_counts(&me->clock_actual, &me->clock_base);
         me->clock_at = arch_counter();
@@ -168,6 +174,26 @@ void cpus_flush_heap_caches(void)
         while (__atomic_load_n(&online_cores[i]->heap_asked, __ATOMIC_ACQUIRE) &&
                hz && arch_counter() - start < hz / 10)          /* 100 ms at most */
             arch_cpu_relax();
+}
+
+int cpus_apply_clock(void)
+{
+    /* Every core, this one too (by an interrupt to itself, as below). */
+    uint64_t hz = arch_counter_hz();
+    int n = cpus_online(), done = 0;
+    for (int i = 0; i < n; i++) {
+        __atomic_store_n(&online_cores[i]->clock_set_asked, 1, __ATOMIC_RELEASE);
+        arch_wake_core(online_cores[i]);
+    }
+    uint64_t start = arch_counter();
+    for (int i = 0; i < n; i++) {
+        while (__atomic_load_n(&online_cores[i]->clock_set_asked, __ATOMIC_ACQUIRE) &&
+               hz && arch_counter() - start < hz / 10)          /* 100 ms at most */
+            arch_cpu_relax();
+        if (!__atomic_load_n(&online_cores[i]->clock_set_asked, __ATOMIC_ACQUIRE))
+            done++;
+    }
+    return done;
 }
 
 void cpus_print_clock(void)

@@ -57,4 +57,23 @@ int32_t hid_units_per_mm(const struct hid_field *f);
 /* A report's length in bytes (after the ID byte). */
 size_t hid_report_bytes(const struct hid_field *fields, int n, uint8_t report_id, uint8_t kind);
 
+/* (68m-3) A mouse in report protocol: the input report holding relative X
+ * and Y (Generic Desktop 0x30, 0x31), and in that report buttons 1-3
+ * (left, right, middle), the wheel (0x38) and the horizontal wheel
+ * (Consumer's AC Pan, 0x238). A field it lacks has size 0. */
+struct hid_pointer {
+    uint8_t report_id;
+    size_t bytes;                       /* the report's length after its ID byte */
+    struct hid_field x, y, wheel, pan, button[3];
+};
+
+/* Find them; false when no input report has relative X and Y. */
+bool hid_pointer_find(const struct hid_field *fields, int n, struct hid_pointer *p);
+
+/* A report as received (its ID byte first when the device has IDs): the
+ * motion, the wheels (positive up, positive to the right) and the
+ * MOUSE_*-style button bits; false if it is another report or short. */
+bool hid_pointer_read(const struct hid_pointer *p, const uint8_t *report, size_t len,
+                      int *dx, int *dy, int *wheel, int *pan, uint8_t *buttons);
+
 #endif

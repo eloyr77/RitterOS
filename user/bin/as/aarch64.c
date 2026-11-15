@@ -1127,8 +1127,11 @@ static void a64_instruction(char *m, char *args)
             { "sp_el1", SYSREG(3, 4, 4, 1, 0) }, { "spsel", SYSREG(3, 0, 4, 2, 0) },
             { "currentel", SYSREG(3, 0, 4, 2, 2) }, { "daif", SYSREG(3, 3, 4, 2, 1) },
             { "mpidr_el1", SYSREG(3, 0, 0, 0, 5) }, { "id_aa64mmfr0_el1", SYSREG(3, 0, 0, 7, 0) },
+            { "id_aa64pfr0_el1", SYSREG(3, 0, 0, 4, 0) }, { "id_aa64isar0_el1", SYSREG(3, 0, 0, 6, 0) },
+            { "id_aa64isar1_el1", SYSREG(3, 0, 0, 6, 1) },
             { "ctr_el0", SYSREG(3, 3, 0, 0, 1) }, { "cntv_ctl_el0", SYSREG(3, 3, 14, 3, 1) },
             { "cntv_cval_el0", SYSREG(3, 3, 14, 3, 2) }, { "icc_sre_el1", SYSREG(3, 0, 12, 12, 5) },
+            { "cntkctl_el1", SYSREG(3, 0, 14, 1, 0) },     /* (68p) programs read the counter */
             { "icc_pmr_el1", SYSREG(3, 0, 4, 6, 0) }, { "icc_igrpen1_el1", SYSREG(3, 0, 12, 12, 7) },
             { "icc_iar1_el1", SYSREG(3, 0, 12, 12, 0) }, { "icc_eoir1_el1", SYSREG(3, 0, 12, 12, 1) },
             { "icc_bpr1_el1", SYSREG(3, 0, 12, 12, 3) },

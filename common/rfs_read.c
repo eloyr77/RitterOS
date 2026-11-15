@@ -219,6 +219,10 @@ int rfs_dir_next(struct rfs_volume *vol, uint64_t dir_id, const struct rfs_inode
     uint64_t loaded = ~0ULL;                /* the block in the buffer */
     while (*pos < dir->size) {
         uint64_t in_block = *pos % RFS_BLOCK_SIZE;
+        if (in_block % 8 || in_block + 12 > RFS_BLOCK_SIZE) {
+            result = -1;                    /* (43b-1) not an entry's place: a bad seekdir */
+            break;
+        }
         if (*pos / RFS_BLOCK_SIZE != loaded) {
             loaded = *pos / RFS_BLOCK_SIZE;
             if (!rfs_read_block(vol, dir_id, dir, loaded, block)) {

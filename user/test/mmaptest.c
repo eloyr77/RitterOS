@@ -20,17 +20,26 @@
  * it writes. The other modes are those children: `hold PATH` (maps PATH,
  * says so, waits for its input to end) and `fault-ro|fault-gone|fault-none|
  * fault-hole|fault-past|fault-protect|fault-relro FILE` (each must die:
- * SIGSEGV, fault-past SIGBUS).
+ * SIGSEGV, fault-past SIGBUS). (45c) Large reservations as a browser's
+ * allocators and JIT make them: four of 64 GiB PROT_NONE with
+ * MAP_NORESERVE, a piece of one opened with mprotect and one mapped over
+ * with MAP_FIXED, each used; what they cost in pages and time. (45d) JIT
+ * memory as JSC dual-maps it: a memory file mapped writable and executable
+ * (never both in one mapping: those stay refused), a function written
+ * through one and called through the other, written again and called
+ * again (__clear_cache between).
  */
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 #include "ritteros.h"
 
@@ -400,6 +409,107 @@ static void test_lazy(void)
     result("lazy", ok && cost < 16 && used >= 100 && used < 110 && left < 16 && left > -16, detail);
 }
 
+/* (45c) Reservations of tens of GiB (Gigacage, JSC's executable pool):
+ * PROT_NONE with MAP_NORESERVE, then pieces opened (mprotect) or mapped
+ * over (MAP_FIXED) and used. They cost no memory until touched. */
+static void test_reserve(void)
+{
+    const size_t gib = (size_t)1 << 30, size = 64 * gib;
+    uint64_t before = free_pages();
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    unsigned char *r[4];
+    int made = 0;
+    for (int i = 0; i < 4; i++)
+        if ((r[i] = mmap(0, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0)) != MAP_FAILED)
+            made++;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    uint64_t reserved = free_pages();
+    int opened = 0, fixed = 0, used = 0;
+    if (made == 4) {
+        unsigned char *piece = r[1] + 32 * gib;          /* 1 MiB in the middle, read and written */
+        opened = mprotect(piece, (size_t)1 << 20, PROT_READ | PROT_WRITE) == 0;
+        unsigned char *over = r[2] + 63 * gib;           /* 2 MiB near the end, mapped over */
+        fixed = mmap(over, (size_t)2 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
+                     -1, 0) == over;
+        if (opened && fixed) {
+            for (size_t i = 0; i < ((size_t)1 << 20); i += PAGE)
+                piece[i] = (unsigned char)(i >> 12);
+            for (size_t i = 0; i < ((size_t)2 << 20); i += PAGE)
+                over[i] = 0x5A;
+            used = 1;
+            for (size_t i = 0; i < ((size_t)1 << 20); i += PAGE)
+                used &= piece[i] == (unsigned char)(i >> 12);
+            for (size_t i = 0; i < ((size_t)2 << 20); i += PAGE)
+                used &= over[i] == 0x5A;
+        }
+    }
+    uint64_t touched = free_pages();
+    int gone = 1;
+    for (int i = 0; i < made; i++)
+        gone &= munmap(r[i], size) == 0;
+    uint64_t after = free_pages();
+    long cost = (long)before - (long)reserved, touch = (long)reserved - (long)touched;
+    long left = (long)before - (long)after;
+    double ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6;
+    char detail[160];
+    snprintf(detail, sizeof(detail), "(%d of 4 made in %.2f ms: %ld pages; 768 pages used: %ld more; after: %ld)",
+             made, ms, cost, touch, left);
+    /* (768 pages written, plus their page tables; the tables stay until
+     * the program ends) */
+    result("reservations of 4 x 64 GiB", made == 4 && opened && fixed && used && gone && cost < 16 &&
+                                         touch >= 768 && touch < 800 && left < 32 && ms < 100, detail);
+}
+
+/* (45d) A function returning value, as machine code at p. */
+static size_t write_function(unsigned char *p, int value)
+{
+#if defined(__x86_64__)
+    unsigned char code[] = { 0xB8, (unsigned char)value, 0, 0, 0, 0xC3 };    /* mov eax, value; ret */
+    memcpy(p, code, sizeof(code));
+    return sizeof(code);
+#else
+    uint32_t code[] = { 0x52800000u | ((uint32_t)value << 5), 0xD65F03C0u };  /* mov w0, #value; ret */
+    memcpy(p, code, sizeof(code));
+    return sizeof(code);
+#endif
+}
+
+/* (45d) JIT memory: one memory file mapped read-write and read-execute;
+ * code written through the first runs through the second. */
+static void test_jit(void)
+{
+    int fd = memfd_create("jit", 0);
+    unsigned char *w = MAP_FAILED, *x = MAP_FAILED;
+    if (fd >= 0 && ftruncate(fd, PAGE) == 0) {
+        w = mmap(0, PAGE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        x = mmap(0, PAGE, PROT_READ | PROT_EXEC, MAP_SHARED, fd, 0);
+    }
+    int first = -1, second = -1;
+    if (w != MAP_FAILED && x != MAP_FAILED) {
+        int (*f)(void) = (int (*)(void))(void *)x;
+        size_t n = write_function(w, 42);
+        __builtin___clear_cache((char *)x, (char *)x + n);
+        first = f();
+        n = write_function(w, 43);
+        __builtin___clear_cache((char *)x, (char *)x + n);
+        second = f();
+    }
+    /* W^X stays: neither view may be made both. */
+    errno = 0;
+    int kept = w != MAP_FAILED && mprotect(w, PAGE, PROT_READ | PROT_WRITE | PROT_EXEC) < 0 && errno == ENOTSUP;
+    char detail[96];
+    snprintf(detail, sizeof(detail), "(called: %d, then %d; one view writable and executable refused %d)", first,
+             second, kept);
+    result("JIT: a memory file mapped writable and executable", first == 42 && second == 43 && kept, detail);
+    if (w != MAP_FAILED)
+        munmap(w, PAGE);
+    if (x != MAP_FAILED)
+        munmap(x, PAGE);
+    if (fd >= 0)
+        close(fd);
+}
+
 /* 22e: a private writable mapping shares the cache's pages until written. */
 static void test_cow(const char *path)
 {
@@ -639,6 +749,8 @@ int main(int argc, char **argv)
         snprintf(shw, sizeof(shw), "%s.shared", argv[2]);
         test_anonymous();
         test_lazy();
+        test_reserve();
+        test_jit();
         test_cow(cow);
         test_file(argv[1]);
         test_sharing(big);

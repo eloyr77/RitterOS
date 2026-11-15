@@ -86,6 +86,8 @@ typedef struct {
 #define DT_JMPREL       23
 #define DT_INIT_ARRAY   25
 #define DT_INIT_ARRAYSZ 27
+#define DT_RPATH        15     /* (43e) the old RUNPATH: used only without one */
+#define DT_RUNPATH      29     /* (43e) folders to look for libraries in, ':' between */
 
 typedef struct {
     uint32_t st_name;      /* offset in the string table */
@@ -182,5 +184,9 @@ typedef struct {
 #define AT_PAGESZ       6
 #define AT_BASE         7      /* where ld.so is */
 #define AT_ENTRY        9      /* the program's entry point */
+#define AT_HWCAP        16     /* (43b-6) the processor's features, Linux's bits */
+#define AT_HWCAP2       26
+#define AT_SECURE       23     /* (43e) 1: a setuid program run by another user */
+#define AT_EXECFN       31     /* (43e) the program's full path, links followed */
 
 #endif

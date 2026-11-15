@@ -11,14 +11,22 @@
  * threads spin     three threads compute forever, main waits for one of
  *                  them: Ctrl-C must end the program
  * threads fault    a thread writes to address 0: the program ends
+ * threads self     (68q) thread_self and pthread_self from the per-thread
+ *                  area's header: 8 threads x 10,000 calls each agree with
+ *                  SYS_THREAD_SELF; a fork's child (from a thread that is
+ *                  not the first) agrees too; a call costs under half a
+ *                  system call
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <thread.h>
 #include <unistd.h>
 #include "ritteros.h"
@@ -156,9 +164,84 @@ static int fds_mode(void)
     return mismatches == 0 && sockerr == 0 && closed == 0 && recv_result == 0 ? 0 : 1;
 }
 
+/* (68q) */
+static int kernel_self(void)
+{
+    return (int)syscall6(SYS_THREAD_SELF, 0, 0, 0, 0, 0, 0);
+}
+
+static int self_mismatches(void)
+{
+    int bad = 0;
+    for (int i = 0; i < 10000; i++)
+        if (thread_self() != kernel_self() || (int)pthread_self() != thread_self())
+            bad++;
+    return bad;
+}
+
+static int self_worker(void *arg)
+{
+    (void)arg;
+    return self_mismatches();
+}
+
+static int self_forker(void *arg)
+{
+    (void)arg;
+    thread_self();                          /* (kept in the header before the fork) */
+    pid_t child = fork();
+    if (child == 0)
+        _exit(thread_self() == kernel_self() && self_mismatches() == 0 ? 0 : 1);
+    int status = -1;
+    if (child > 0)
+        waitpid(child, &status, 0);
+    return child > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : 2;
+}
+
+static uint64_t now_ns(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+}
+
+static int self_mode(void)
+{
+    int numbers[8], bad = 0;
+    for (int i = 0; i < 8; i++)
+        numbers[i] = thread_create(self_worker, 0);
+    bad += self_mismatches();
+    for (int i = 0; i < 8; i++) {
+        int r = 1;
+        if (numbers[i] < 0 || thread_join(numbers[i], &r) != 0)
+            r = 1;
+        bad += r;
+    }
+    printf("threads: self: 9 threads x 10000 calls, %d mismatches with the kernel's number\n", bad);
+    int forker = thread_create(self_forker, 0), child = 2;
+    if (forker < 0 || thread_join(forker, &child) != 0)
+        child = 2;
+    printf("threads: self: a fork's child of thread %d: %s\n", forker,
+           child == 0 ? "agrees" : child == 1 ? "disagrees" : "no child");
+    enum { COST = 20000 };
+    uint64_t t0 = now_ns();
+    for (int i = 0; i < COST; i++)
+        thread_self();
+    uint64_t t1 = now_ns();
+    for (int i = 0; i < COST; i++)
+        kernel_self();
+    uint64_t t2 = now_ns();
+    uint64_t ours = (t1 - t0) / COST, call = (t2 - t1) / COST;
+    printf("threads: self: thread_self %lu ns, a system call %lu ns; under half %d\n",
+           (unsigned long)ours, (unsigned long)call, ours * 2 < call);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
+    if (strcmp(mode, "self") == 0)
+        return self_mode();
     if (strcmp(mode, "fds") == 0)
         return fds_mode();
     if (strcmp(mode, "exit") == 0 || strcmp(mode, "spin") == 0) {

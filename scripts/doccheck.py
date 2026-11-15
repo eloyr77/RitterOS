@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """doccheck.py [--index]: the manual's command pages (50j) against the programs.
 
-Every program (user/bin/*.c, user/apps/*.c) must have docs/commands/NAME.md
+Every program (user/bin/*.c, user/apps/*.c, (46b) user/upstream/NAME-help.c) must have docs/commands/NAME.md
 whose title is `# NAME: DESCRIPTION` and whose first code block's first line
 is the usage, both exactly as the program's PROGRAM_HELP gives them (what
 `help` shows), so the pages and the programs cannot drift apart. Every page
@@ -34,6 +34,11 @@ def programs():
         for name in sorted(os.listdir(os.path.join(ROOT, folder))):
             if name.endswith(".c"):
                 found[name[:-2]] = os.path.join(ROOT, folder, name)
+    # (46b) a program built from upstream's sources (openssl): its help line
+    # is user/upstream/NAME-help.c's, linked into it
+    for name in sorted(os.listdir(os.path.join(ROOT, "user/upstream"))):
+        if name.endswith("-help.c"):
+            found[name[:-7]] = os.path.join(ROOT, "user/upstream", name)
     return found
 
 

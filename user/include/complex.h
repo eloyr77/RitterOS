@@ -11,6 +11,10 @@
 #ifndef RITTEROS_COMPLEX_H
 #define RITTEROS_COMPLEX_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define complex _Complex
 #define _Complex_I (__extension__ 1.0iF)
 #define I _Complex_I
@@ -99,5 +103,9 @@ long double _Complex __mulxc3(long double a, long double b, long double c, long 
 long double _Complex __divxc3(long double a, long double b, long double c, long double d);
 long double _Complex __multc3(long double a, long double b, long double c, long double d);
 long double _Complex __divtc3(long double a, long double b, long double c, long double d);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

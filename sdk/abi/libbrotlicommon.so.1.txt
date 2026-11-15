@@ -1,0 +1,13 @@
+# libbrotlicommon.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+symbol	BrotliDefaultAllocFunc	exported
+symbol	BrotliDefaultFreeFunc	exported
+symbol	BrotliGetDictionary	exported
+symbol	BrotliGetTransforms	exported
+symbol	BrotliSetDictionaryData	exported
+symbol	BrotliSharedDictionaryAttach	exported
+symbol	BrotliSharedDictionaryCreateInstance	exported
+symbol	BrotliSharedDictionaryDestroyInstance	exported
+symbol	BrotliTransformDictionaryWord	exported
+symbol	_kBrotliContextLookupTable	exported
+symbol	_kBrotliPrefixCodeRanges	exported

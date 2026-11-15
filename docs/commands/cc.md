@@ -96,6 +96,7 @@ each step added.
 | `-U NAME` | undefine a macro; also `-UNAME` |
 | `-L DIR` | look for libraries in DIR too; also `-LDIR` |
 | `-lNAME` | link `libNAME.so`, `libNAME.so.1` or `libNAME.a`, at its place among the files (no space after `-l`) |
+| `-Wl,OPTION[,ARG]...` | (43e) options for `ld`, at their place among the files, each comma a word break: `-Wl,-rpath,'$ORIGIN/lib'` (an app's own libraries) |
 | `-B DIR` | take `as`, `ld` and cc itself from DIR, not `/system/<arch>/bin`; also `-BDIR` |
 | `-mavx`, `-mavx2`, `-mfma` | (x86-64, since 32d) define `__AVX__`; `__AVX__` and `__AVX2__`; `__FMA__` |
 | `-target ARCH` | make code for ARCH: `x86_64` or `aarch64`, or a triple starting with one (`aarch64-unknown-none-elf`); the tools come from `/system/ARCH/bin` unless `-B` says otherwise |
@@ -112,7 +113,7 @@ each step added.
 | `-fPIC`, `-fpic` | position-independent code again (the default); `-fPIE`, `-fpie` are taken |
 | `-mgeneral-regs-only` | no floating-point or SIMD register anywhere (since 62f: the kernel's code); floating point is an error |
 | `-mcmodel=kernel`, `-mcmodel=small`, `-mno-red-zone`, `-mno-stack-arg-probe` | taken: the code is already right for them |
-| `-O...`, `-W...`, `-f...`, `-g`, `-std=...`, `-pipe`, `-pedantic` | taken and ignored |
+| `-O...`, `-W...` (other than `-Wl,`), `-f...`, `-g`, `-std=...`, `-pipe`, `-pedantic` | taken and ignored |
 
 `-cc1` and `-asm` are what cc passes to itself for one compilation and for
 a `.S` file; they are not for use by hand.

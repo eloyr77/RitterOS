@@ -1,0 +1,13 @@
+# libwidget.pc (43d): libwidget.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libwidget
+Description: RitterOS's widgets (buttons, lists, editors, dialogs)
+Version: 1
+Requires: libwindow libdraw
+Cflags: -I${includedir}
+Libs: ${libdir}/libwidget.so.1

@@ -51,8 +51,11 @@ enum { ACPI_EVENT_LID, ACPI_EVENT_AC, ACPI_EVENT_BATTERY };
 void acpi_events_notify(int what);
 
 /* After the root mount: /system/config/power's power_button and (37c-2c)
- * lid (`nothing`, the default, or `sleep`: from 37g). Logs them. */
-void acpi_events_settings(void);
+ * lid (`nothing`, the default, or `sleep`: from 37g), and the screen's and
+ * sleep's minutes (blank_set). Logs them, each line also given to out (a
+ * program's: SYS_POWER's POWER_SETTINGS) when not 0; (69a) read again
+ * whenever asked. */
+void acpi_events_settings(void (*out)(const char *line, void *ctx), void *ctx);
 
 /* power's line about the events. */
 void acpi_events_print(void);

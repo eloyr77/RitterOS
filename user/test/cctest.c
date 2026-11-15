@@ -1718,6 +1718,52 @@ static void madds(void)
     printf("madds: %ld %d %d\n", all, su, seen);
 }
 
+/* (43a) A declared __asm__ name holds for the definition and the calls
+ * (the headers redirect stat to __ritteros_stat2 so), and zeroing more
+ * than 256 bytes whose size is not a multiple of 8 (AArch64 wrote the
+ * last bytes at offsets past 4095, which strb cannot). */
+int label_target(int x) __asm__("cctest_label_target");
+int label_target(int x) { return x * 3 + 1; }
+int cctest_label_target(int x);
+
+static __attribute__((noinline)) void dirty_stack(void)
+{
+    volatile char junk[9000];
+    for (int i = 0; i < 9000; i++)
+        junk[i] = (char)(i | 1);
+}
+
+static __attribute__((noinline)) int zeroed_bytes(void)
+{
+    char big[4103] = "";
+    volatile int n = 4103;
+    int nonzero = 0;
+    for (int i = 0; i < n; i++)
+        nonzero += big[i] != 0;
+    return nonzero;
+}
+
+static void labels_and_zeroing(void)
+{
+    dirty_stack();
+    int z = zeroed_bytes();
+    printf("labels: %d %d zeroed: %d\n", label_target(5), cctest_label_target(4), z);
+}
+
+/* (46b) __builtin___clear_cache: the library's __clear_cache, called (ARM)
+ * or nothing (x86); the bytes stay as they were. */
+static void clear_cache(void)
+{
+    char code[64];
+    for (int i = 0; i < 64; i++)
+        code[i] = (char)(i * 3);
+    __builtin___clear_cache(code, code + sizeof(code));
+    int sum = 0;
+    for (int i = 0; i < 64; i++)
+        sum += code[i];
+    printf("clear_cache: %d\n", sum);
+}
+
 #include "cctest_simd.h"                     /* (32d) intrinsics() */
 
 int main(void)
@@ -1744,6 +1790,8 @@ int main(void)
     unrolled();
     packed();
     madds();
+    labels_and_zeroing();
+    clear_cache();
     intrinsics();
     printf("fails: %d\n", fails);
     return fails;

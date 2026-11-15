@@ -11,6 +11,10 @@
 #ifndef RITTEROS_DLFCN_H
 #define RITTEROS_DLFCN_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define RTLD_LAZY       1               /* (all are resolved at once, either way) */
 #define RTLD_NOW        2
 #define RTLD_LOCAL      0               /* (every library's symbols are visible to all) */
@@ -29,5 +33,20 @@ int dlclose(void *handle);
 
 /* The last failure's message in this thread, once; 0 if none since. */
 char *dlerror(void);
+
+/* (43a-4) dladdr: the object and symbol holding address: the file's
+ * name and where it begins, the nearest function or object at or below
+ * address and its place (0 when none); 0 when no object holds it. */
+typedef struct {
+    const char *dli_fname;
+    void *dli_fbase;
+    const char *dli_sname;
+    void *dli_saddr;
+} Dl_info;
+int dladdr(const void *address, Dl_info *info);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

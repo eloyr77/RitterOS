@@ -49,7 +49,13 @@ without that line is run by a new `sh` too, as POSIX says.
   `\` quotes one character. `#` begins a comment.
 - `;` and line breaks separate commands, `|` makes a pipeline (one job,
   since 51a), `&&` and `||` run the next command only after a success or a
-  failure, `!` inverts, `&` at the end runs in the background.
+  failure, `!` inverts, `&` at the end runs in the background (`[1] 4`:
+  the job number and the process number).
+- (44c) Job control at a terminal: Ctrl-Z stops the job that runs (`[1]
+  stopped: COMMAND`), `jobs` lists them (`+` the current, `-` the one
+  before), `fg [%N]` and `bg [%N]` take one on in the foreground or the
+  background (`%%`, `%+`, `%-`); a background job reading the terminal is
+  stopped until `fg`. A signal's end is reported "ended by signal N".
 - Redirections: `< FILE`, `> FILE`, `>> FILE`, `2> FILE`, `2>&1`, `N>&M`,
   and here-documents `<<WORD` and `<<-WORD` (since 63i).
 - Expansions (since 51b): `$NAME`, `${NAME}`, `$(COMMAND)`, `` `COMMAND`

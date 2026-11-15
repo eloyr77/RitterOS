@@ -72,6 +72,12 @@ arch_setup() {
     NET_V6_HTTP_PORT=$((PORT_BASE + 25))    # (64d) a web server on the Mac's ::1 only
     NET_RATE_PORT=$((PORT_BASE + 26))       # (65e) testnet.py's tcp-send for netrate
     NET_RATE_UP_PORT=$((PORT_BASE + 27))    # (65e) testnet.py's tcp-recv for netrate send
+    NET_OSSL_PORT=$((PORT_BASE + 28))       # (46b) LibreSSL's s_server: TLS 1.3, ALPN h2
+    NET_OSSL12_PORT=$((PORT_BASE + 29))     # (46b) TLS 1.2 only, an RSA certificate
+    NET_OSSL_OLD_PORT=$((PORT_BASE + 30))   # (46b) an expired certificate
+    NET_CURL_HTTP_PORT=$((PORT_BASE + 31))  # (46d-2) scripts/testcurl.py: HTTP/1.1, WebSockets
+    NET_CURL_TLS_PORT=$((PORT_BASE + 32))   # (46d-2) its TLS port: HTTP/2 by ALPN
+    NET_CURL_PROXY_PORT=$((PORT_BASE + 33)) # (46d-2) its proxy
 }
 
 # boot NAME IMAGE MARKER: boot IMAGE until MARKER appears on
@@ -373,14 +379,24 @@ LOGD=
 # (50h) netnamesd likewise: off on test images unless NETNAMESD=on (net up
 # then sets it up as on a real system).
 NETNAMESD=
+# (68w) soundd likewise: off unless SOUNDD=on (login then makes its file).
+SOUNDD=
+TUNE_SOUNDD= VIDEO_SOUNDD=     # (68y) the soundd variants of the tune and video tests
+# (70b) And root's keyring: not opened at its login unless KEYRING=on (its
+# ~/.config/keyring says open_at_login = no); (70d) the system keyring's
+# elf keyringd likewise off.
+KEYRING=
 make_image() {
-    local esp="$WORK/esp-$1" image="$WORK/$1.img" off=1 names_off=1
+    local esp="$WORK/esp-$1" image="$WORK/$1.img" off=1 names_off=1 sound_off=1 keyring_off=1
     rm -rf "$esp" "$image"
     cp -R "$ROOT/build/esp" "$esp"
     with_selftest "$2" > "$esp/ritteros/cmdline.txt"
     [ "$LOGD" = on ] && off=
     [ "$NETNAMESD" = on ] && names_off=
-    RITTEROS_TEST_LOGD_OFF=$off RITTEROS_TEST_NETNAMESD_OFF=$names_off \
+    [ "$SOUNDD" = on ] && sound_off=
+    [ "$KEYRING" = on ] && keyring_off=
+    RITTEROS_TEST_LOGD_OFF=$off RITTEROS_TEST_NETNAMESD_OFF=$names_off RITTEROS_TEST_SOUNDD_OFF=$sound_off \
+        RITTEROS_TEST_KEYRING_OFF=$keyring_off \
         python3 "$ROOT/scripts/mkdisk.py" --arch "$ARCH_NAME" ${MKDISK_SIZE:+--size $MKDISK_SIZE} "$image" \
         "$esp" "${3:-$ROOT/build/system}" >/dev/null || exit 1
     echo "$image"
@@ -911,7 +927,7 @@ programs_session() {
                  'cat /test/hello.txt /nope /test /test/docs/notes/deep/nested.txt' \
                  "$t/args one two  three" "$t/printf" "$t/files" \
                  'cat' "$t/loop" 'cat' "$t/family" "$t/tree" "$t/orphan" \
-                 "$t/fpu" "$t/threads" "$t/threads fds" "$t/threads exit" "$t/threads fault" \
+                 "$t/fpu" "$t/threads" "$t/threads fds" "$t/threads self" "$t/threads exit" "$t/threads fault" \
                  "$t/threads spin" \
                  'hello' 'exit 0' 'mem' 'exit' 'ps'; do
         serial_type "$typed\r"
@@ -1071,6 +1087,15 @@ programs_test() {
     # while another thread blocks in recvfrom survives (held across the call).
     expect_line "threads: fds: $((4 * 40)) opens and sockets across 4 threads, 0 slot mismatches, 0 socket errors"
     expect_line "threads: fds: close of a socket under a blocked recvfrom: closed, recv survived (timed out)"
+    # (68q) thread_self from the per-thread area's header: proven by one
+    # word all threads share (mismatches; the workers' numbers WRONG too)
+    # and by a call that always asks the kernel (the cost)
+    expect_line "threads: self: 9 threads x 10000 calls, 0 mismatches with the kernel's number"
+    check "a fork's child keeps its thread's number" "$(grep -a "threads: self: a fork" <<<"$TEXT")" \
+          eval 'grep -aq "threads: self: a fork.s child of thread [0-9]*: agrees" <<<"$TEXT"'
+    check "thread_self without a system call: $(grep -a "threads: self: thread_self" <<<"$TEXT" | sed 's/.*thread_self //')" \
+          "$(grep -a "threads: self: thread_self" <<<"$TEXT")" \
+          eval 'grep -a "threads: self: thread_self" <<<"$TEXT" | grep -q "under half 1"'
     reject "WRONG"
     check "the second hello ran too" "hello ran $(grep -c '^Hello from user mode!$' <<<"$TEXT") time(s), expected 2" \
           test "$(grep -c '^Hello from user mode!$' <<<"$TEXT")" = 2
@@ -1605,12 +1630,12 @@ disks_shell_test() {
                "usbdisk2,USB,$model,$blank")
     compare "disks: GPT, MBR, no table; RitterFS, FAT32, empty (as the host reads the images)" \
             "$expected" "$(command_output 'disks')"
-    compare "ls -l /dev: every disk and partition, then null, zero, tty (52l)" \
-            "$(awk '{print $1}' <<<"$expected"; printf '%s\n' null zero tty)" \
+    compare "ls -l /dev: every disk and partition, then null, zero, tty, shm (52l, 43b-3)" \
+            "$(awk '{print $1}' <<<"$expected"; printf '%s\n' null zero tty shm/)" \
             "$(command_output 'ls -l /dev' | awk '{print $NF}')"
-    check "ls -l /dev: block devices, mode 600, owner root; the others c, 666" \
-          "$(command_output 'ls -l /dev' | grep -cv '^brw-------   1     0     0 \|^crw-rw-rw-   1     0     0          0  ') other line(s)" \
-          test "$(command_output 'ls -l /dev' | grep -cv '^brw-------   1     0     0 \|^crw-rw-rw-   1     0     0          0  ')" = 0
+    check "ls -l /dev: block devices, mode 600, owner root; the others c, 666; shm 1777" \
+          "$(command_output 'ls -l /dev' | grep -cv '^brw-------   1     0     0 \|^crw-rw-rw-   1     0     0          0  \|^drwxrwxrwt .* shm/$') other line(s)" \
+          test "$(command_output 'ls -l /dev' | grep -cv '^brw-------   1     0     0 \|^crw-rw-rw-   1     0     0          0  \|^drwxrwxrwt .* shm/$')" = 0
     compare "ls in /dev (relative)" "$(command_output 'ls /dev')" "$(command_output 'ls')"
     expect_line "ls: /dev/nope: No such file or directory"
     expect_line "mkdir: /dev/x: Read-only file system"
@@ -2984,9 +3009,10 @@ print(' '.join('differ' if a != b else 'same' for a, b in zip(mine, stick)))")"
             "$($RFS cat "$target" 133120 $count /system/sdk/ritteros.mk | shasum -a 256)"
     # (37e-1b) no settings files: the new system writes its own at its
     # first start (never the running system's: its sudo names its users)
-    compare "the host: /system/config holds only its README" \
-            "$(printf '%10d  README' "$($RFS cat "$target" 133120 $count /system/config/README | wc -c)")" \
-            "$($RFS ls "$target" 133120 $count /system/config)"
+    # (46b) and OpenSSL's folder, its cert.pem a link to the system's roots
+    compare "the host: /system/config holds only its README and openssl/" \
+            "$(printf '%10d  README\n     <dir>  openssl/' "$($RFS cat "$target" 133120 $count /system/config/README | wc -c)" | sort)" \
+            "$($RFS ls "$target" 133120 $count /system/config | sort)"
     compare "the host: the root certificates, the same" "$(shasum -a 256 <"$ROOT/certs/cacert.pem")" \
             "$($RFS cat "$target" 133120 $count /system/certs/cacert.pem | shasum -a 256)"
     compare "the host: the Wi-Fi firmware, the same" \
@@ -3330,8 +3356,8 @@ print('root:100000:' + salt.hex() + ':' +
     expect_line "login: /system/passwords moved to /system/config/passwords"
     # (37e-1b) with the settings files the start wrote (the kernel's after
     # its check, login's), in the order written: sorted here
-    compare "/system/config: README, cpu (64t, the test's), elves/ (the test image's), users, passwords (moved), the settings files written at the start (no card: no net up, no routing)" \
-            "$({ printf '%10d  README\n%10d  cpu\n     <dir>  elves/\n%10d  users\n%10d  passwords\n' \
+    compare "/system/config: README, cpu (64t, the test's), elves/ (the test image's), openssl/ (46b), users, passwords (moved), the settings files written at the start (no card: no net up, no routing)" \
+            "$({ printf '%10d  README\n%10d  cpu\n     <dir>  elves/\n     <dir>  openssl/\n%10d  users\n%10d  passwords\n' \
                      "$($RFS cat "$image" $RFS_PART /system/config/README | wc -c)" \
                      "$($RFS cat "$image" $RFS_PART /system/config/cpu | wc -c)" 26 "$((${#hash} + 1))"
                  for setting in POWER DISPLAYS SWAP TIME SERVICES SUDO; do
@@ -4809,7 +4835,7 @@ wtext_shell_test() {
 # shell) produces output rendered on the next line. Screenshots check the
 # title, the prompt, and the echo output.
 termwin_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/term.program/term" mon="$WORK/monitor.sock" key
+    local n=1 t="/system/$ARCH_NAME/apps/Term.program/Term" mon="$WORK/monitor.sock" key
     prompt_wait $n
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
@@ -4854,7 +4880,7 @@ termwin_shell_test() {
 # keeps the window open after echo exits, showing an "[... exited ...]" line.
 # The command's output and the exit line are rendered (white 220,220,220).
 termcmd_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/term.program/term" mon="$WORK/monitor.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Term.program/Term" mon="$WORK/monitor.sock"
     prompt_wait $n
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
@@ -4890,7 +4916,7 @@ termcmd_shell_test() {
 # and kernel.elf (a file, white) appears. Keys are routed by windowd to owl
 # (arrows arrive as the terminal's ESC [ A/B, which owl decodes).
 owl_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" key
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" key
     prompt_wait $n
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
@@ -4927,7 +4953,7 @@ owl_shell_test() {
     check_screen region-104-140-63-15-235-203-139 $w $h "$WORK/${P}owl-root.ppm"   # the path /system (yellow; +6 taller bar, +16 menu bar)
     check_screen region-104-245-63-15-163-190-140 $w $h "$WORK/${P}owl-root.ppm"   # a directory (green, row 6)
     expect_line "owl: at /system/$ARCH_NAME"                 # (the folder it opened)
-    check_screen region-104-230-90-15-216-222-233 $w $h "$WORK/${P}owl-sub.ppm"    # kernel.elf after opening x86_64 (white; below lib/ since 22c)
+    check_screen region-104-245-90-15-216-222-233 $w $h "$WORK/${P}owl-sub.ppm"    # kernel.elf after opening x86_64 (white; below lib/ since 22c, below drivers/, lib/ and test/ now)
     reject "panic"
     show_log_on_failure $before
 }
@@ -4939,10 +4965,10 @@ owl_shell_test() {
 # (then it never comes). (42b) The apps are bundles, NAME.program: owl lists
 # each as one item (term's row counted from the installed folder) with its
 # icon.png (owl's and reel's checked) and runs its program; a right-click's
-# Show contents enters term.program (Backspace comes back). Proven by owl
-# taking bundles for plain folders (Enter goes into term.program, no icons).
+# Show contents enters Term.program (Backspace comes back). Proven by owl
+# taking bundles for plain folders (Enter goes into Term.program, no icons).
 owl_launch_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock" key
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock" key
     local curx cury dx=0
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; dx=-28; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -4959,21 +4985,23 @@ owl_launch_session() {
     sleep 1
     echo "screendump $WORK/${NAME}-apps.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1   # (41g-6) the icons
     sleep 0.5
-    # (42b) term's row (rows of 15 from y 140: .., then the bundles), a
-    # right-click there, Show contents (the menu's third item since 42c)
-    moveto $((200 + dx)) 237
+    # (42b) term's row (rows of 15 from y 140: the path, .., then the
+    # bundles; 69c: counted from the installed folder, as the downs below),
+    # a right-click there, Show contents (the menu's third item since 42c)
+    local downs
+    downs=$(ls "$ROOT/build/system/$ARCH_NAME/apps" | LC_ALL=C sort | awk '$0 == "Term.program" { print NR }')
+    local row=$((140 + 15 * (downs + 1) + 7))
+    moveto $((200 + dx)) $row
     qmp "$(btn right true)" "$(btn right false)"
     sleep 0.4
-    moveto $((220 + dx)) 276
+    moveto $((220 + dx)) $((row + 39))                  # (the menu opens where the click was)
     qmp "$(btn left true)" "$(btn left false)"
-    serial_wait "owl: at /system/$ARCH_NAME/apps/term.program" 1 10
+    serial_wait "owl: at /system/$ARCH_NAME/apps/Term.program" 1 10
     echo "sendkey backspace" | nc -w 3 -U "$mon" >/dev/null 2>&1   # back up (the selection at the top)
     sleep 0.5
     # select term and open it: owl lists .. and then every name not starting
     # with a dot (41g-6), a bundle as one item, as the Mac's ls lists them,
-    # so the downs are counted from the installed folder
-    local downs
-    downs=$(ls "$ROOT/build/system/$ARCH_NAME/apps" | LC_ALL=C sort | awk '$0 == "term.program" { print NR }')
+    # so the downs are counted from the installed folder (above)
     for key in $(jot -b down "$downs") ret; do
         echo "sendkey $key" | nc -w 3 -U "$mon" >/dev/null 2>&1
         sleep 0.2
@@ -4996,11 +5024,11 @@ owl_launch_test() {
     SERIAL_SCRIPT=
     QEMU_EXTRA=
     expect "owl: started"
-    expect "owl: at /system/$ARCH_NAME/apps/term.program"   # (42b) Show contents
+    expect "owl: at /system/$ARCH_NAME/apps/Term.program"   # (42b) Show contents
     expect "term: started"                          # owl launched the app (term) from apps/
-    # (41g-6) rows of 15 below the path from y 140: .., ibrowser, imageview, owl, reel, term
-    check_screen region-$((106 + dx))-200-16-15-235-203-139 $w $h "$WORK/${P}owllaunch-apps.ppm"  # owl's folder
-    check_screen region-$((106 + dx))-215-16-15-191-97-106 $w $h "$WORK/${P}owllaunch-apps.ppm"   # reel's red disc
+    # (41g-6) rows of 15 below the path from y 140: .., imageview, owl, reel, settings, term
+    check_screen region-$((106 + dx))-185-16-15-235-203-139 $w $h "$WORK/${P}owllaunch-apps.ppm"  # owl's folder
+    check_screen region-$((106 + dx))-200-16-15-191-97-106 $w $h "$WORK/${P}owllaunch-apps.ppm"   # reel's red disc
     reject "panic"
     show_log_on_failure $before
 }
@@ -5010,7 +5038,7 @@ owl_launch_test() {
 # "system/" appears). The pointer is driven over QMP. Proven by owl ignoring the
 # menu would leave it at /system (no "system/" entry).
 owl_menu_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -5064,7 +5092,7 @@ owl_menu_test() {
 # name and Enter makes the folder, which then appears. Pointer over QMP, the name
 # typed on the keyboard. Proven by owl ignoring the prompt (no folder made).
 owl_newfolder_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury key
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -5118,7 +5146,7 @@ owl_newfolder_test() {
 # directory; Go > Root (/) jumps there, where "system/" appears. Pointer over
 # QMP. Proven by owl ignoring the menu (it stays in the empty home).
 owl_go_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -5172,7 +5200,7 @@ owl_go_test() {
 # it, so owl's panel background (distinct from the desktop) fills where the
 # desktop was. Pointer over QMP. Proven by owl ignoring the resize.
 owl_resize_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -5223,7 +5251,7 @@ owl_resize_test() {
 # `+` again (now at the screen's top-right corner) restores the window to its
 # previous size and place. Pointer over QMP. Proven by owl not filling the screen.
 owl_max_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury rx
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400 rx=1220; else curx=400 cury=300 rx=740; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -5281,7 +5309,7 @@ owl_max_test() {
 # means the resize cursor is drawn. Proven by the pixel not being white with the
 # arrow always used.
 owl_cursor_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -5457,7 +5485,7 @@ wmenu_test() {
 # step). With a bare compositor (no startup app), right-clicking the background
 # opens a menu: (41g) the apps by the names in their /system/<arch>/apps/
 # bundles' info files (42b: NAME.program/info), sorted -- the test's own aaa ("A test app") first,
-# then iBrowser, Image viewer, owl, Terminal, Video player (41g-2: windowed
+# then Image viewer, owl, Settings (69c), Terminal, Video player (41g-2: windowed
 # apps only, not tune's or edit's) -- and "Close window server". "Terminal" launches a terminal (term: started; at its
 # place only when the files are read: proven by the old fixed menu); a
 # right-click again and "Image viewer" start imageview; then Ctrl + click (a
@@ -5488,7 +5516,7 @@ wdesktop_session() {
     sleep 0.4
     echo "screendump $WORK/${NAME}-menu.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
     sleep 0.5
-    moveto 60 272                                        # "Terminal" (item 4)
+    moveto 60 272                                        # "Terminal" (item 4; 69c: Settings is 3)
     qmp "$(btn true)" "$(btn false)"                     # choose it
     serial_wait "term: started" 1 15                     # windowd launched the terminal
     sleep 1
@@ -5502,7 +5530,7 @@ wdesktop_session() {
     moveto 40 300                                        # the left strip again (clear of the term window)
     qmp "$(rbtn true)" "$(rbtn false)"                   # the menu again
     sleep 0.4
-    moveto 60 340                                        # "Image viewer" (item 2)
+    moveto 60 324                                        # "Image viewer" (item 1)
     qmp "$(btn true)" "$(btn false)"
     serial_wait "imageview: started" 1 15
     sleep 0.5
@@ -5541,16 +5569,16 @@ wdesktop_shell_test() {
     check_screen region-70-201-80-14-255-255-255 $w $h "$WORK/${P}wdesktop-menu.ppm"   # "A test app"
     check_screen region-46-297-160-14-255-255-255 $w $h "$WORK/${P}wdesktop-menu.ppm"  # "Close window server"
     # (41g-3) the apps' icons at half size, left of their names: owl's folder
-    # (yellow) on item 3, the video player's disc (red) on item 5; and
+    # (yellow) on item 2, the video player's disc (red) on item 5; and
     # Terminal's (its grey frame; its dark screen is the desktop's colour) on
     # the minimized terminal's taskbar button
-    check_screen region-43-248-16-16-235-203-139 $w $h "$WORK/${P}wdesktop-menu.ppm"
+    check_screen region-43-232-16-16-235-203-139 $w $h "$WORK/${P}wdesktop-menu.ppm"
     check_screen region-43-280-16-16-191-97-106 $w $h "$WORK/${P}wdesktop-menu.ppm"
     check_screen region-3-$((h - 18))-16-16-76-86-106 $w $h "$WORK/${P}wdesktop-taskbar.ppm"
     expect "term: started"                               # "Terminal" launched it
     expect "imageview: started, no image"                # and "Image viewer" imageview
-    compare "help lists the apps, not their .info files (41g)" "imageview 1, info files 0" \
-            "imageview $(command_output help | grep -ac '^  imageview '), info files $(command_output help | grep -acE '^  [^ ]+\.(info|png)( |$)')"
+    compare "help lists the apps, not their .info files (41g)" "Imageview 1, info files 0" \
+            "Imageview $(command_output help | grep -ac '^  Imageview '), info files $(command_output help | grep -acE '^  [^ ]+\.(info|png)( |$)')"
     expect "windowd: window server closed"               # "Close window server" quit windowd
     check_screen restored $w $h "$WORK/${P}wdesktop-restored.ppm"   # the text console came back
     reject "panic"
@@ -5595,12 +5623,12 @@ wopen_session() {
     sleep 1
     echo "screendump $WORK/${NAME}-view.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
     sleep 0.5
-    serial_type 'owl /test/open &\r'                     # window 1 again (the dialog closed)
+    serial_type 'Owl /test/open &\r'                     # window 1 again (the dialog closed)
     serial_wait "owl: started" 1 15
     sleep 0.5
     keys down ret                                        # past "..", the picture: open it
     serial_wait "imageview: showing /test/open/solid.ppm" 1 15
-    serial_type 'reel &\r'                               # window 3
+    serial_type 'Reel &\r'                               # window 3
     serial_wait "reel: started, no video" 1 15
     sleep 0.5
     click 250 252                                        # File (window 3)
@@ -5618,7 +5646,7 @@ wopen_shell_test() {
     local image before w h
     if [ "$ARCH_NAME" = x86_64 ]; then w=1280 h=800; else w=800 h=600; fi
     image=$(make_image ${P}wopen "")
-    windows_startup "$image" imageview               # without a file: an empty window
+    windows_startup "$image" Imageview               # without a file: an empty window
     python3 "$ROOT/scripts/mkimage.py" "$WORK/${P}wopen-pic.ppm" "$WORK/${P}wopen-pic.bmp" \
         "$WORK/${P}wopen-solid.ppm" >/dev/null || exit 1
     python3 "$ROOT/scripts/mkvideo.py" "$WORK/${P}wopen-clip.rvid" >/dev/null || exit 1
@@ -5660,7 +5688,7 @@ open_session() {
     serial_wait "windowd: listening on /run/windowd" 1 15
     serial_type 'echo hi > /home/root/note.txt; echo hi > /home/root/x.dat; cp /test/Solid.PPM /home/root/copy.pic\r'
     n=$((n + 1)); prompt_wait $n
-    serial_type 'echo "pic = imageview" >> /home/root/.config/filetypes\r'
+    serial_type 'echo "pic = Imageview" >> /home/root/.config/filetypes\r'
     n=$((n + 1)); prompt_wait $n
     serial_type 'open /test/Solid.PPM /test/clip.rvid /test /home/root/note.txt /test/tone.wav /home/root/x.dat /test/run.sh /nosuch /home/root/copy.pic; echo rc=$?\r'
     n=$((n + 1)); prompt_wait $n
@@ -5686,15 +5714,15 @@ open_shell_test() {
     boot ${P}open "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
     want_text want <<'LINES'
-open: /test/Solid.PPM in imageview
-open: /test/clip.rvid in reel
-open: /test in owl
+open: /test/Solid.PPM in Imageview
+open: /test/clip.rvid in Reel
+open: /test in Owl
 open: /home/root/note.txt in edit, in a terminal
 open: /test/tone.wav in tune, in a terminal
 open: /home/root/x.dat in edit, in a terminal
 open: /test/run.sh run in a terminal
 open: /nosuch: No such file or directory
-open: /home/root/copy.pic in imageview
+open: /home/root/copy.pic in Imageview
 rc=1
 LINES
     compare "open: each file to its program, by the user's file types (41g-2, 42a)" "$want" \
@@ -5777,7 +5805,7 @@ theme_session() {
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
     n=$((n + 1)); prompt_wait $n
-    serial_type "/system/$ARCH_NAME/apps/term.program/term &\r"
+    serial_type "/system/$ARCH_NAME/apps/Term.program/Term &\r"
     serial_wait "term: started" 1 15
     n=$((n + 1)); prompt_wait $n
     sleep 1.5
@@ -5786,7 +5814,7 @@ theme_session() {
     serial_type 'kill $!\r'
     n=$((n + 1)); prompt_wait $n
     sleep 1
-    serial_type "/system/$ARCH_NAME/apps/owl.program/owl /system &\r"
+    serial_type "/system/$ARCH_NAME/apps/Owl.program/Owl /system &\r"
     serial_wait "owl: started" 1 15
     n=$((n + 1)); prompt_wait $n
     serial_type "/system/$ARCH_NAME/test/widgettest &\r"
@@ -5970,6 +5998,793 @@ PY
     show_log_on_failure $before
 }
 
+# wflushrect_session / wflushrect_shell_test: window_flush_rect (68s, the
+# browser agent's request 14: a video picture recomposited only where it
+# is). `wtext rect` in a headless windowd (640x400; its window's content at
+# (104,124)) draws its window blue and shows it, then red all over but shows
+# only four rectangles (one inside, two past the window's corners, one
+# wholly outside), 300 ms apart (one frame's are joined); wshot's picture is red exactly inside the clipped
+# rectangles and blue around them. Then window_flush shows it all red.
+# Proven by windowd taking every rectangle as the whole window (red
+# everywhere in the first shot) and by window_flush_rect clipping a
+# negative x without shortening w (red past the corner's rectangle).
+wflushrect_session() {
+    local n=1 a="/system/$ARCH_NAME"
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 640x400 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "$a/test/wtext rect &\r"
+    serial_wait "wtext: rect shown" 1 20
+    n=$((n + 1)); prompt_wait $n
+    serial_type 'sleep 1; wshot /tmp/rect.png; touch /tmp/wtext-go; sleep 2; wshot /tmp/whole.png\r'
+    serial_wait "wshot: /tmp/whole.png" 1 30
+    n=$((n + 1)); prompt_wait $n
+}
+
+# wsettings_session / wsettings_shell_test (69b, the user's names): windowd
+# reads ~/.config/windows again when a program asks (window_settings_reload,
+# WMSG_SETTINGS) and tells every window (WINDOW_SETTINGS). A headless
+# windowd with widgettest's window (libwidget) open; the file then says
+# theme = light, accent = BF616A, text_size = 20, double_click = 700 and
+# refresh = 30; `wtext settings` asks: windowd's line says what it uses,
+# the frames come by its timer at 30 a second, wtext gets the event with
+# window_color's light background and a taller text, and wshot's pictures
+# show the desktop, the title bar in front and widgettest's window (drawn
+# again by libwidget) in the new colours. Then refresh = auto again. Proven
+# by a windowd that told no window (wtext waited in vain, widgettest stayed
+# dark) and a libwindow that kept its cached colours and size.
+wsettings_session() {
+    local n=1 a="/system/$ARCH_NAME" f=/home/root/.config/windows
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 640x400 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "$a/test/widgettest &\r"
+    n=$((n + 1)); prompt_wait $n
+    serial_type 'sleep 3; wshot /tmp/before.png\r'
+    serial_wait "wshot: /tmp/before.png" 1 30
+    n=$((n + 1)); prompt_wait $n
+    serial_type "($a/test/wtext settings; echo settings-rc=\$?) &\r"
+    serial_wait "wtext: settings ready" 1 20
+    n=$((n + 1)); prompt_wait $n
+    answer_lines "echo 'theme = light' > $f; echo 'accent = BF616A' >> $f; echo 'text_size = 20' >> $f" \
+                 "echo 'double_click = 700' >> $f; echo 'refresh = 30' >> $f" \
+                 'touch /tmp/wtext-go; sleep 3; wshot /tmp/after.png' \
+                 "rm /tmp/wtext-go; echo 'theme = light' > $f; touch /tmp/wtext-go; $a/test/wtext settings"
+    sleep 1
+}
+
+wsettings_shell_test() {
+    local image before f out
+    image=$(make_image ${P}wsettings "")
+    windows_bare "$image"
+    before=$failures
+    SERIAL_SCRIPT=wsettings_session
+    boot ${P}wsettings "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    expect "up-rc=0"
+    expect_line "windowd: settings read again: the light theme, accent BF616A, double_click 700 ms, click_steady on"
+    expect_line "windowd: refresh = a rate: 30.000 frames a second, by the timer"
+    expect_line "windowd: refresh = auto: 60.000 frames a second, by the timer"
+    out=$(grep -a "^wtext: settings: " <<<"$TEXT" | head -1)
+    local h0 h1
+    read -r h0 h1 <<<"$(sed -nE 's/^wtext: settings: before 2E3440 ([0-9]+), after ECEFF4 ([0-9]+)$/\1 \2/p' <<<"$out")"
+    check "wtext: the event, the light background, a taller text (69b): $out" "$out" \
+          eval '[ -n "$h1" ] && [ "$h1" -gt "$h0" ]'
+    expect_line "settings-rc=0"
+    for f in before after; do
+        $RFS cat "$image" $RFS_PART /tmp/$f.png >"$WORK/${P}wsettings-$f.png"
+        python3 - "$ROOT/scripts" "$WORK/${P}wsettings-$f.png" "$WORK/${P}wsettings-$f.ppm" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import pngcheck
+w, h, ch, pix = pngcheck.decode_png(open(sys.argv[2], "rb").read())
+rgb = pix if ch == 3 else b"".join(pix[i:i + 3] for i in range(0, len(pix), 4))
+open(sys.argv[3], "wb").write(b"P6\n%d %d\n255\n" % (w, h) + rgb)
+PY
+    done
+    f="$WORK/${P}wsettings-before.ppm"
+    check_screen px-500-50-46-52-64 640 400 "$f"       # the desktop, dark (2E3440)
+    check_screen px-270-104-94-129-172 640 400 "$f"    # widgettest's title bar, the accent (5E81AC)
+    check_screen px-300-300-46-52-64 640 400 "$f"      # widgettest's background, dark
+    f="$WORK/${P}wsettings-after.ppm"
+    check_screen px-500-50-216-222-233 640 400 "$f"    # the desktop, light (D8DEE9)
+    check_screen px-270-104-191-97-106 640 400 "$f"    # the title bar, the new accent (BF616A)
+    check_screen px-300-300-236-239-244 640 400 "$f"   # widgettest drawn again, light (ECEFF4)
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# settingsapp_session / settingsapp_shell_test (69c, the user's names): the
+# settings app's User pages (69d: its second tab, clicked first), driven by
+# wsend in a headless windowd (its pictures by wshot). Appearance: Light, Save: ~/.config/windows says
+# theme = light and windowd reads it again (the window drawn light).
+# Mouse: steady clicks off; Window system: not auto (60), both at once in
+# windowd. File types: xyz = edit set, then removed. At login: Window
+# system, the items owl and `echo hello-login`, Save: ~/.config/login is
+# its comments, `windowd &`, `wsend wait`, `owl &`, `echo hello-login`.
+# Then a logout and a login at the console run it: windowd answers before
+# owl starts, and hello-login comes while windowd runs (not after it).
+# Proven by an app that wrote a bare `windowd` line (hello-login only once
+# the window system ended), one that did not ask windowd to read again,
+# and pages (widget_pages) that showed every page at once.
+settingsapp_session() {
+    local n=1 asked=0 a="/system/$ARCH_NAME" f=/home/root/.config
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 800x600 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "$a/apps/Settings.program/Settings &\r"
+    serial_wait "settings: started" 1 20
+    n=$((n + 1)); prompt_wait $n
+    serial_type 'sleep 2; wsend click 192 147; sleep 1; wshot /tmp/s1.png\r'
+    serial_wait "wshot: /tmp/s1.png" 1 30
+    n=$((n + 1)); prompt_wait $n
+    answer_lines 'wsend click 322 207; wsend click 293 375; sleep 2; wshot /tmp/s2.png' \
+                 'wsend click 130 206; wsend click 261 234; wsend click 293 267; sleep 1' \
+                 'wsend click 130 229; wsend click 259 376; wsend click 292 444; sleep 1' \
+                 'wsend click 130 252; wsend click 407 447; wsend type xyz; wsend click 679 447; wsend type edit; wsend click 293 484' \
+                 "grep xyz $f/filetypes; echo types-set" \
+                 "wsend click 382 484; grep -c xyz $f/filetypes; echo removed" \
+                 "wsend click 130 298; wsend click 342 205; wsend click 479 478; wsend type Owl; wsend click 753 478" \
+                 "wsend click 479 478; wsend type 'echo hello-login'; wsend click 753 478; wsend click 557 517; sleep 1" \
+                 "grep -v '^#' $f/login; grep -c '^#' $f/login" "grep -v '^#' $f/windows"
+    serial_type 'exit\r'
+    login_wait 2 20
+    serial_type 'root\r'
+    serial_wait "Password: " 2 20
+    serial_type "$ROOT_PASSWORD\r"
+    serial_wait "hello-login" 1 60
+    sleep 3
+}
+
+settingsapp_shell_test() {
+    local image before f out
+    image=$(make_image ${P}settingsapp "")
+    windows_bare "$image"
+    [ "$ARCH_NAME" = aarch64 ] && QEMU_EXTRA="-device usb-mouse,bus=xhci.0,port=2"
+    before=$failures
+    SERIAL_SCRIPT=settingsapp_session
+    boot ${P}settingsapp "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    expect "up-rc=0"
+    expect_line "settings: started"
+    expect_line "windowd: settings read again: the light theme, accent 5E81AC, double_click 500 ms, click_steady on"
+    expect_line "windowd: settings read again: the light theme, accent 5E81AC, double_click 500 ms, click_steady off"
+    expect_line "windowd: refresh = a rate: 60.000 frames a second, by the timer"
+    compare "file types: xyz = edit set" "$(printf '%s\n' 'xyz = edit' 'types-set')" \
+            "$(command_output "grep xyz /home/root/.config/filetypes; echo types-set")"
+    compare "file types: xyz removed" "$(printf '%s\n' 0 removed)" \
+            "$(command_output "wsend click 382 484; grep -c xyz /home/root/.config/filetypes; echo removed")"
+    compare "at login: windowd first, wsend wait, then the items; the comments kept" \
+            "$(printf '%s\n' 'windowd &' 'wsend wait' 'Owl &' 'echo hello-login' 5)" \
+            "$(command_output "grep -v '^#' /home/root/.config/login; grep -c '^#' /home/root/.config/login")"
+    out=$(command_output "grep -v '^#' /home/root/.config/windows")
+    for f in 'theme = light' 'text_size = 15' 'double_click = 500' 'click_steady = off' 'refresh = 60'; do
+        check "~/.config/windows: $f (69c)" "$out" eval 'grep -qxF "$f" <<<"$out"'
+    done
+    check "~/.config/windows: no accent line (empty: the theme's)" "$out" eval '! grep -q "^accent" <<<"$out"'
+    local up owl hello
+    up=$(grep -anm1 "^windowd: listening on /run/windowd" <<<"$TEXT" | cut -d: -f1)
+    owl=$(grep -anm1 "^owl: started" <<<"$TEXT" | cut -d: -f1)
+    hello=$(grep -an "^hello-login" <<<"$TEXT" | tail -1 | cut -d: -f1)
+    check "the login: windowd up (line ${up:-none}), then owl (${owl:-none}) and hello-login (${hello:-none})" \
+          "windowd ${up:-none}, owl ${owl:-none}, hello-login ${hello:-none}" \
+          eval '[ -n "$up" ] && [ -n "$owl" ] && [ -n "$hello" ] && [ "$up" -lt "$owl" ] && [ "$up" -lt "$hello" ]'
+    reject "windowd: window server closed"
+    for f in s1 s2; do
+        $RFS cat "$image" $RFS_PART /tmp/$f.png >"$WORK/${P}settingsapp-$f.png"
+        python3 - "$ROOT/scripts" "$WORK/${P}settingsapp-$f.png" "$WORK/${P}settingsapp-$f.ppm" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import pngcheck
+w, h, ch, pix = pngcheck.decode_png(open(sys.argv[2], "rb").read())
+rgb = pix if ch == 3 else b"".join(pix[i:i + 3] for i in range(0, len(pix), 4))
+open(sys.argv[3], "wb").write(b"P6\n%d %d\n255\n" % (w, h) + rgb)
+PY
+    done
+    check_screen px-500-480-46-52-64 800 600 "$WORK/${P}settingsapp-s1.ppm"      # the window, dark
+    check_screen region-100-176-150-14-136-192-208 800 600 "$WORK/${P}settingsapp-s1.ppm"  # Appearance chosen (the list's top row)
+    check_screen px-500-480-236-239-244 800 600 "$WORK/${P}settingsapp-s2.ppm"   # light after Save
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# settingsys_session / settingsys_shell_test (69d): the settings app's
+# System pages, driven by wsend in a headless windowd, as root: Sound (mute:
+# soundd's `volume`), Date & time (the zone +02:00), Elves (netnamesd
+# started), Service names (myservice = 4242), Power (the button does
+# nothing, the screen off after a minute: `power settings` applies it, the
+# screen goes off a minute later), Processor (balanced: `power clock` says
+# it is not used here). Then anna, not root, in a windowd of her own:
+# Processor's Save is refused (the dialog "System"), the file unchanged.
+# Proven by an app that let anyone change them (anna's change written) and
+# one that wrote the power file without `power settings` (no screen off).
+settingsys_session() {
+    local n=1 asked=0 a="/system/$ARCH_NAME"
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 800x600 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "$a/apps/Settings.program/Settings &\r"
+    serial_wait "settings: started" 1 20
+    n=$((n + 1)); prompt_wait $n
+    answer_lines 'sleep 2; wshot /tmp/p0.png' \
+                 'wsend click 130 206; wsend click 247 234; wsend click 279 267; sleep 1; volume' \
+                 'wsend click 130 252; wsend click 304 396; wsend key down; wsend key down; wsend click 420 315; sleep 1; wshot /tmp/p2.png' \
+                 'wsend click 130 275; wsend click 290 256; wsend click 279 315; sleep 3; elf | grep netnamesd' \
+                 'wsend click 130 298; wsend click 386 447; wsend type myservice; wsend click 629 447; wsend type 4242; wsend click 279 484' \
+                 'wsend click 130 344; wsend click 247 234; wsend click 279 348; sleep 1' \
+                 'wsend click 130 321; wsend click 340 207; wsend click 472 319; wsend down ctrl; wsend key a; wsend up ctrl; wsend type 1; wsend click 279 426; sleep 1; wshot /tmp/p1.png' \
+                 "grep -v '^#' /system/config/time /system/config/power /system/config/cpu; grep myservice /system/config/services" \
+                 'useradd anna'
+    serial_wait "screen: off after 1 minute without input" 1 100
+    serial_type 'su anna < /test/anna.sh; grep -v "^#" /system/config/cpu\r'
+    serial_wait "anna-done" 1 60
+    n=$((n + 1)); prompt_wait $n 30
+}
+
+settingsys_shell_test() {
+    local image before f out
+    SOUNDD=on
+    image=$(make_image ${P}settingsys "")
+    SOUNDD=
+    windows_bare "$image"
+    printf '%s\n' 'export WINDOW_SOCKET=/tmp/w2' 'windowd headless 800x600 & wsend wait' \
+           "/system/$ARCH_NAME/apps/Settings.program/Settings &" 'sleep 3; wshot /tmp/anna0.png' \
+           'wsend click 130 342; wsend click 297 286; wsend click 330 346' \
+           'wsend wait System; echo anna-dialog=$?' 'wshot /tmp/anna.png' 'echo anna-done' >"$WORK/${P}anna.sh"
+    $RFS put "$image" $RFS_PART /test/anna.sh "$WORK/${P}anna.sh" >/dev/null || exit 1
+    QEMU_EXTRA="-device intel-hda -device hda-output,audiodev=snd -audiodev none,id=snd"
+    before=$failures
+    SERIAL_SCRIPT=settingsys_session
+    boot ${P}settingsys "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    expect "up-rc=0"
+    for f in p2 anna0 anna; do
+        $RFS cat "$image" $RFS_PART /tmp/$f.png >"$WORK/${P}settingsys-$f.png"
+    done
+    expect_line "volume 100 (muted)"
+    check "Elves: netnamesd started (69d)" "$(command_output 'wsend click 130 275; wsend click 290 256; wsend click 279 315; sleep 3; elf | grep netnamesd')" \
+          eval 'command_output "wsend click 130 275; wsend click 290 256; wsend click 279 315; sleep 3; elf | grep netnamesd" | grep -qE "^netnamesd +on +running"'
+    out=$(command_output "grep -v '^#' /system/config/time /system/config/power /system/config/cpu; grep myservice /system/config/services")
+    for f in '/system/config/time:zone = +02:00' '/system/config/power:power_button = nothing' \
+             '/system/config/power:screen_off = 1' '/system/config/cpu:clock = balanced' 'myservice = 4242'; do
+        check "the files: $f (69d)" "$out" eval 'grep -qxF "$f" <<<"$out"'
+    done
+    expect_line "screen: off after 1 minute without input"
+    expect_line "anna-dialog=0"
+    compare "anna's change refused: the clock still balanced" "clock = balanced" \
+            "$(command_output 'su anna < /test/anna.sh; grep -v "^#" /system/config/cpu' | grep '^clock')"
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# settingsnet_session / settingsnet_shell_test (69e): the settings app's
+# network pages, driven by wsend in a headless windowd, as root (the System
+# list shows 8 pages: Processor clicked, then Down to each, the list
+# clicked again first since a button keeps the keyboard). Network cards:
+# eth0's DNS 10.0.2.3 (its file; net up). Routing: forwarding on (`net
+# forward`). Virtual cards: a tap added (tap0 = user root), then removed.
+# Wi-Fi: the country DE (the radio file), testnet joined (saved), then
+# forgotten. Firewall: allow in tcp 8080 added (rule 4, shown once guardd
+# loaded it: guardd looks every 2 s, so the check waits up to 4 s for it
+# too), then chosen and removed. Proven by a firewall page that
+# showed the rules before guardd loaded them (rule 4 not there to choose:
+# it stayed) and a cards page that wrote nothing (no dns line).
+settingsnet_session() {
+    local n=1 asked=0 a="/system/$ARCH_NAME"
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 800x600 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "$a/apps/Settings.program/Settings &\r"
+    serial_wait "settings: started" 1 20
+    n=$((n + 1)); prompt_wait $n
+    answer_lines 'sleep 1; wsend click 130 344' \
+                 'wsend click 130 344; wsend key down; wsend click 305 229; wsend click 597 300; wsend type 10.0.2.3; wsend click 279 442; sleep 2' \
+                 "grep -v '^#' /system/config/network/eth0" \
+                 'wsend click 130 344; wsend key down; wsend click 246 178; wsend click 278 357; sleep 1; net forward' \
+                 'wsend click 130 344; wsend key down; wsend click 635 331; sleep 2; grep -v "^#" /system/config/network/virtual' \
+                 'wsend click 305 210; wsend click 318 292; sleep 2; grep -v ^# /system/config/network/virtual | grep -c tap0; echo virtual-done' \
+                 'wsend click 130 344; wsend key down; sleep 1; wshot /tmp/n4.png' \
+                 'wsend click 130 344; wsend key down; wsend click 398 186; wsend down ctrl; wsend key a; wsend up ctrl; wsend type DE; wsend click 663 186' \
+                 'wsend click 425 368; wsend type testnet; wsend click 425 403; wsend type secret123; wsend click 454 440; sleep 1; ls /system/config/wifi/networks' \
+                 "grep -v '^#' /system/config/wifi/radio" \
+                 'wsend click 305 249; wsend click 312 331; sleep 1; ls /system/config/wifi/networks; echo wifi-done' \
+                 'wsend click 130 344; wsend key down; wsend click 465 331; wsend type "allow in tcp 8080"; wsend click 739 331; for i in 1 2 3 4; do guard | grep -q 8080 && break; sleep 1; done; wshot /tmp/n6.png; guard | grep 8080' \
+                 'wsend click 300 279; wsend click 318 315; sleep 4; guard | grep -c 8080; echo guard-done'
+}
+
+settingsnet_shell_test() {
+    local image before f out
+    image=$(make_image ${P}settingsnet "")
+    windows_bare "$image"
+    QEMU_EXTRA="-netdev user,id=net0 -device e1000,netdev=net0,mac=52:54:00:12:34:56"
+    before=$failures
+    SERIAL_SCRIPT=settingsnet_session
+    boot ${P}settingsnet "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    expect "up-rc=0"
+    for f in n4 n6; do
+        $RFS cat "$image" $RFS_PART /tmp/$f.png >"$WORK/${P}settingsnet-$f.png"
+    done
+    out=$(command_output "grep -v '^#' /system/config/network/eth0")
+    check "Network cards: eth0's dns = 10.0.2.3, address dhcp kept (69e)" "$out" \
+          eval 'grep -qx "dns = 10.0.2.3" <<<"$out" && grep -qx "address = dhcp" <<<"$out"'
+    expect_line "net: forwarding between cards: on"
+    expect_line "tap0 = user root"
+    compare "Virtual cards: tap0 removed" "$(printf '%s\n' 0 virtual-done)" \
+            "$(command_output 'wsend click 305 210; wsend click 318 292; sleep 2; grep -v ^# /system/config/network/virtual | grep -c tap0; echo virtual-done' | grep -v '^net:\|^tap0:\|exit code')"
+    check "Wi-Fi: testnet saved (69e)" "" eval 'command_output "wsend click 425 368; wsend type testnet; wsend click 425 403; wsend type secret123; wsend click 454 440; sleep 1; ls /system/config/wifi/networks" | grep -q " testnet$"'
+    check "Wi-Fi: the country DE (69e)" "" eval 'command_output "grep -v '"'"'^#'"'"' /system/config/wifi/radio" | grep -qx "country = DE"'
+    compare "Wi-Fi: testnet forgotten" "wifi-done" \
+            "$(command_output 'wsend click 305 249; wsend click 312 331; sleep 1; ls /system/config/wifi/networks; echo wifi-done' | grep -v '^wifi:\|^elvesd\|^wifid')"
+    expect_line "  4  allow in tcp 8080                                         0 packet(s)"
+    compare "Firewall: rule 4 chosen and removed" "$(printf '%s\n' 0 guard-done)" \
+            "$(command_output 'wsend click 300 279; wsend click 318 315; sleep 4; guard | grep -c 8080; echo guard-done' | grep -v '^guardd\|^elvesd\|^wifid\|exit code')"
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# settingsuser_session / settingsuser_shell_test (69f, the user's names):
+# the settings app's Users and Account pages and Unlock, driven by wsend in
+# headless windowds. Root, on Users: anna added with her password (useradd,
+# passwd -S) and allowed sudo (users = anna); `settings set` writes a line
+# of a file in /system/config and refuses any other file. anna, in a
+# windowd of her own: Unlock with her password (sudo -S true), then
+# Processor's top saved (sudo -S settings set; the file says so); Account:
+# her password changed (passwd -S, setuid, the present one first): sudo
+# -S takes the new one, not the old; passwd refuses a wrong present one. Proven by an app
+# that ran the changes without sudo (the clock unchanged), a passwd that
+# was not setuid (her change refused) and one that did not ask the present
+# password (the wrong one taken).
+settingsuser_session() {
+    local n=1 asked=0 a="/system/$ARCH_NAME"
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 800x600 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "$a/apps/Settings.program/Settings &\r"
+    serial_wait "settings: started" 1 20
+    n=$((n + 1)); prompt_wait $n
+    answer_lines 'sleep 1; wsend click 130 344; wsend key down; wsend key down; wsend key down; wsend key down; wsend key down; wsend key down; wsend key down; sleep 1; wshot /tmp/u1.png' \
+                 'wsend click 413 290; wsend type anna; wsend click 413 325; wsend type anna-pw-1; wsend click 413 360; wsend type anna-pw-1; wsend click 295 397; sleep 2' \
+                 'wsend click 453 434; wsend type anna; wsend click 279 506; sleep 2; wshot /tmp/u1b.png' \
+                 "grep -c ^anna: /system/config/users /system/config/passwords; grep -v '^#' /system/config/sudo" \
+                 "$a/apps/Settings.program/Settings set /system/config/time zone +01:00; grep -v '^#' /system/config/time" \
+                 "$a/apps/Settings.program/Settings set /tmp/x a b; echo set-rc=\$?"
+    serial_type 'su anna < /test/anna.sh; grep -v "^#" /system/config/cpu\r'
+    serial_wait "anna-done" 1 90
+    n=$((n + 1)); prompt_wait $n 30
+}
+
+settingsuser_shell_test() {
+    local image before f
+    image=$(make_image ${P}settingsuser "")
+    windows_bare "$image"
+    printf '%s\n' 'export WINDOW_SOCKET=/tmp/w2' 'windowd headless 800x600 & wsend wait' \
+           "/system/$ARCH_NAME/apps/Settings.program/Settings &" 'sleep 3' \
+           'wsend click 181 403; wsend type anna-pw-1; wsend click 121 440; sleep 3' \
+           'wsend click 130 342; wsend click 297 286; wsend click 330 346; sleep 3; wshot /tmp/u2.png' \
+           'wsend click 174 145; sleep 1; wsend click 116 273; sleep 1; wshot /tmp/u3a.png' \
+           'wsend click 381 209; wsend type anna-pw-1; wsend click 381 244; wsend type anna-pw-2; wsend click 381 279; wsend type anna-pw-2; wsend click 275 316; sleep 3; wshot /tmp/u3.png' \
+           'printf "wrong\\nx\\nx\\n" | passwd -S; echo wrong-rc=$?' \
+           'sudo -k; printf "anna-pw-1\\n" | sudo -S true; echo old-rc=$?' \
+           'sudo -k; printf "anna-pw-2\\n" | sudo -S true; echo new-rc=$?' 'echo anna-done' >"$WORK/${P}anna.sh"
+    $RFS put "$image" $RFS_PART /test/anna.sh "$WORK/${P}anna.sh" >/dev/null || exit 1
+    before=$failures
+    SERIAL_SCRIPT=settingsuser_session
+    boot ${P}settingsuser "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    expect "up-rc=0"
+    for f in u1 u1b u2 u3a u3; do
+        $RFS cat "$image" $RFS_PART /tmp/$f.png >"$WORK/${P}settingsuser-$f.png"
+    done
+    expect_line "/system/config/users:1"
+    expect_line "/system/config/passwords:1"
+    expect_line "users = anna"
+    expect_line "settings: /system/config/time: zone = +01:00"
+    expect_line "zone = +01:00"
+    expect_line "settings: set: a file of /system/config, a key and its value (one line)"
+    expect_line "set-rc=2"
+    expect_line "passwd: wrong password; nothing changed"
+    expect_line "wrong-rc=1"
+    expect_line "old-rc=1"
+    expect_line "new-rc=0"
+    compare "anna unlocked and saved Processor: the clock written through sudo" "clock = top" \
+            "$(command_output 'su anna < /test/anna.sh; grep -v "^#" /system/config/cpu' | grep '^clock')"
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# keyring_session / keyring_shell_test (70a, 70b; item 48): root's
+# keyring, ~/.config/keyring.db, opened by login with root's password
+# (KEYRING=on: the test image's root has open_at_login = no otherwise)
+# and held by keyringd. From a script: adds (the first makes the file), an
+# account with a space, a replace; list, get, a missing entry; no secret as
+# plain text; the file 0600, no PATH.new left; lock (get then refused),
+# a wrong unlock, the right one; the password changed (the old one then
+# refused); remove; usage; one keyringd. anna (su, no login): keyring
+# unlock starts her keyringd, her entry kept; passwd changes her password
+# and the keyring follows, through her keyringd and (it killed) in the
+# file itself, as her; root's passwd for her says her keyring keeps the
+# old one. On the terminal: lock, then unlock typed at its prompt, nothing
+# shown. Then root logs out (the last session: keyringd locks) and in again:
+# login's unlock with root's password fails (the keyring's is kr-pw-2 now),
+# so get says locked. scripts/keyring.py opens the file with kr-pw-2.
+# (70c) keyringtest, another program on libkeyring: SYS_PEER_PROGRAM names
+# keyringd's file (and refuses 8 bytes); its own entry it reads, keyring's
+# not (EPERM), nor keyring its own until `keyring allow keyring app.test`
+# (a wrong password refused, a program that is not there too); in a
+# headless windowd keyringd's window asks: Allow gives it the secret and
+# keeps it so (no second window), Deny refuses at once the second time.
+# The file then names each entry's programs, its storer first.
+# Proven by a login that gave keyringd no password (the first add refused,
+# locked), keyringd not locking at a session's end (get worked after the
+# second login), and passwd not following (anna's new password refused);
+# (70c) by keyringd ignoring programs (keyring read app.test), the kernel
+# naming the asker's own program (peer: keyringtest), Allow not kept (a
+# second window, no answer) and Deny not kept (asked again: no answer
+# within 3 s). (70d) The system keyring: login makes keyringd's elf file
+# (KEYRING=on), keyring -s and keyringtest -s (keyring_system()) use it as
+# root, nothing written before the first entry, the files 0600, root's own
+# keyring apart, lock refused; after `elf restart keyringd` it opens again
+# from its key file; anna is refused; keyring.py opens it with the key file.
+# Proven by a keyring_system() that changed nothing (keyringtest found no
+# entry in root's own keyring) and a keyringd -s that answered any user.
+keyring_session() {
+    local n=1 asked
+    prompt_wait $n
+    serial_type 'sh /test/keyring.sh\r'
+    serial_wait "keyring-done" 1 600
+    n=$((n + 1)); prompt_wait $n 30
+    serial_type 'keyring lock\r'
+    n=$((n + 1)); prompt_wait $n 30
+    serial_type 'keyring unlock\r'
+    serial_wait "Keyring password: " 1 60
+    serial_type 'kr-pw-2\r'
+    n=$((n + 1)); prompt_wait $n 120
+    serial_type 'keyring list\r'
+    n=$((n + 1)); prompt_wait $n 60
+    serial_type 'exit\r'
+    serial_wait "logged out]" 1 30
+    login_wait 2 30
+    asked=$(grep -oF "Password: " "$SERIAL_LOG" | wc -l)
+    serial_type 'root\r'
+    serial_wait "Password: " $((asked + 1)) 30
+    serial_type "$ROOT_PASSWORD\r"
+    serial_wait "[root logged in]" 2 30
+    n=$((n + 1)); prompt_wait $n 60
+    serial_type 'sleep 2; keyring get mail.test anna; echo relogin-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 120
+}
+
+keyring_shell_test() {
+    local image before f=/home/root/.config/keyring.db
+    KEYRING=on
+    image=$(make_image ${P}keyring "")
+    KEYRING=
+    {
+        echo "printf 'secret-one\\n' | keyring add mail.test anna; echo add1-rc=\$?"
+        echo "printf 'secret two\\n' | keyring add web.test 'anna b'; echo add2-rc=\$?"
+        echo "printf 'secret-1b\\n' | keyring add mail.test anna; echo add3-rc=\$?"
+        echo 'keyring list; echo list-rc=$?'
+        echo 'keyring get mail.test anna; echo get-rc=$?'
+        echo 'keyring get mail.test nobody; echo none-rc=$?'
+        echo "echo plain=\$(grep -c secret $f)"
+        echo "echo mode=\$(ls -l $f | awk '{print \$1}')"
+        echo "test -e $f.new; echo new-left=\$?"
+        echo 'keyring lock; echo lock-rc=$?'
+        echo 'keyring get mail.test anna; echo locked-rc=$?'
+        echo 'echo wrong | keyring unlock; echo wrong-rc=$?'
+        echo "echo $ROOT_PASSWORD | keyring unlock; echo unlock-rc=\$?"
+        echo 'keyring get mail.test anna; echo again-rc=$?'
+        echo "printf '$ROOT_PASSWORD\\nkr-pw-2\\n' | keyring password; echo pass-rc=\$?"
+        echo 'keyring lock'
+        echo "echo $ROOT_PASSWORD | keyring unlock; echo old-rc=\$?"
+        echo 'echo kr-pw-2 | keyring unlock; echo new-rc=$?'
+        echo "keyring remove web.test 'anna b'; echo remove-rc=\$?"
+        echo "keyring get web.test 'anna b'; echo gone-rc=\$?"
+        echo 'keyring get a; echo usage-rc=$?'
+        echo "kt=/system/$ARCH_NAME/test/keyringtest"
+        echo '$kt peer'
+        echo '$kt set app.test anna s3cret; $kt get app.test anna'
+        echo 'keyring get app.test anna; echo kget-rc=$?'
+        echo '$kt get mail.test anna; echo tget-rc=$?'
+        echo 'echo wrong | keyring allow keyring app.test; echo awrong-rc=$?'
+        echo 'echo kr-pw-2 | keyring allow keyring app.test; echo allow-rc=$?'
+        echo 'keyring get app.test anna; echo kget2-rc=$?'
+        echo 'echo kr-pw-2 | keyring allow nosuch app.test; echo anone-rc=$?'
+        echo 'windowd headless 800x600 & wsend wait'
+        echo '($kt get mail.test anna; echo wget-rc=$?) &'
+        echo 'wsend wait Keyring; sleep 1; wshot /tmp/k1.png'
+        echo 'wsend click 151 300; sleep 2'
+        echo '$kt get mail.test anna; echo wget2-rc=$?'
+        echo "printf 'nope\\n' | keyring add deny.test anna"
+        echo '($kt get deny.test anna; echo dget-rc=$?) &'
+        echo 'wsend wait Keyring; sleep 1; wshot /tmp/k2.png; wsend click 239 300; sleep 2'
+        echo '($kt get deny.test anna; echo dget2-rc=$?) & sleep 3; echo after-dget2'
+        echo 'keyring -s list; echo s-list-rc=$?'
+        echo 'test -e /system/config/keyring.key; echo key-before=$?'
+        echo "printf 'wpa-pass\\n' | keyring -s add wifi.test home; echo s-add-rc=\$?"
+        echo 'keyring -s get wifi.test home; echo s-get-rc=$?'
+        echo '$kt -s get wifi.test home'
+        echo 'keyring get wifi.test home; echo own-rc=$?'
+        echo 'keyring -s lock; echo s-lock-rc=$?'
+        echo "echo smode=\$(ls -l /system/config/keyring.key | awk '{print \$1}') \$(ls -l /system/config/keyring.db | awk '{print \$1}')"
+        echo 'elf restart keyringd; sleep 4'
+        echo 'keyring -s get wifi.test home; echo s-again-rc=$?'
+        echo "echo keyringds=\$(ps | grep -c ' keyringd\$')"
+        echo "useradd anna; printf 'anna-pw-1\\nanna-pw-1\\n' | passwd -S anna"
+        echo 'su anna < /test/anna.sh'
+        echo "printf 'anna-pw-9\\nanna-pw-9\\n' | passwd -S anna"
+        echo 'echo keyring-done'
+    } >"$WORK/${P}keyring.sh"
+    {
+        echo "printf 'anna-pw-1\\n' | keyring unlock; echo a-unlock-rc=\$?"
+        echo "printf 'tok-1\\n' | keyring add api.test anna; echo a-add-rc=\$?"
+        echo "printf 'anna-pw-1\\nanna-pw-2\\nanna-pw-2\\n' | passwd -S; echo a-passwd1-rc=\$?"
+        echo 'keyring lock; echo anna-pw-2 | keyring unlock; echo a-new1-rc=$?'
+        echo "for p in \$(ps | awk '\$NF == \"keyringd\" {print \$1}'); do kill \$p 2>/dev/null; done; sleep 1"
+        echo 'keyring get api.test anna; echo a-gone-rc=$?'
+        echo "printf 'anna-pw-2\\nanna-pw-3\\nanna-pw-3\\n' | passwd -S; echo a-passwd2-rc=\$?"
+        echo 'echo anna-pw-3 | keyring unlock; echo a-new2-rc=$?'
+        echo 'keyring get api.test anna; echo a-get-rc=$?'
+        echo 'keyring -s get wifi.test home; echo a-sys-rc=$?'
+    } >"$WORK/${P}keyring-anna.sh"
+    $RFS put "$image" $RFS_PART /test/keyring.sh "$WORK/${P}keyring.sh" >/dev/null || exit 1
+    $RFS put "$image" $RFS_PART /test/anna.sh "$WORK/${P}keyring-anna.sh" >/dev/null || exit 1
+    before=$failures
+    SERIAL_SCRIPT=keyring_session
+    boot ${P}keyring "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    expect_line "keyring: mail.test anna kept"
+    expect_line "add1-rc=0"
+    expect_line "keyring: web.test anna b kept"
+    expect_line "add2-rc=0"
+    expect_line "add3-rc=0"
+    expect_line "$(printf 'mail.test\tanna')"
+    expect_line "$(printf 'web.test\tanna b')"
+    expect_line "list-rc=0"
+    expect_line "secret-1b"
+    expect_line "get-rc=0"
+    expect_line "keyring: mail.test nobody: not in the keyring"
+    expect_line "none-rc=1"
+    expect_line "plain=0"
+    expect_line "mode=-rw-------"
+    expect_line "new-left=1"
+    expect_line "lock-rc=0"
+    expect_line "keyring: locked (keyring unlock opens it)"
+    expect_line "locked-rc=1"
+    expect_line "keyring: wrong password (or the file is damaged)"
+    expect_line "wrong-rc=1"
+    expect_line "unlock-rc=0"
+    expect_line "again-rc=0"
+    expect_line "keyring: the password changed"
+    expect_line "pass-rc=0"
+    expect_line "old-rc=1"
+    expect_line "new-rc=0"
+    expect_line "keyring: web.test anna b removed"
+    expect_line "remove-rc=0"
+    expect_line "keyring: web.test anna b: not in the keyring"
+    expect_line "gone-rc=1"
+    expect_line "usage: keyring [-s] add|get|remove SERVICE ACCOUNT | keyring [-s] list | keyring lock|unlock|password | keyring allow PROGRAM SERVICE"
+    expect_line "usage-rc=2"
+    expect_line "keyringtest: peer /system/$ARCH_NAME/bin/keyringd ($(printf '%s' "/system/$ARCH_NAME/bin/keyringd" | wc -c | tr -d ' '))"
+    expect_line "keyringtest: peer into 8 bytes: ENAMETOOLONG"
+    expect_line "keyringtest: set"
+    expect_line "keyringtest: secret s3cret"
+    expect_line "keyring: app.test anna: not allowed to this program (keyring allow PROGRAM SERVICE)"
+    expect_line "kget-rc=1"
+    expect_line "tget-rc=1"
+    expect_line "awrong-rc=1"
+    expect_line "keyring: /system/$ARCH_NAME/bin/keyring may use app.test (1 entry)"
+    expect_line "allow-rc=0"
+    expect_line "s3cret"
+    expect_line "kget2-rc=0"
+    expect_line "keyring: nosuch: no such program"
+    expect_line "anone-rc=1"
+    check "keyringtest refused mail.test before the window (EPERM)" "no 'keyringtest: get: EPERM' before tget" \
+          eval '[ "$(grep -B1 "^tget-rc=1$" <<<"$TEXT" | head -1)" = "keyringtest: get: EPERM" ]'
+    expect_line "keyringtest: secret secret-1b"
+    expect_line "wget-rc=0"
+    expect_line "wget2-rc=0"
+    check "deny.test: Deny refused it, and the second ask at once (EPERM twice)" \
+          "not 'keyringtest: get: EPERM' before dget-rc=1 and dget2-rc=1" \
+          eval '[ "$(grep -B1 "^dget-rc=1$" <<<"$TEXT" | head -1)" = "keyringtest: get: EPERM" ] &&
+                [ "$(grep -B1 "^dget2-rc=1$" <<<"$TEXT" | head -1)" = "keyringtest: get: EPERM" ] &&
+                [ "$(grep -n "^dget2-rc=1$" <<<"$TEXT" | cut -d: -f1)" -lt \
+                  "$(grep -n "^after-dget2$" <<<"$TEXT" | cut -d: -f1)" ]'
+    expect_line "login: /system/config/elves/keyringd made: the elf keyringd keeps the system keyring"
+    expect_line "s-list-rc=0"
+    expect_line "key-before=1"
+    expect_line "keyring: wifi.test home kept"
+    expect_line "s-add-rc=0"
+    expect_line "wpa-pass"
+    expect_line "s-get-rc=0"
+    expect_line "keyringtest: secret wpa-pass"
+    expect_line "keyring: wifi.test home: not in the keyring"
+    expect_line "own-rc=1"
+    expect_line "keyring: the system keyring has no password: -s takes add, get, remove and list"
+    expect_line "s-lock-rc=1"
+    expect_line "smode=-rw------- -rw-------"
+    check "keyringd -s opened the keyring from its key file after a restart" \
+          "not 'wpa-pass' again before s-again-rc=0" \
+          eval '[ "$(grep -B1 "^s-again-rc=0$" <<<"$TEXT" | head -1)" = "wpa-pass" ]'
+    expect_line "keyring: the system keyring is root's (or it did not open: the log keyring says why)"
+    expect_line "a-sys-rc=1"
+    expect_line "keyringds=2"
+    expect_line "a-unlock-rc=0"
+    expect_line "a-add-rc=0"
+    check "anna's passwd: the keyring follows, through keyringd and then in the file" \
+          "not twice 'passwd: the keyring follows the new password'" \
+          test "$(grep -c '^passwd: the keyring follows the new password$' <<<"$TEXT")" = 2
+    expect_line "a-passwd1-rc=0"
+    expect_line "a-new1-rc=0"
+    expect_line "keyring: not open: keyringd does not run (keyring unlock starts it)"
+    expect_line "a-gone-rc=1"
+    expect_line "a-passwd2-rc=0"
+    expect_line "a-new2-rc=0"
+    expect_line "tok-1"
+    expect_line "a-get-rc=0"
+    expect_line "passwd: anna's keyring keeps its old password (keyring password changes it)"
+    compare "keyring unlock on the terminal: its prompt, then open" \
+            "$(printf 'Keyring password: \nkeyring: open')" \
+            "$(command_output 'keyring unlock' | tr -d '\r')"
+    compare "keyring list on the terminal, no password asked" \
+            "$(printf 'mail.test\tanna\napp.test\tanna\ndeny.test\tanna')" \
+            "$(command_output 'keyring list' | tr -d '\r')"
+    expect_line "keyring: locked (keyring unlock opens it)"
+    expect_line "relogin-rc=1"
+    reject "kr-pw-2"                                # nothing typed at a prompt is shown
+    reject "login: your keyring"
+    reject "RitterOS crash"
+    reject "panic"
+    $RFS cat "$image" $RFS_PART /tmp/k1.png >"$WORK/${P}keyring-k1.png"
+    $RFS cat "$image" $RFS_PART /tmp/k2.png >"$WORK/${P}keyring-k2.png"
+    $RFS cat "$image" $RFS_PART $f >"$WORK/${P}keyring.db"
+    local b="/system/$ARCH_NAME/bin/keyring" t="/system/$ARCH_NAME/test/keyringtest"
+    compare "scripts/keyring.py opens the file with the last password (the format as documented; 70c: each entry's programs, its storer first)" \
+            "$(printf 'version 1 lock 1 rounds 600000 zero 0\nmail.test\tanna\tsecret-1b\t%s,%s\napp.test\tanna\ts3cret\t%s,%s\ndeny.test\tanna\tnope\t%s' "$b" "$t" "$t" "$b" "$b")" \
+            "$(echo kr-pw-2 | python3 "$ROOT/scripts/keyring.py" dump "$WORK/${P}keyring.db" 2>&1 | sed 's/ body [0-9]*$//')"
+    $RFS cat "$image" $RFS_PART /system/config/keyring.db >"$WORK/${P}keyring-system.db"
+    $RFS cat "$image" $RFS_PART /system/config/keyring.key >"$WORK/${P}keyring-system.key"
+    compare "scripts/keyring.py opens the system keyring with its key file (70d: lock 2, no rounds)" \
+            "$(printf 'version 1 lock 2 rounds 0 zero 0\nwifi.test\thome\twpa-pass')" \
+            "$(python3 "$ROOT/scripts/keyring.py" dump "$WORK/${P}keyring-system.db" \
+                 "$WORK/${P}keyring-system.key" 2>&1 | sed 's/ body [0-9]*$//')"
+    show_log_on_failure $before
+}
+
+# settingslists_session / settingslists_shell_test (69h, the user's:
+# settings populate lists to choose from), driven by wsend in a headless
+# windowd, as root. QEMU has no graphics driver nor Wi-Fi card: /test/fake
+# (first in the app's PATH) holds a `displays` and a `wifi` printing their
+# pages' examples (two outputs, the drivers' second mention of each; two
+# networks, a name with a space) and logging what they were asked. Display:
+# hdmi0 chosen, then 1920x1080@60 of its modes (displays set, its line).
+# Date & time: the list opens at the zone in use (0), +02:00 two below.
+# Routing: eth0 checked for the default route. Wi-Fi: Scan, "Cafe Guest"
+# (open) chosen, Join (wifi join Cafe Guest, no passphrase). User pages:
+# term from the apps (startup), reel for xyz, owl at login after the
+# window system. (69h's shell fix: those scripts, run by the app in the
+# background, made themselves the console's foreground and the shell at
+# the prompt lost what was typed.) Proven by a scan that cut a name at its
+# space, an output's modes not filled when chosen, and a list that did not
+# show the row the program chose (the zone two below another).
+settingslists_session() {
+    local n=1 asked=0 a="/system/$ARCH_NAME" f=/home/root/.config
+    prompt_wait $n
+    serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 800x600 & wsend wait; echo up-rc=$?\r'
+    n=$((n + 1)); prompt_wait $n 20
+    serial_type "export PATH=/test/fake:$a/bin; $a/apps/Settings.program/Settings &\r"
+    serial_wait "settings: started" 1 20
+    n=$((n + 1)); prompt_wait $n
+    answer_lines 'sleep 1; wsend click 314 277; wsend click 580 277; wsend click 278 386; sleep 1' \
+                 'wsend click 130 252; wsend click 304 396; wsend key down; wsend key down; wsend click 418 315; sleep 1' \
+                 'wsend click 130 344; wsend key down; wsend key down; wsend click 246 324; wsend click 278 357; sleep 1; net default' \
+                 'wsend click 130 344; wsend key down; wsend key down; wsend key down; wsend click 442 329; wsend click 464 281; wsend click 452 438; sleep 1' \
+                 'wsend click 190 145; wsend click 130 227; wsend click 481 319; wsend click 292 444; sleep 1' \
+                 'wsend click 130 250; wsend click 405 445; wsend type xyz; wsend click 429 284; wsend click 292 482; sleep 1' \
+                 'wsend click 130 296; wsend click 342 205; wsend click 417 304; wsend click 753 478; wsend click 557 517; sleep 1' \
+                 "cat /tmp/fake.log; grep -v '^#' /system/config/displays /system/config/time" \
+                 "grep -v '^#' $f/windows | grep startup; grep xyz $f/filetypes; grep -v '^#' $f/login"
+}
+
+settingslists_shell_test() {
+    local image before f
+    image=$(make_image ${P}settingslists "")
+    windows_bare "$image"
+    printf '%s\n' "#!/system/$ARCH_NAME/bin/sh" \
+        'if [ "$1" = set ]; then echo "displays $*" >> /tmp/fake.log; echo "displays: $2 now $3 (the fake)"; exit 0; fi' \
+        "echo \"screen: 1600x1200 at 60.000 Hz, the firmware's mode; its EDID: 'DELL S2721DGF'\"" \
+        'echo "gpu0: Intel Bay Trail HD Graphics at 00:02.0; outputs looked at every 2 s"' \
+        'echo "  vga0   the VGA port  no monitor"' \
+        "echo \"  hdmi0  port B        'DELL S2721DGF', native 2560x1440 at 59.951 Hz, EDID 256 bytes; showing the picture\"" \
+        'echo "         modes: 2560x1440@60 1920x1080@60 1600x1200@60 1280x1024@60"' \
+        'echo "  vga0   pins 2: 8 reads, 0 whole, 8 no answer"' \
+        'echo "  hdmi0  pins 5: 10 reads, 10 whole, 0 no answer"' >"$WORK/${P}fake-displays"
+    printf '%s\n' "#!/system/$ARCH_NAME/bin/sh" \
+        'if [ "$1" = scan ]; then' \
+        'echo "wifi: ExampleNet                       wpa2 channel 6   -39 dBm"' \
+        'echo "wifi: Cafe Guest                       open channel 11  -61 dBm"' \
+        'echo "wifi: 2 network(s)"; exit 0; fi' 'echo "wifi $*" >> /tmp/fake.log' 'echo "wifi: (the fake) $*"' >"$WORK/${P}fake-wifi"
+    $RFS put "$image" $RFS_PART /test/fake/displays "$WORK/${P}fake-displays" >/dev/null || exit 1
+    $RFS put "$image" $RFS_PART /test/fake/wifi "$WORK/${P}fake-wifi" >/dev/null || exit 1
+    QEMU_EXTRA="-netdev user,id=net0 -device e1000,netdev=net0,mac=52:54:00:12:34:56"
+    before=$failures
+    SERIAL_SCRIPT=settingslists_session
+    boot ${P}settingslists "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    expect "up-rc=0"
+    expect_line "displays set hdmi0 1920x1080@60"
+    expect_line "/system/config/displays:hdmi0 = 1920x1080@60"
+    expect_line "/system/config/time:zone = +02:00"
+    check "Routing: eth0 checked for the default route (69h)" "" \
+          eval 'grep -aqE "^net: .*default.*eth0" <<<"$TEXT"'
+    expect_line "wifi join Cafe Guest"
+    expect_line "startup = Term"
+    expect_line "xyz = Reel"
+    compare "At login: Owl chosen, after the window system" "$(printf '%s\n' 'windowd &' 'wsend wait' 'Owl &')" \
+            "$(command_output "grep -v '^#' /home/root/.config/windows | grep startup; grep xyz /home/root/.config/filetypes; grep -v '^#' /home/root/.config/login" | tail -3)"
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+wflushrect_shell_test() {
+    local image before f
+    image=$(make_image ${P}wflushrect "")
+    windows_bare "$image"
+    before=$failures
+    SERIAL_SCRIPT=wflushrect_session
+    boot ${P}wflushrect "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    expect "up-rc=0"
+    expect "wtext: rect shown"
+    expect "wtext: whole shown"
+    expect "wshot: /tmp/rect.png (640x400)"
+    expect "wshot: /tmp/whole.png (640x400)"
+    for f in rect whole; do
+        $RFS cat "$image" $RFS_PART /tmp/$f.png >"$WORK/${P}wflushrect-$f.png"
+        python3 - "$ROOT/scripts" "$WORK/${P}wflushrect-$f.png" "$WORK/${P}wflushrect-$f.ppm" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import pngcheck
+w, h, ch, pix = pngcheck.decode_png(open(sys.argv[2], "rb").read())
+rgb = pix if ch == 3 else b"".join(pix[i:i + 3] for i in range(0, len(pix), 4))
+open(sys.argv[3], "wb").write(b"P6\n%d %d\n255\n" % (w, h) + rgb)
+PY
+    done
+    f="$WORK/${P}wflushrect-rect.ppm"
+    check_screen px-144-164-200-0-0 640 400 "$f"       # inside the first rectangle (40,40)
+    check_screen px-124-154-200-0-0 640 400 "$f"       # its first pixel (20,30)
+    check_screen px-163-173-200-0-0 640 400 "$f"       # its last (59,49)
+    check_screen px-123-160-0-0-200 640 400 "$f"       # left of it (19,36)
+    check_screen px-164-160-0-0-200 640 400 "$f"       # right of it (60,36)
+    check_screen px-163-174-0-0-200 640 400 "$f"       # below it (59,50)
+    check_screen px-104-124-200-0-0 640 400 "$f"       # the corner's part (0,0)
+    check_screen px-118-138-200-0-0 640 400 "$f"       # (14,14)
+    check_screen px-119-130-0-0-200 640 400 "$f"       # past it (15,6)
+    check_screen px-110-139-0-0-200 640 400 "$f"       # (6,15)
+    check_screen px-384-224-200-0-0 640 400 "$f"       # to the edge (280,100)
+    check_screen px-403-243-200-0-0 640 400 "$f"       # the last pixel (299,119)
+    check_screen px-383-230-0-0-200 640 400 "$f"       # left of it (279,106)
+    check_screen px-390-223-0-0-200 640 400 "$f"       # above it (286,99)
+    check_screen px-254-204-0-0-200 640 400 "$f"       # the rest (150,80)
+    f="$WORK/${P}wflushrect-whole.ppm"
+    check_screen px-254-204-200-0-0 640 400 "$f"       # window_flush: all of it
+    check_screen px-119-130-200-0-0 640 400 "$f"
+    check_screen px-383-230-200-0-0 640 400 "$f"
+    reject "panic"
+    show_log_on_failure $before
+}
+
 # wsend_session / wsend_shell_test: `wsend` (41h-3, the user's names):
 # WMSG_INPUT into a headless windowd (640x400), handled as the devices'
 # events. A click focuses widgettest's editor; typed text (54 bytes, ~108
@@ -6084,7 +6899,7 @@ owl_with_session() {
     serial_type 'export WINDOW_SOCKET=/tmp/w1; windowd headless 1024x768 & wsend wait; echo up-rc=$?\r'
     serial_wait "up-rc=" 1 15
     n=$((n + 1)); prompt_wait $n
-    serial_type "$a/apps/owl.program/owl /test/ow & wsend wait owl; echo owl-rc=\$?\r"
+    serial_type "$a/apps/Owl.program/Owl /test/ow & wsend wait Owl; echo owl-rc=\$?\r"
     serial_wait "owl-rc=" 1 15
     n=$((n + 1)); prompt_wait $n
     # pic.png's row (the path, .., then pic.png), a right-click there, the
@@ -6092,7 +6907,7 @@ owl_with_session() {
     serial_type 'wsend right 200 177; wsend click 220 201; wsend wait "Open with"; echo dialog-rc=$?; wshot /tmp/with.png\r'
     serial_wait "wshot: /tmp/with.png" 1 20
     n=$((n + 1)); prompt_wait $n
-    serial_type 'wsend type owl; wsend key enter; wsend type imageview; wsend key enter\r'
+    serial_type 'wsend type Owl; wsend key enter; wsend type Imageview; wsend key enter\r'
     serial_wait "imageview: showing" 1 20
     n=$((n + 1)); prompt_wait $n
 }
@@ -6101,7 +6916,7 @@ owl_with_test() {
     local image before png="$WORK/${P}owlwith.png" ppm="$WORK/${P}owlwith.ppm" ok
     image=$(make_image ${P}owlwith "")
     windows_bare "$image"
-    $RFS put "$image" $RFS_PART /test/ow/pic.png "$ROOT/build/system/$ARCH_NAME/apps/owl.program/icon.png" \
+    $RFS put "$image" $RFS_PART /test/ow/pic.png "$ROOT/build/system/$ARCH_NAME/apps/Owl.program/icon.png" \
         >/dev/null || exit 1
     rm -f "$png" "$ppm"
     before=$failures
@@ -6109,7 +6924,7 @@ owl_with_test() {
     boot ${P}owlwith "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
     expect "dialog-rc=0"
-    expect "owl: open /test/ow/pic.png with /system/$ARCH_NAME/apps/imageview.program"
+    expect "owl: open /test/ow/pic.png with /system/$ARCH_NAME/apps/Imageview.program"
     expect "imageview: showing /test/ow/pic.png (32x32)"
     check "owl started once (the dialog refused owl for a .png)" "$(grep -ac 'owl: started' <<<"$TEXT")" \
           eval '[ "$(grep -ac "owl: started" <<<"$TEXT")" = 1 ]'
@@ -6125,10 +6940,10 @@ print("ok")
 PY
 )
     check "the dialog's picture decodes" "it does not decode" eval '[ "$ok" = ok ]'
-    # its rows of 15 from y 194: ibrowser, imageview, owl, reel, term
-    check_screen region-150-209-90-15-216-222-233 1024 768 "$ppm"   # imageview: can be chosen
-    check_screen region-150-224-90-15-108-118-134 1024 768 "$ppm"   # owl: greyed
-    check_screen region-150-239-90-15-108-118-134 1024 768 "$ppm"   # reel: greyed
+    # its rows of 15 from y 194: imageview, owl, reel, settings, term
+    check_screen region-150-194-90-15-216-222-233 1024 768 "$ppm"   # imageview: can be chosen
+    check_screen region-150-209-90-15-108-118-134 1024 768 "$ppm"   # owl: greyed
+    check_screen region-150-224-90-15-108-118-134 1024 768 "$ppm"   # reel: greyed
     reject "panic"
     show_log_on_failure $before
 }
@@ -6197,7 +7012,7 @@ wstart_shell_test() {
     local image before w h
     if [ "$ARCH_NAME" = x86_64 ]; then w=1280 h=800; else w=800 h=600; fi
     image=$(make_image ${P}wstart "")
-    windows_startup "$image" term                    # this test drives the terminal and `exit`
+    windows_startup "$image" Term                    # this test drives the terminal and `exit`
     before=$failures
     SERIAL_SCRIPT=wstart_session
     boot ${P}wstart "$image" "RitterOS kernel: boot complete"
@@ -6345,7 +7160,7 @@ wresize_shell_test() {
     local image before w h
     if [ "$ARCH_NAME" = x86_64 ]; then w=1280 h=800; else w=800 h=600; fi
     image=$(make_image ${P}wresize "")
-    windows_startup "$image" term                    # this test resizes the terminal
+    windows_startup "$image" Term                    # this test resizes the terminal
     [ "$ARCH_NAME" = aarch64 ] && QEMU_EXTRA="-device usb-mouse,bus=xhci.0,port=2"
     before=$failures
     SERIAL_SCRIPT=wresize_session
@@ -7411,8 +8226,11 @@ selfbuild_shell_test() {
     printf '#define PROGRAM_HELP(a, b)\nextern char **environ;\n' >"$WORK/${P}mk/ritteros.h"
     cc -std=c11 -O1 -I"$WORK/${P}mk" -o "$WORK/${P}mk/make" "$ROOT/user/bin/make.c" || exit 1
     (cd "$src" && "$WORK/${P}mk/make" TOOLCHAIN=ritteros ARCH=$ARCH_NAME arch-build) >"$WORK/${P}mac-make.log" 2>&1
+    local mac_rc=$?
+    # (43a: the build's status too; a kernel built before a later failure
+    # had passed this)
     check "the Mac builds the copy with our make and tools" "$(tail -5 "$WORK/${P}mac-make.log")" \
-          test -f "$src/build/system/$ARCH_NAME/kernel.elf"
+          test "$mac_rc" = 0 -a -f "$src/build/system/$ARCH_NAME/kernel.elf"
     (cd "$src/build" && find "system/$ARCH_NAME" esp -type f | sort) >"$WORK/${P}products"
     (cd "$src/build" && while read -r f; do
         echo "filesha: /src/build/$f: $(wc -c <"$f" | tr -d ' ') bytes, sha256 $(shasum -a 256 "$f" | awk '{print $1}')"
@@ -7441,8 +8259,8 @@ selfbuild_shell_test() {
 
 # kill_session / kill_shell_test: the program kill (for the SDK's remote
 # stop). A program that never ends by itself (loop) runs in the background;
-# `kill PID` ends it with SIGTERM (the shell reports "[PID] stopped by signal
-# 15" and ps no longer lists it running), `kill -KILL PID` a second one with
+# `kill PID` ends it with SIGTERM (the shell reports "[N] ended by signal
+# 15", 44c: its job number, and ps no longer lists it running), `kill -KILL PID` a second one with
 # SIGKILL; a missing process, a wrong signal and no arguments are refused.
 # Proven by kill sending nothing (the loops stay).
 kill_session() {
@@ -7462,7 +8280,7 @@ kill_session() {
     serial_type '\r'
     n=$((n + 1))
     prompt_wait $n
-    pids=$(tr -d '\r' <"$SERIAL_LOG" | grep -xE '\[[0-9]+\]' | tr -d '[]' | tr '\n' ' ')
+    pids=$(tr -d '\r' <"$SERIAL_LOG" | grep -xE '\[[0-9]+\] [0-9]+' | cut -d' ' -f2 | tr '\n' ' ')
     echo "$pids" >"$WORK/${P}kill.pids"
     set -- $pids
     answer_lines 'ps' "kill $1" "kill -KILL $2" 'ps' 'kill 999' 'kill -FOO 1' 'kill'
@@ -7479,13 +8297,89 @@ kill_shell_test() {
     check "two background loops started" "pids: '$p1' '$p2'" test -n "$p2"
     check "ps lists both loops running" "$(command_output ps)" \
           eval '[ "$(command_output ps | grep -cE " running +loop$")" -eq 2 ]'
-    expect_line "[$p1] stopped by signal 15"        # kill: SIGTERM by default
-    expect_line "[$p2] stopped by signal 9"         # kill -KILL
+    expect_line "[1] ended by signal 15"            # kill: SIGTERM by default (44c: job 1)
+    expect_line "[2] ended by signal 9"             # kill -KILL
     check "after kill no loop runs" "$(command_output ps 2)" \
           eval '! command_output ps 2 | grep -qE " running +loop$"'
     expect_line "kill: 999: No such process"
-    expect_line "kill: FOO: not a signal (TERM, KILL, INT, HUP, USR1, USR2 or 1-31)"
+    expect_line "kill: FOO: not a signal (TERM, KILL, INT, HUP, USR1, USR2, STOP, CONT or 1-31)"
     expect_line "usage: kill [-SIGNAL] PID..."
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# jobs_session / jobs_shell_test (44c): the shell's job control at the
+# console. Ctrl-Z stops a running program (^Z, "[1] stopped: COMMAND"),
+# jobs lists it (+ the current job, - the one before), a background job
+# is "[2] PID", bg goes on with it in the background, fg in the
+# foreground (Ctrl-C ends it there); a SIGTERM to a stopped job waits for
+# its continuing (POSIX's: it then ends, "NAME: ended by signal 15"); cat
+# in the background stops at its read (SIGTTIN, reported at the prompt),
+# fg gives it the terminal and it reads a typed line; a background job's
+# end ("[1] done, exit code 0"); fg and bg's errors. Proven by a shell that
+# waits without WUNTRACED (Ctrl-Z never gives the prompt back) and by one
+# whose prompt does not ask for stops (cat's is never reported).
+jobs_session() {
+    local n=1 t="/system/$ARCH_NAME/test/loop"
+    prompt_wait $n
+    serial_type "$t\r"
+    serial_wait "loop: running until Ctrl-C" 1 10
+    sleep 0.3
+    serial_type '\032'
+    n=$((n + 1)); prompt_wait $n 30
+    answer_lines 'jobs' 'sleep 100 &' 'ps' 'jobs' 'bg %%1' 'ps' 'jobs'    # (serial_type is printf: %%)
+    serial_type 'fg %%1\r'
+    sleep 1
+    serial_type '\003'
+    n=$((n + 1)); prompt_wait $n 30
+    serial_type 'fg\r'
+    sleep 1
+    serial_type '\032'
+    n=$((n + 1)); prompt_wait $n 30
+    answer_lines 'ps' 'kill $!' 'jobs' 'fg %%2' 'cat &'
+    sleep 1
+    answer_lines ''
+    serial_type 'fg\r'
+    sleep 1
+    serial_type 'from the terminal\r'
+    sleep 0.5
+    serial_type '\004'
+    n=$((n + 1)); prompt_wait $n 30
+    answer_lines 'true &'
+    sleep 1
+    answer_lines '' 'fg %%9' 'bg' 'jobs'
+}
+
+jobs_shell_test() {
+    local image before t="/system/$ARCH_NAME/test/loop" want
+    image=$(make_image ${P}jobs "")
+    before=$failures
+    SERIAL_SCRIPT=jobs_session
+    boot ${P}jobs "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    expect_line "^Z"
+    expect_line "[1] stopped: $t"
+    compare "jobs: the stopped one" "[1]+ stopped  $t" "$(command_output jobs 1)"
+    check "a background job is [N] PID" "$(command_output 'sleep 100 &')" \
+          eval 'command_output "sleep 100 &" | grep -qxE "\[2\] [0-9]+"'
+    compare "jobs: stopped first, then running" "$(printf '[1]+ stopped  %s\n[2]- running  sleep 100' "$t")" \
+            "$(command_output jobs 2)"
+    compare "bg %1" "[1] $t &" "$(command_output 'bg %1')"
+    compare "jobs: both running, the one bg moved current" \
+            "$(printf '[1]+ running  %s\n[2]- running  sleep 100' "$t")" "$(command_output jobs 3)"
+    compare "fg %1: its command, then Ctrl-C ends it" "$(printf '%s\n^C' "$t")" "$(command_output 'fg %1')"
+    compare "fg: the current job, stopped again by Ctrl-Z" "$(printf 'sleep 100\n^Z\n[2] stopped: sleep 100')" \
+            "$(command_output fg 1)"
+    compare "a SIGTERM to a stopped job waits: still stopped" "[2]+ stopped  sleep 100" "$(command_output jobs 4)"
+    compare "fg %2: it goes on and ends by the SIGTERM" "$(printf 'sleep 100\nsleep: ended by signal 15')" \
+            "$(command_output 'fg %2')"
+    expect_line "[1] stopped: cat"
+    check "fg: cat reads a typed line" "$(command_output fg 2)" \
+          eval '[ "$(command_output fg 2 | grep -cx "from the terminal")" -eq 2 ] && command_output fg 2 | head -1 | grep -qx cat'
+    expect_line "[1] done, exit code 0"
+    expect_line "fg: %9: no such job"
+    expect_line "bg: no current job"
+    compare "jobs: none left" "" "$(command_output jobs 5)"
     reject "panic"
     show_log_on_failure $before
 }
@@ -7642,6 +8536,31 @@ sdk_session() {
     sdk_make "$WORK/${P}sdk-hello" "${remote[@]}" deploy run ARGS=agent \
         >"$WORK/${P}sdk-run" 2>&1
     echo "exit $?" >>"$WORK/${P}sdk-run"
+    # (43c) A C++ program: make deploy run, its library RitterOS's libc++.
+    sdk_make "$WORK/${P}sdk-cpp" "${remote[@]}" deploy run "ARGS=zeta alpha" \
+        >"$WORK/${P}sdk-cpprun" 2>&1
+    echo "exit $?" >>"$WORK/${P}sdk-cpprun"
+    # (43d) the CMake and Meson examples, each with its libgreet.so.1:
+    # (43e) a bundle each, the library in its own lib (none in the system's)
+    local built bundle
+    for built in cmake meson; do
+        bundle=/system/$ARCH_NAME/apps/hello-$built.program
+        /usr/bin/ssh $opts -o BatchMode=yes root@127.0.0.1 "mkdir -p $bundle/lib; cat > $bundle/lib/libgreet.so.1" \
+            <"$WORK/${P}sdk-$built/build/libgreet.so.1" >/dev/null 2>&1
+        /usr/bin/ssh $opts -o BatchMode=yes root@127.0.0.1 \
+            "cat > $bundle/hello-$built; chmod 755 $bundle/hello-$built" \
+            <"$WORK/${P}sdk-$built/build/hello-$built" >/dev/null 2>&1
+        mac_ssh sdk-run-$built "${with_key[@]}" root@127.0.0.1 \
+            "hello-$built agent; ls /system/$ARCH_NAME/lib/libgreet.so.1 2>&1; ldd hello-$built"
+    done
+    # (46e) the system libraries from upstream: the CMake example (its
+    # find_package calls), and the same program through ritteros.mk's LDLIBS
+    /usr/bin/ssh $opts -o BatchMode=yes root@127.0.0.1 \
+        "cat > /system/$ARCH_NAME/bin/netlibs; chmod 755 /system/$ARCH_NAME/bin/netlibs" \
+        <"$WORK/${P}sdk-netlibs/build/netlibs" >/dev/null 2>&1
+    mac_ssh sdk-run-netlibs "${with_key[@]}" root@127.0.0.1 netlibs
+    sdk_make "$WORK/${P}sdk-netlibsmk" "${remote[@]}" deploy run >"$WORK/${P}sdk-netlibsmk.run" 2>&1
+    echo "exit $?" >>"$WORK/${P}sdk-netlibsmk.run"
     # LINK = static (22d): the same program, carrying its library code.
     sdk_make "$WORK/${P}sdk-hello" "${remote[@]}" APP=hellostatic LINK=static deploy run ARGS=static \
         >"$WORK/${P}sdk-static" 2>&1
@@ -7763,13 +8682,15 @@ sdk_shell_test() {
     printf '#!/bin/sh\necho %s\n' "$ROOT_PASSWORD" >"$WORK/${P}askpass"
     chmod 700 "$WORK/${P}askpass"
     # The projects, started as the guide says: copies of the template and the example.
-    rm -rf "$WORK/${P}sdk-hello" "$WORK/${P}sdk-win" "$WORK/${P}sdk-widgets" "$WORK/${P}sdk-notes"
+    rm -rf "$WORK/${P}sdk-hello" "$WORK/${P}sdk-win" "$WORK/${P}sdk-widgets" "$WORK/${P}sdk-notes" \
+           "$WORK/${P}sdk-cpp"
     rm -f "$WORK/${P}sdk-notes.png" "$WORK/${P}sdk-notes.ppm"
+    cp -R "$ROOT/sdk/examples/hello-cpp" "$WORK/${P}sdk-cpp"           # (43c)
     cp -R "$ROOT/sdk/template" "$WORK/${P}sdk-hello"
     cp -R "$ROOT/sdk/examples/hellowin" "$WORK/${P}sdk-win"
     cp -R "$ROOT/sdk/examples/widgets" "$WORK/${P}sdk-widgets"      # (41e)
     cp -R "$ROOT/sdk/examples/notes" "$WORK/${P}sdk-notes"          # (41h-4)
-    for d in sdk-hello sdk-win sdk-widgets sdk-notes; do
+    for d in sdk-hello sdk-win sdk-widgets sdk-notes sdk-cpp; do
         sdk_make "$WORK/${P}$d" >"$WORK/${P}$d.build" 2>&1
         echo "exit $?" >>"$WORK/${P}$d.build"
     done
@@ -7785,6 +8706,81 @@ sdk_shell_test() {
     echo "exit $?" >>"$WORK/${P}sdk-abi"
     sdk_make "$WORK/${P}sdk-hello" APP=hellostatic LINK=static >"$WORK/${P}sdk-static.build" 2>&1
     echo "exit $?" >>"$WORK/${P}sdk-static.build"
+    sdk_make "$WORK/${P}sdk-cpp" APP=cppstatic LINK=static >"$WORK/${P}sdk-cppstatic.build" 2>&1
+    # (43d) ported programs' builds: the CMake and Meson examples
+    rm -rf "$WORK/${P}sdk-cmake" "$WORK/${P}sdk-meson"
+    cp -R "$ROOT/sdk/examples/hello-cmake" "$WORK/${P}sdk-cmake"
+    cp -R "$ROOT/sdk/examples/hello-meson" "$WORK/${P}sdk-meson"
+    sed -e "s/^arch = .*/arch = '$ARCH_NAME'/" -e "s|^ritteros = .*|ritteros = '$ROOT'|" \
+        "$ROOT/sdk/ritteros.meson" >"$WORK/${P}ritteros.meson"
+    ( export PATH="$ROOT/tools/venv/bin:$PATH"
+      cmake -S "$WORK/${P}sdk-cmake" -B "$WORK/${P}sdk-cmake/build" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ROOT/sdk/ritteros.cmake" -DRITTEROS_ARCH=$ARCH_NAME &&
+          cmake --build "$WORK/${P}sdk-cmake/build"
+      echo "exit $?"
+      cd "$WORK/${P}sdk-meson" && meson setup build --cross-file "$WORK/${P}ritteros.meson" &&
+          meson compile -C build
+      echo "exit $?" ) >"$WORK/${P}sdk-ported.build" 2>&1
+    # (46e) the system libraries from upstream as a port finds them: the
+    # netlibs example by CMake (find_package), by ritteros.mk (LDLIBS), by an
+    # Autotools-like link (the compiler with sdk/ritteros-ld and -l names);
+    # their pkg-config files' versions, user/upstream/versions'
+    rm -rf "$WORK/${P}sdk-netlibs" "$WORK/${P}sdk-netlibsmk"
+    cp -R "$ROOT/sdk/examples/netlibs" "$WORK/${P}sdk-netlibs"
+    mkdir -p "$WORK/${P}sdk-netlibsmk"
+    cp "$ROOT/sdk/examples/netlibs/main.c" "$WORK/${P}sdk-netlibsmk/"
+    printf 'APP := netlibsmk\nSRCS := main.c\nLDLIBS := -lcurl -lssl -lcrypto -lz -lpsl -lbrotlienc -lbrotlidec -lnghttp2\ninclude $(RITTEROS)/sdk/ritteros.mk\n' \
+        >"$WORK/${P}sdk-netlibsmk/Makefile"
+    ( export PATH="$ROOT/tools/venv/bin:$PATH"
+      cmake -S "$WORK/${P}sdk-netlibs" -B "$WORK/${P}sdk-netlibs/build" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ROOT/sdk/ritteros.cmake" -DRITTEROS_ARCH=$ARCH_NAME &&
+          cmake --build "$WORK/${P}sdk-netlibs/build"
+      echo "exit $?" ) >"$WORK/${P}sdk-netlibs.build" 2>&1
+    sdk_make "$WORK/${P}sdk-netlibsmk" >"$WORK/${P}sdk-netlibsmk.build" 2>&1
+    echo "exit $?" >>"$WORK/${P}sdk-netlibsmk.build"
+    ( cd "$WORK/${P}sdk-netlibsmk" &&
+      "$ROOT/tools/zig/zig" clang --target=$ARCH_NAME-unknown-none-elf -ffreestanding -nostdinc \
+          -isystem "$ROOT/tools/zig/lib/include" -isystem "$ROOT/user/include" -isystem "$ROOT/build/upstream/include" \
+          -fPIE -c -o at.o main.c &&
+      "$ROOT/tools/zig/zig" clang --target=$ARCH_NAME-linux-gnu -nostdlib -fuse-ld="$ROOT/sdk/ritteros-ld" \
+          -Wno-unused-command-line-argument -o netlibs-at at.o \
+          -lcurl -lssl -lcrypto -lz -lpsl -lbrotlienc -lbrotlidec -lnghttp2
+      echo "exit $?" ) >"$WORK/${P}sdk-autotools.build" 2>&1
+    local pc pcv mismatched=""
+    for pc in zlib:ZLIB openssl:OPENSSL libssl:OPENSSL libcrypto:OPENSSL libnghttp2:NGHTTP2 libbrotlicommon:BROTLI \
+              libbrotlidec:BROTLI libbrotlienc:BROTLI libpsl:LIBPSL libcurl:CURL; do
+        pcv=$(PKG_CONFIG_LIBDIR="$ROOT/sdk/pkgconfig" "$ROOT/tools/venv/lib/python3.9/site-packages/pkgconf/.bin/pkgconf" \
+                  --modversion "${pc%%:*}" 2>&1)
+        [ "$pcv" = "$(sed -n "s/^${pc#*:}_VER=//p" "$ROOT/user/upstream/versions")" ] || mismatched+=" ${pc%%:*}=$pcv"
+    done
+    # (46d-1) CMake's checks link: the answers a link gives (configure only)
+    rm -rf "$WORK/${P}sdk-checks"
+    mkdir -p "$WORK/${P}sdk-checks"
+    cat >"$WORK/${P}sdk-checks/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.20)
+project(checks C)
+include(CheckFunctionExists)
+include(CheckLibraryExists)
+include(CheckCSourceCompiles)
+include(CheckSymbolExists)
+check_function_exists(getaddrinfo HAVE_GETADDRINFO)
+check_function_exists(pthread_create HAVE_PTHREAD_CREATE)
+check_function_exists(ritteros_no_such_function HAVE_NO_SUCH_FUNCTION)
+check_library_exists(m log2 "" HAVE_LIB_M)
+check_c_source_compiles("int f(void) { return 0; }" HAVE_NO_MAIN)
+check_symbol_exists(poll "poll.h" HAVE_POLL_SYMBOL)
+foreach(v HAVE_GETADDRINFO HAVE_PTHREAD_CREATE HAVE_NO_SUCH_FUNCTION HAVE_LIB_M HAVE_NO_MAIN HAVE_POLL_SYMBOL)
+    if(${v})
+        message(STATUS "check ${v} yes")
+    else()
+        message(STATUS "check ${v} no")
+    endif()
+endforeach()
+CMAKE
+    ( export PATH="$ROOT/tools/venv/bin:$PATH"
+      cmake -S "$WORK/${P}sdk-checks" -B "$WORK/${P}sdk-checks/build" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ROOT/sdk/ritteros.cmake" -DRITTEROS_ARCH=$ARCH_NAME ) \
+        >"$WORK/${P}sdk-checks.log" 2>&1
     QEMU_EXTRA="-netdev user,id=net0,hostfwd=tcp:127.0.0.1:$NET_SSH_PORT-:22"
     QEMU_EXTRA+=" -device e1000,netdev=net0,mac=52:54:00:12:34:56"
     before=$failures
@@ -7794,6 +8790,74 @@ sdk_shell_test() {
     QEMU_EXTRA=
     check "the template builds outside the tree" "$(tail -5 "$WORK/${P}sdk-hello.build")" \
           grep -qx "exit 0" "$WORK/${P}sdk-hello.build"
+    # (43c) the C++ example: built, deployed, run over ssh; static refused
+    check "the C++ example builds" "$(tail -5 "$WORK/${P}sdk-cpp.build")" \
+          grep -qx "exit 0" "$WORK/${P}sdk-cpp.build"
+    want_text want <<'LINES'
+hello-cpp: 2 argument(s): alpha zeta
+hello-cpp: caught -3 is negative
+hello-cpp: the thread said 42
+exit 0
+LINES
+    compare "the C++ example deployed and run (43c)" "$want" \
+            "$(grep -E '^hello-cpp:|^exit ' "$WORK/${P}sdk-cpprun")"
+    check "a static C++ program is refused" "$(cat "$WORK/${P}sdk-cppstatic.build")" \
+          grep -q "C++ programs are linked shared only" "$WORK/${P}sdk-cppstatic.build"
+    # (43d) CMake (sdk/ritteros.cmake) and Meson (sdk/ritteros.meson): each
+    # example's C++ program, its own C library and libimage by pkg-config
+    want_text want <<'LINES'
+check HAVE_GETADDRINFO yes
+check HAVE_PTHREAD_CREATE yes
+check HAVE_NO_SUCH_FUNCTION no
+check HAVE_LIB_M no
+check HAVE_NO_MAIN no
+check HAVE_POLL_SYMBOL yes
+LINES
+    compare "CMake's checks link with RitterOS's libraries (46d-1: a function there, one not, no libm, no main)" \
+            "$want" "$(sed -n 's/^-- \(check .*\)/\1/p' "$WORK/${P}sdk-checks.log")"
+    local v_ssl v_zlib v_brotli v_nghttp2 v_psl v_curl
+    v_ssl=$(sed -n 's/^OPENSSL_VER=//p' "$ROOT/user/upstream/versions")
+    v_zlib=$(sed -n 's/^ZLIB_VER=//p' "$ROOT/user/upstream/versions")
+    v_brotli=$(sed -n 's/^BROTLI_VER=//p' "$ROOT/user/upstream/versions")
+    v_nghttp2=$(sed -n 's/^NGHTTP2_VER=//p' "$ROOT/user/upstream/versions")
+    v_psl=$(sed -n 's/^LIBPSL_VER=//p' "$ROOT/user/upstream/versions")
+    v_curl=$(sed -n 's/^CURL_VER=//p' "$ROOT/user/upstream/versions")
+    want_text want <<LINES
+netlibs: OpenSSL $v_ssl, sha256(abc) begins ba7816bf
+netlibs: zlib $v_zlib, crc32(123456789) cbf43926
+netlibs: brotli $v_brotli, a round trip ok
+netlibs: nghttp2 $v_nghttp2
+netlibs: libpsl $v_psl (no IDNA support), the registrable domain of www.example.co.uk is example.co.uk
+netlibs: libcurl $v_curl, escaped "a b&c" as a%20b%26c
+LINES
+    check "the netlibs example: find_package finds OpenSSL, CURL, ZLIB, LibPSL (46e)" \
+          "$(grep -E '^-- (Found|Could NOT)|exit' "$WORK/${P}sdk-netlibs.build")" \
+          eval 'grep -qx "exit 0" "$WORK/${P}sdk-netlibs.build" &&
+                [ "$(grep -cE "^-- Found (OpenSSL|CURL|ZLIB|LibPSL): $ROOT/build/sdk/$ARCH_NAME/lib/" "$WORK/${P}sdk-netlibs.build")" = 4 ]'
+    compare "the CMake-built netlibs runs on the machine (each library called)" "$want" \
+            "$(sed 's/^netlibs: OpenSSL \([0-9.]*\) [^,]*,/netlibs: OpenSSL \1,/' "$WORK/${P}sdk-run-netlibs" 2>/dev/null | grep '^netlibs:')"
+    compare "ritteros.mk's LDLIBS: the same program built, deployed and run" "$want" \
+            "$(sed 's/^netlibs: OpenSSL \([0-9.]*\) [^,]*,/netlibs: OpenSSL \1,/' "$WORK/${P}sdk-netlibsmk.run" 2>/dev/null | grep '^netlibs:')"
+    check "an Autotools-like link: -lcurl -lssl ... through sdk/ritteros-ld" "$(tail -3 "$WORK/${P}sdk-autotools.build")" \
+          eval 'grep -qx "exit 0" "$WORK/${P}sdk-autotools.build" &&
+                python3 "$ROOT/scripts/elfneeded.py" "$WORK/${P}sdk-netlibsmk/netlibs-at" | grep -q "needs libcurl.so.4 libssl.so.3"'
+    check "the pkg-config files' versions are user/upstream/versions'" "differ:$mismatched" eval '[ -z "$mismatched" ]'
+    check "the CMake and Meson examples build" "$(grep -v '^ ' "$WORK/${P}sdk-ported.build" | tail -8)" \
+          eval '[ "$(grep -c "^exit 0$" "$WORK/${P}sdk-ported.build")" = 2 ]'
+    for built in cmake meson; do
+        want_text want <<LINES
+hello-$built: hello, agent, from libgreet
+hello-$built: libimage refused a non-image: true
+LINES
+        compare "hello-$built built outside the tree runs (43d)" "$want" \
+                "$(grep "^hello-$built:" "$WORK/${P}sdk-run-$built" 2>/dev/null)"
+        # (43e) its libgreet from the bundle's lib: $ORIGIN/lib, written by the build
+        check "hello-$built's libgreet.so.1 is its bundle's (43e)" "$(cat "$WORK/${P}sdk-run-$built" 2>/dev/null)" \
+              grep -qx "    libgreet.so.1 => /system/$ARCH_NAME/apps/hello-$built.program/lib/libgreet.so.1" \
+              "$WORK/${P}sdk-run-$built"
+        check "hello-$built: no libgreet.so.1 in the system's lib" "$(cat "$WORK/${P}sdk-run-$built" 2>/dev/null)" \
+              grep -q "/system/$ARCH_NAME/lib/libgreet.so.1: No such file or directory" "$WORK/${P}sdk-run-$built"
+    done
     check "the windowed example builds" "$(tail -5 "$WORK/${P}sdk-win.build")" \
           grep -qx "exit 0" "$WORK/${P}sdk-win.build"
     check "the widgets example builds (41e)" "$(tail -5 "$WORK/${P}sdk-widgets.build")" \
@@ -7810,6 +8874,9 @@ sdk_shell_test() {
     compare "the template links to the shared libraries (LINK = shared)" \
             "hello: soname -; needs libritteros.so.1" \
             "$(cd "$WORK/${P}sdk-hello/build/$ARCH_NAME" && python3 "$ROOT/scripts/elfneeded.py" hello)"
+    compare "an app (KIND = apps) looks in its bundle's lib first (43e)" \
+            'hellowin: soname -; needs libritteros.so.1 libwindow.so.1; runpath $ORIGIN/lib' \
+            "$(cd "$WORK/${P}sdk-win/build/$ARCH_NAME" && python3 "$ROOT/scripts/elfneeded.py" hellowin)"
     compare "LINK = static links it statically" "hellostatic: static" \
             "$(cd "$WORK/${P}sdk-hello/build/$ARCH_NAME" && python3 "$ROOT/scripts/elfneeded.py" hellostatic)"
     check "the static build runs there too" "$(cat "$WORK/${P}sdk-static")" \
@@ -8915,7 +9982,7 @@ ipv6_session() {
                  'ping -c 1 fe80::ff:fe00:7102' 'ping -c 1 fe80::ff:fe00:7102%%eth9' \
                  'ping -c 1 fe80::5054:ff:fe00:7201%%eth1' 'ping -c 1 fe80::1:2:3%%eth0'
     route_ask mldquery A
-    answer_lines 'net'
+    answer_lines 'net' "/system/$ARCH_NAME/test/ipctest ifaddrs"
 }
 
 # ipv6_test [CARD] (64a): IPv6 on the link. eth0 (CARD: an e1000, or
@@ -8996,6 +10063,16 @@ LINES
     expect "--- fe80::1:2:3%eth0: 1 sent, 0 received, 100% lost"
     check "A answered the guest's echo to ff02::1" "$(grep 'echo request' "$log")" \
           grep -q "^A: ICMPv6 echo request from fe80::5054:ff:fe00:7101 to ff02::1: answered$" "$log"
+    # (43b-6) getifaddrs: lo, each card's IPv4 address and its IPv6 ones
+    # in use (eth1's duplicate not), the card numbers the scopes
+    want_text want <<'LINES'
+ipctest: ifaddrs lo inet 127.0.0.1 255.0.0.0 loopback running index 65
+ipctest: ifaddrs lo inet6 ::1 ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff loopback running index 65
+ipctest: ifaddrs eth0 inet 192.168.71.1 255.255.255.0 broadcast 192.168.71.255 running index 1
+ipctest: ifaddrs eth0 inet6 fe80::5054:ff:fe00:7101 ffff:ffff:ffff:ffff:: scope 1 running index 1
+ipctest: ifaddrs eth1 inet 192.168.72.1 255.255.255.0 broadcast 192.168.72.255 running index 2
+LINES
+    compare "getifaddrs (43b-6)" "$want" "$(command_output "/system/$ARCH_NAME/test/ipctest ifaddrs")"
     reject "panic"
     show_log_on_failure $before
 }
@@ -9576,7 +10653,7 @@ image_session() {
                  "ls -l /tmp/saved.bmp /tmp/saved.ppm"
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "/system/$ARCH_NAME/apps/imageview.program/imageview /test/solid.ppm &\r"
+    serial_type "/system/$ARCH_NAME/apps/Imageview.program/Imageview /test/solid.ppm &\r"
     serial_wait "imageview: showing" 1 15
     sleep 1
     echo "screendump $WORK/${NAME}-view.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
@@ -9760,35 +10837,292 @@ soundmix_shell_test() {
     show_log_on_failure $before
 }
 
-# tune_session / tune_shell_test: playing a sound file through /dev/pcm0. With
-# an HDA controller present, `tune` decodes a WAV (libaudio), resamples it to
-# the output's 48 kHz, and writes it to /dev/pcm0; QEMU's wav audiodev captures
+# sounddev_session / sounddev_shell_test (68v, the browser agent's request
+# 12): a sound device's delay and reset (OSS's SNDCTL_DSP_GETODELAY and
+# SNDCTL_DSP_RESET through ioctl, SYS_SOUND) and an underrun heard as
+# silence. `toneclient device` plays four constant levels on /dev/pcm0; the
+# capture (QEMU's wav audiodev) is cut into runs of one level (sound_runs):
+# exactly one run of each, in order. The delay goes down as it plays (at
+# 0.5-1.5x real time) and is 0 once all played, the device still open; a
+# reset gives 0 at once, a close in under 50 ms and less sound than the
+# 1 s written; after 1 s without writing the delay is 0 and the sound
+# comes again. A terminal's descriptor is ENOTTY. Proven by a ring not
+# zeroed after playing (its old sound again: more runs), a reset that does
+# nothing (the 1 s heard whole) and a delay that is the ring's alone
+# (never 0 after an underrun).
+sounddev_session() {
+    local n=1 asked=0
+    prompt_wait $n
+    answer_lines "/system/$ARCH_NAME/test/toneclient device"
+    sleep 1
+}
+
+# The runs of one level in a WAV's first channel (|sample| over 300, the
+# level within 15% of the run's start): "LEVEL SECONDS" per run.
+sound_runs() {
+    python3 - "$1" <<'PY'
+import struct, sys
+b = open(sys.argv[1], "rb").read()
+rate, channels, at, data = 44100, 2, 12, b[44:]
+while at + 8 <= len(b):
+    cid, size = b[at:at + 4], struct.unpack("<I", b[at + 4:at + 8])[0]
+    if cid == b"fmt ":
+        channels, rate = struct.unpack("<HI", b[at + 10:at + 16])
+    if cid == b"data":
+        data = b[at + 8:at + 8 + size] if 0 < size <= len(b) - at - 8 else b[at + 8:]
+        break
+    at += 8 + size + (size & 1)
+    if size == 0:
+        break
+step = 2 * channels
+v = [struct.unpack("<h", data[i:i + 2])[0] for i in range(0, len(data) - step + 1, step)]
+runs, level, length, quiet = [], 0, 0, 0
+for x in v:
+    x = abs(x)
+    if x > 300 and (not level or abs(x - level) <= level * 0.15):
+        if not level:
+            level = x
+        length += 1 + quiet
+        quiet = 0
+        continue
+    if level and x <= 300 and quiet < rate // 200:      # (a resampler's dip: 5 ms)
+        quiet += 1
+        continue
+    if level and length > rate // 100:
+        runs.append((level, length))
+    level, length, quiet = (x, 1, 0) if x > 300 else (0, 0, 0)
+if level and length > rate // 100:
+    runs.append((level, length))
+for lv, n in runs:
+    print(lv, "%.3f" % (n / rate))
+PY
+}
+
+sounddev_shell_test() {
+    local image before out runs d0 d1 rate d2 levels
+    image=$(make_image ${P}sounddev "")
+    rm -f "$WORK/${P}sounddev.wav"
+    QEMU_EXTRA="-device intel-hda -device hda-output,audiodev=snd"
+    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/${P}sounddev.wav"
+    before=$failures
+    SERIAL_SCRIPT=sounddev_session
+    boot ${P}sounddev "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    out=$(command_output "/system/$ARCH_NAME/test/toneclient device")
+    runs=$(sound_runs "$WORK/${P}sounddev.wav")
+    read -r d0 d1 rate d2 <<<"$(sed -nE 's/^toneclient: delay: ([0-9-]+) bytes after writing 48000, ([0-9-]+) [0-9]+ ms later \(([0-9]+) bytes\/s played\), ([0-9-]+) after 700 ms$/\1 \2 \3 \4/p' <<<"$out")"
+    check "the delay as it plays: $d0, then $d1 ($rate bytes/s), then $d2 (68v)" \
+          "$(grep -a 'toneclient: delay' <<<"$out")" \
+          eval '[ -n "$d2" ] && [ "$d0" -gt 0 ] && [ "$d0" -le 48000 ] && [ "$d1" -lt "$d0" ] && [ "$rate" -ge 96000 ] && [ "$rate" -le 288000 ] && [ "$d2" = 0 ]'
+    check "a reset: the delay 0 at once, the close at once: $(grep -a 'toneclient: reset' <<<"$out" | sed 's/.*reset: //')" \
+          "$(grep -a 'toneclient: reset' <<<"$out")" \
+          eval 'grep -aqE "^toneclient: reset: 0 \(delay [1-9][0-9]* before, 0 after\), the close in [0-4]?[0-9] ms$" <<<"$out"'
+    check "after an underrun the delay is 0, then the sound again: $(grep -a 'toneclient: underrun' <<<"$out" | sed 's/.*underrun: //')" \
+          "$(grep -a 'toneclient: underrun' <<<"$out")" \
+          eval 'grep -aqE "^toneclient: underrun: delay 0 after 1 s without writing, [1-9][0-9]* after writing 38400 again$" <<<"$out"'
+    expect_line "toneclient: not a sound device: ENOTTY"
+    levels=$(awk '{print $1}' <<<"$runs" | tr '\n' ' ')
+    check "four runs in the capture, one a level, rising: $(tr '\n' ',' <<<"$runs")" "$(tr '\n' ',' <<<"$runs")" \
+          eval '[ "$(wc -l <<<"$runs")" -eq 4 ] && awk "NR > 1 && \$1 <= prev { bad = 1 } { prev = \$1 } END { exit bad }" <<<"$runs"'
+    check "the reset dropped what was buffered: $(sed -n 2p <<<"$runs" | awk '{print $2}') s of the 1 s written heard" \
+          "$(sed -n 2p <<<"$runs")" eval 'awk "NR == 2 { exit !(\$2 > 0.3 && \$2 < 0.85) }" <<<"$runs"'
+    check "the sound after the underrun: $(sed -n 4p <<<"$runs" | awk '{print $2}') s of 0.2 s" \
+          "$(sed -n 4p <<<"$runs")" eval 'awk "NR == 4 { exit !(\$2 > 0.15 && \$2 < 0.3) }" <<<"$runs"'
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# soundd_session / soundd_shell_test (68w, the user's: a sound server on
+# every machine): login makes the elf soundd's file and elvesd starts it.
+# `toneclient rsnd` speaks its messages: the delay of 0.3 s sent (the
+# lead and the device's short buffer on top), 0 a second later; 1 s sent,
+# then a reset: the delay before (the mix's 0.34 s) and after (the
+# device's buffer at most, 10 KiB), less than the 1 s heard. Meanwhile
+# /dev/pcm0 is soundd's (another opener: Device or resource busy), and a
+# second after the sound it is free again. Proven by a soundd that never
+# lets the device go, a reset that takes nothing out, and a kernel that
+# lets two open it.
+soundd_session() {
+    local n=1 asked=0 t="/system/$ARCH_NAME/test/toneclient"
+    prompt_wait $n
+    answer_lines 'elf'
+    serial_type "$t rsnd & sleep 1; echo x > /dev/pcm0; wait; sleep 2; echo x > /dev/pcm0; echo free-rc=\$?\r"
+    n=$((n + 1)); prompt_wait $n 40
+    sleep 1
+}
+
+soundd_shell_test() {
+    local image before out runs
+    SOUNDD=on
+    image=$(make_image ${P}soundd "")
+    SOUNDD=
+    rm -f "$WORK/${P}soundd.wav"
+    QEMU_EXTRA="-device intel-hda -device hda-output,audiodev=snd"
+    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/${P}soundd.wav"
+    before=$failures
+    SERIAL_SCRIPT=soundd_session
+    boot ${P}soundd "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    expect_line "login: /system/config/elves/soundd made: the elf soundd mixes the programs' sound"
+    check "elf: soundd running" "$(command_output 'elf')" \
+          eval 'command_output elf | grep -Eq "^soundd +on +running \(process [0-9]+\) +soundd$"'
+    out=$(grep -a "toneclient: rsnd" <<<"$TEXT")
+    local d0 d1 before_r after_r
+    read -r d0 d1 <<<"$(sed -nE 's/^toneclient: rsnd: delay ([0-9-]+) bytes after sending 57600, ([0-9-]+) after 1 s$/\1 \2/p' <<<"$out")"
+    read -r before_r after_r <<<"$(sed -nE 's/^toneclient: rsnd: reset: delay ([0-9-]+) before, ([0-9-]+) after$/\1 \2/p' <<<"$out")"
+    check "soundd's delay: $d0 bytes after 57600 sent, $d1 after 1 s (68w)" "$out" \
+          eval '[ -n "$d1" ] && [ "$d0" -ge 57600 ] && [ "$d0" -le 90000 ] && [ "$d1" = 0 ]'
+    check "soundd's reset: the delay $before_r before, $after_r after (68w)" "$out" \
+          eval '[ -n "$after_r" ] && [ "$before_r" -gt 40000 ] && [ "$after_r" -le 12288 ]'
+    expect_line "sh: /dev/pcm0: Device or resource busy"
+    expect_line "free-rc=0"
+    runs=$(sound_runs "$WORK/${P}soundd.wav")
+    check "the capture: the 0.3 s, then less of the 1 s than was sent: $(tr '\n' ',' <<<"$runs")" \
+          "$(tr '\n' ',' <<<"$runs")" \
+          eval 'awk "NR == 1 && \$2 > 0.25 && \$2 < 0.35 { a = 1 } NR == 2 && \$2 > 0.3 && \$2 < 0.85 { b = 1 } END { exit !(a && b && NR == 2) }" <<<"$runs"'
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# volume_session / volume_shell_test (68x, the user's names): soundd's
+# master volume. A tone of 8000 sent to soundd at volume 100, 50, muted
+# and 60: the capture holds three runs, the second an eighth of the first
+# (50 cubed), the third 0.216 of it, nothing while muted; `volume` says
+# each change, refuses 150 (exit 2), and +10 counts from what it is;
+# /system/config/sound has the lines and the volume survives soundd's
+# restart. Proven by a mix the volume does not scale, a mute that does
+# nothing and a soundd that does not read its file at the start.
+volume_session() {
+    local n=1 asked=0 t="/system/$ARCH_NAME/test/toneclient"
+    prompt_wait $n
+    answer_lines 'volume' 'volume 150; echo usage-rc=$?' "$t 8000 14400; sleep 1" 'volume 40' 'volume +10' \
+                 "$t 8000 14400; sleep 1" 'volume mute' "$t 8000 14400; sleep 1" 'volume unmute' \
+                 'volume 60' "$t 8000 14400; sleep 1" "grep -v '^#' /system/config/sound" \
+                 'elf restart soundd; sleep 4; volume'
+    sleep 1
+}
+
+volume_shell_test() {
+    local image before runs
+    SOUNDD=on
+    image=$(make_image ${P}volume "")
+    SOUNDD=
+    rm -f "$WORK/${P}volume.wav"
+    QEMU_EXTRA="-device intel-hda -device hda-output,audiodev=snd"
+    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/${P}volume.wav"
+    before=$failures
+    SERIAL_SCRIPT=volume_session
+    boot ${P}volume "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    compare "volume: as it starts" "volume 100" "$(command_output 'volume')"
+    expect_line "usage: volume [N | +N | -N | mute | unmute]"
+    expect_line "usage-rc=2"
+    compare "volume 40" "volume 40" "$(command_output 'volume 40')"
+    compare "volume +10 from 40" "volume 50" "$(command_output 'volume +10')"
+    compare "volume mute" "volume 50 (muted)" "$(command_output 'volume mute')"
+    compare "volume unmute" "volume 50" "$(command_output 'volume unmute')"
+    compare "/system/config/sound's lines" "$(printf 'volume = 60\nmute = no')" \
+            "$(command_output "grep -v '^#' /system/config/sound")"
+    compare "the volume after soundd's restart" "volume 60" \
+            "$(command_output 'elf restart soundd; sleep 4; volume' | grep '^volume')"
+    runs=$(sound_runs "$WORK/${P}volume.wav")
+    check "the capture at 100, 50 (an eighth), muted (nothing), 60 (0.216): $(tr '\n' ',' <<<"$runs")" \
+          "$(tr '\n' ',' <<<"$runs")" \
+          eval 'awk "NR == 1 { a = \$1 } NR == 2 { b = \$1 } NR == 3 { c = \$1 } END { exit !(NR == 3 && b > a * 0.110 && b < a * 0.140 && c > a * 0.195 && c < a * 0.240) }" <<<"$runs"'
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# sound_span FILE: the seconds from a WAV capture's first loud sample (over
+# 300) to its last.
+sound_span() {
+    python3 - "$1" <<'PY'
+import struct, sys
+b = open(sys.argv[1], "rb").read()
+rate, channels, at, data = 44100, 2, 12, b[44:]
+while at + 8 <= len(b):
+    cid, size = b[at:at + 4], struct.unpack("<I", b[at + 4:at + 8])[0]
+    if cid == b"fmt ":
+        channels, rate = struct.unpack("<HI", b[at + 10:at + 16])
+    if cid == b"data":
+        data = b[at + 8:at + 8 + size] if 0 < size <= len(b) - at - 8 else b[at + 8:]
+        break
+    at += 8 + size + (size & 1)
+    if size == 0:
+        break
+step = 2 * channels
+loud = [i for i in range(0, len(data) - step + 1, step) if abs(struct.unpack("<h", data[i:i + 2])[0]) > 300]
+print("%.3f" % ((loud[-1] - loud[0]) / step / rate if loud else 0))
+PY
+}
+
+# tune_session / tune_shell_test [soundd]: playing a sound file. With an HDA
+# controller present, `tune` decodes a WAV (libaudio), resamples it to the
+# output's 48 kHz, and writes it to /dev/pcm0; QEMU's wav audiodev captures
 # it and the host confirms it is not silent -- the whole path, program to
 # speaker. Proven by the capture being silent if /dev/pcm0 drops the data.
+# (68y) With `soundd` the image runs the sound server and tune goes through
+# it: at `volume 50` the capture's peak is an eighth of the file's (32767:
+# about 4096), and `tune ...; volume mute` still has the whole 0.18 s heard
+# (tune ends only once soundd played it). Proven by a tune that writes
+# /dev/pcm0 itself (the peak whole) and one that does not wait (the end
+# muted). (68z, the user's: sound only for local and root users) anna's
+# tune and volume, a background job through root's su while root's sleep
+# has the console, are refused by soundd: tune falls back to /dev/pcm0,
+# which says "Permission denied", and volume says so. Proven by a soundd
+# that does not ask (anna's tune plays).
 tune_session() {
     local n=1 asked=0
     prompt_wait $n
-    answer_lines "/system/$ARCH_NAME/bin/tune /test/snd.wav"
+    if [ -n "$TUNE_SOUNDD" ]; then
+        answer_lines 'volume 50' "/system/$ARCH_NAME/bin/tune /test/snd.wav; volume mute" 'volume unmute' \
+                     'useradd anna' \
+                     'echo "tune /test/snd.wav; volume" | su anna > /tmp/anna.txt 2>&1 & sleep 5; cat /tmp/anna.txt'
+    else
+        answer_lines "/system/$ARCH_NAME/bin/tune /test/snd.wav"
+    fi
     sleep 1
 }
 
 tune_shell_test() {
-    local image before peak
-    image=$(make_image ${P}tune "")
+    local image before peak span name=${P}tune
+    [ "${1:-}" = soundd ] && name=${P}tunesoundd SOUNDD=on
+    image=$(make_image $name "")
+    SOUNDD=
     python3 "$ROOT/scripts/mkwav.py" "$WORK/${P}snd.wav" >/dev/null
     $RFS put "$image" $RFS_PART /test/snd.wav "$WORK/${P}snd.wav" >/dev/null || exit 1
+    rm -f "$WORK/$name.wav"
     QEMU_EXTRA="-device intel-hda -device hda-output,audiodev=snd"
-    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/${P}tune.wav"
+    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/$name.wav"
     before=$failures
+    TUNE_SOUNDD=${1:-}
     SERIAL_SCRIPT=tune_session
-    boot ${P}tune "$image" "RitterOS kernel: boot complete"
+    boot $name "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
+    TUNE_SOUNDD=
     QEMU_EXTRA=
     expect "tune: playing /test/snd.wav"
     expect "tune: done"
-    peak=$(python3 "$ROOT/scripts/wavpeak.py" "$WORK/${P}tune.wav" 2>/dev/null || echo 0)
-    check "tune played audible sound (peak $peak, want > 3000)" "silent capture" \
-          test "$peak" -gt 3000
+    peak=$(python3 "$ROOT/scripts/wavpeak.py" "$WORK/$name.wav" 2>/dev/null || echo 0)
+    if [ "${1:-}" = soundd ]; then
+        span=$(sound_span "$WORK/$name.wav")
+        check "tune through soundd at volume 50: peak $peak, want an eighth of 32767 (68y)" \
+              "peak $peak" eval '[ "$peak" -gt 3500 ] && [ "$peak" -lt 4700 ]'
+        check "tune ended once heard: $span s of the 0.181 s before the mute (68y)" "span $span" \
+              eval 'awk "BEGIN { exit !($span > 0.165 && $span < 0.2) }"'
+        compare "volume after tune" "volume 50 (muted)" \
+                "$(command_output "/system/$ARCH_NAME/bin/tune /test/snd.wav; volume mute" | grep '^volume')"
+        compare "a user not at the console: refused by soundd, then the device (68z)" \
+                "$(printf '%s\n' 'tune: /dev/pcm0: Permission denied' \
+                   'volume: the sound server did not answer (it plays for root and the user at the console only)')" \
+                "$(command_output 'echo "tune /test/snd.wav; volume" | su anna > /tmp/anna.txt 2>&1 & sleep 5; cat /tmp/anna.txt' | grep -E '^(tune|volume):')"
+    else
+        check "tune played audible sound (peak $peak, want > 3000)" "silent capture" \
+              test "$peak" -gt 3000
+    fi
     reject "panic"
     show_log_on_failure $before
 }
@@ -10568,6 +11902,8 @@ cc_session() {
         'cc -o /tmp/wc /src/user/bin/wc.c' \
         ': wc-ours; /tmp/wc /readme.txt' \
         ': wc-system; wc /readme.txt' \
+        'cc -o /tmp/opt /src/opt.c' \
+        ': getopt; /tmp/opt -v x -w -u rest' \
         'cd /tmp' \
         'cc -c /src/user/bin/hello.c' \
         ': object; test -f /tmp/hello.o && echo object made' \
@@ -10604,6 +11940,21 @@ cc_shell_test() {
     [ "$model" = max ] && [ "$ARCH_NAME" != x86_64 ] && return 0
     image=$(make_image ${P}cc$model "")
     printf 'value VALUE\n' > "$WORK/${P}cc-e.c"
+    # (46b) getopt's variables are libritteros's data: cc's code reaches
+    # them through the GOT, ld links them, ld.so binds them
+    cat > "$WORK/${P}cc-opt.c" <<'C'
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc, char **argv)
+{
+    int c;
+    opterr = 0;
+    while ((c = getopt(argc, argv, "v:w")) != -1)
+        printf("option %c %s optopt %c\n", c, optarg ? optarg : "-", c == '?' ? optopt : '-');
+    printf("optind %d next %s\n", optind, optind < argc ? argv[optind] : "-");
+    return 0;
+}
+C
     printf 'int main(void)\n{\n    return missing;\n}\n' > "$WORK/${P}cc-bad.c"
     printf '#ifdef __AVX__\nint avx;\n#endif\n#ifdef __AVX2__\nint avx2;\n#endif\n#ifdef __FMA__\nint fma;\n#endif\n' \
         > "$WORK/${P}cc-m.c"
@@ -10618,6 +11969,7 @@ image, root, e, bad, m, vabi = sys.argv[1:7]
 sys.path.insert(0, os.path.join(root, 'scripts'))
 import ritterfs
 files = {'/src/e.c': open(e, 'rb').read(), '/src/bad.c': open(bad, 'rb').read(), '/src/m.c': open(m, 'rb').read(),
+         '/src/opt.c': open(e.replace('cc-e.c', 'cc-opt.c'), 'rb').read(),
          '/src/avxcode.c': open(os.path.join(root, 'scripts/vabi/avxcode.c'), 'rb').read()}
 if os.path.exists(vabi):
     files['/src/vabi1.o'] = open(vabi, 'rb').read()
@@ -10705,6 +12057,9 @@ PY
     fi
     compare "wc built by cc counts as the system's wc" "$(command_output ': wc-system; wc /readme.txt')" \
             "$(command_output ': wc-ours; /tmp/wc /readme.txt')"
+    compare "getopt's variables in a program cc built (46b: the library's data, through the GOT)" \
+            "$(printf 'option v x optopt -\noption w - optopt -\noption ? - optopt u\noptind 5 next rest')" \
+            "$(command_output ': getopt; /tmp/opt -v x -w -u rest')"
     compare "cc -c made hello.o" "object made" "$(command_output ': object; test -f /tmp/hello.o && echo object made')"
     compare "cc -S made assembly with main" "1" "$(command_output ': assembly; grep -c "^main:" /tmp/hello.s')"
     expect_line "value 42"
@@ -10745,7 +12100,7 @@ userconf_session() {
     n=$((n + 1)); prompt_wait $n 30
     answer_lines 'ls /home/anna/.config' 'echo "# the window system is my interface" > .config/login' \
                  'echo windowd >> .config/login' \
-                 'echo "startup = imageview /test/solid.ppm" > .config/windows'
+                 'echo "startup = Imageview /test/solid.ppm" > .config/windows'
     serial_type 'exit\r'
     login_wait 3
     serial_type 'anna\r'
@@ -10767,10 +12122,16 @@ userconf_shell_test() {
     SERIAL_SCRIPT=
     readme_size=$(command_output 'ls /home/root/.config' | awk '$2 == "README" {print $1}')
     names=$(command_output 'ls /home/root/.config' | awk '{print $2}' | LC_ALL=C sort | tr '\n' ' ')
-    compare "root's ~/.config, made at the first start" "README filetypes login windows " "$names"
+    compare "root's ~/.config, made at the first start" "README filetypes keyring login windows " "$names"
     check "its README says what goes there" "README $readme_size bytes" test "${readme_size:-0}" -gt 200
+    # (70b) keyring: root's is the test image's (open_at_login = no), anna's
+    # login's default
     compare "anna's ~/.config, made at her first login (the same files)" \
-            "$(command_output 'ls /home/root/.config')" "$(command_output 'ls /home/anna/.config')"
+            "$(command_output 'ls /home/root/.config' | grep -v ' keyring$')" \
+            "$(command_output 'ls /home/anna/.config' | grep -v ' keyring$')"
+    compare "anna's ~/.config/keyring: login's default (70b)" \
+            "$(printf '%10d  keyring' "$(printf '%s' "$(sed -n '/^#define SETTINGS_USER_KEYRING_TEXT/,/^$/p' "$ROOT/common/settings_defaults.h" | sed -n 's/^ *"\(.*\)" *\\*$/\1/p' | tr -d '\n')" | sed 's/\\n/X/g' | wc -c | tr -d ' ')")" \
+            "$(command_output 'ls /home/anna/.config' | grep ' keyring$')"
     # her second login: no command typed, the window system and her picture
     expect "windowd: listening on /run/windowd"
     expect "imageview: showing /test/solid.ppm (200x150)"
@@ -10813,13 +12174,13 @@ wuser_session() {
     n=$((n + 1)); prompt_wait $n 30
     serial_type "/system/$ARCH_NAME/bin/windowd &\r"
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "/system/$ARCH_NAME/apps/imageview.program/imageview /test/solid.ppm &\r"
+    serial_type "/system/$ARCH_NAME/apps/Imageview.program/Imageview /test/solid.ppm &\r"
     serial_wait "imageview: showing" 1 15
     sleep 1
     echo "screendump $WORK/${NAME}-anna.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
     sleep 0.5
     SSH_ASKPASS="$WORK/${P}askpass-bob" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 \
-        mac_ssh wuser-window "${bob[@]}" bob@127.0.0.1 "/system/$ARCH_NAME/apps/imageview.program/imageview /test/solid.ppm"
+        mac_ssh wuser-window "${bob[@]}" bob@127.0.0.1 "/system/$ARCH_NAME/apps/Imageview.program/Imageview /test/solid.ppm"
     serial_wait "windowd: refused a program" 1 15
 }
 
@@ -10963,6 +12324,110 @@ drawtest_host() {
             "$ROOT/user/test/drawtest.c" "$ROOT/user/lib/draw.c" 2>"$1/drawtest.err"
 }
 
+# hidpointer_host_test (68m-3): kernel/hid.c's mouse layer on the Mac (no
+# QEMU mouse has a horizontal wheel): scripts/hidpointer_host.c's report
+# descriptors (QEMU's usb-mouse; report ID 2 with 12-bit X and Y and AC Pan
+# as a two-byte usage beside a Consumer Control report 3; AC Pan as an
+# extended usage; an absolute pointer) and reports packed by hand: where
+# each field lies, and the values read back. Proven by AC Pan looked for on
+# the Generic Desktop page and by a reader that ignores the report ID.
+hidpointer_host_test() {
+    local d="$WORK/hidpointer" out want
+    NAME=${P}hidpointer                     # (no boot names it)
+    mkdir -p "$d/stub"
+    printf '#include_next <string.h>\n' >"$d/stub/string.h"
+    if ! /usr/bin/clang -std=c11 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+             -Wall -Wextra -Werror -Wno-gnu-include-next -iquote "$d/stub" -iquote "$ROOT/kernel" \
+             -o "$d/hidpointer_host" "$ROOT/scripts/hidpointer_host.c" "$ROOT/kernel/hid.c" \
+             2>"$d/build.err"; then
+        check "hidpointer_host builds on the Mac" "$(head -3 "$d/build.err")" false
+        return
+    fi
+    out=$("$d/hidpointer_host" 2>&1)
+    want_text want <<'LINES'
+qemu: report 0, 4 bytes, x 8 bits at 8, y 8 at 16, wheel 8 at 24, pan 0 at 0, buttons 1 1 1
+qemu 01 fd 03 01: dx -3 dy 3 wheel 1 pan 0 buttons 1
+qemu 06 7f 81 ff: dx 127 dy -127 wheel -1 pan 0 buttons 6
+qemu 01 02: not its report
+ids: report 2, 7 bytes, x 12 bits at 16, y 12 at 28, wheel 8 at 40, pan 8 at 48, buttons 1 1 1
+ids 02 05 00 fb cf 12 ff 02: dx -5 dy 300 wheel -1 pan 2 buttons 5
+ids 02 00 80 01 10 80 00 fe: dx 1 dy -2047 wheel 0 pan -2 buttons 0
+ids 03 e9 00: not its report
+ids 02 01 00: not its report
+extended: report 0, 6 bytes, x 8 bits at 8, y 8 at 16, wheel 16 at 24, pan 8 at 40, buttons 1 1 1
+extended 02 10 f0 78 00 fe: dx 16 dy -16 wheel 120 pan -2 buttons 2
+absolute: 9 fields, no relative pointer
+LINES
+    compare "HID mice in report protocol: fields, report IDs, both wheels (68m-3)" "$want" "$out"
+}
+
+# malloc_host_test (68o): user/lib/malloc.c on the Mac under ASan and
+# UBSan (scripts/malloc_host.c includes it with its functions renamed, a
+# stub ritteros.h for its lock): 3,000 blocks of 2-120 KiB freed in a random
+# order give every arena back but one; then 400,000 calls of every kind
+# (small, arena-sized, mappings, aligned, calloc, realloc) with each block's
+# pattern checked before it goes and the whole heap walked every 1,000
+# calls (blocks tiling the arenas, the marks of the block below, no free
+# neighbours, footers, the class lists and their bits, the spare arena).
+# Proven by a free that does not join its upper neighbour, a search that
+# takes its own class's first block unchecked (UBSan: past the arena), and
+# leftovers under MIN_FREE kept free (footers over the links).
+malloc_host_test() {
+    local d="$WORK/malloc" out
+    NAME=${P}mallochost                     # (no boot names it)
+    mkdir -p "$d/stub"
+    printf '%s\n' '#include <stdint.h>' '#define SYS_FUTEX 78' '#define FUTEX_WAIT 0' \
+           '#define FUTEX_WAKE 1' '#define syscall6(...) ((void)0)' >"$d/stub/ritteros.h"
+    if ! /usr/bin/clang -std=c11 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+             -Wall -Wextra -Werror -iquote "$d/stub" -iquote "$ROOT/user/lib" \
+             -o "$d/malloc_host" "$ROOT/scripts/malloc_host.c" 2>"$d/build.err"; then
+        check "malloc_host builds on the Mac" "$(head -3 "$d/build.err")" false
+        return
+    fi
+    out=$("$d/malloc_host" 2>&1)
+    check "the heap's arenas, lists and joins hold over 400,000 calls (68o)" \
+          "the heap on the Mac: $(grep -E "FAIL|runtime error|ERROR" <<<"$out" | head -3 | tr '\n' ' ')" \
+          eval '[ "$(tail -1 <<<"$out")" = "malloc_host: all ok" ] && [ "$(grep -c " ok" <<<"$out")" = 3 ]'
+}
+
+# sdkarchive_host_test (69m, the browser agent's request 16): a static
+# library built by the SDK's CMake (sdk/ritteros.cmake) and by its Meson
+# (sdk/ritteros.meson), from a.c and b.c, then again from a.c alone: the
+# archive holds only a.c's object. CMake's rule was `zig ar rcs`, which adds
+# to the archive already there: b.c's object stayed, and a linker could
+# take it over the new code (Compass's canvas encoders). Meson's own rule
+# removes the archive first. On the Mac, once. Proven by the old CMake rule.
+sdkarchive_host_test() {
+    local d="$WORK/sdkarchive" out zig="$ROOT/tools/zig/zig" sys
+    NAME=${P}sdkarchivehost                 # (no boot names it)
+    rm -rf "$d"
+    mkdir -p "$d/cmake" "$d/meson"
+    for sys in cmake meson; do
+        printf 'int part_a(void) { return 1; }\n' >"$d/$sys/a.c"
+        printf 'int part_b(void) { return 2; }\n' >"$d/$sys/b.c"
+    done
+    printf '%s\n' 'cmake_minimum_required(VERSION 3.20)' 'project(parts C)' \
+        'if(TWO)' '  add_library(parts STATIC a.c b.c)' 'else()' '  add_library(parts STATIC a.c)' 'endif()' \
+        >"$d/cmake/CMakeLists.txt"
+    printf '%s\n' "project('parts', 'c')" "src = ['a.c']" "if get_option('two')" "  src += ['b.c']" 'endif' \
+        "static_library('parts', src)" >"$d/meson/meson.build"
+    printf "option('two', type: 'boolean', value: true)\n" >"$d/meson/meson_options.txt"
+    sed -e "s/^arch = .*/arch = '$ARCH_NAME'/" -e "s|^ritteros = .*|ritteros = '$ROOT'|" \
+        "$ROOT/sdk/ritteros.meson" >"$d/ritteros.meson"
+    ( export PATH="$ROOT/tools/venv/bin:$PATH"
+      cmake -S "$d/cmake" -B "$d/cmake/build" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$ROOT/sdk/ritteros.cmake" \
+            -DRITTEROS_ARCH=$ARCH_NAME -DTWO=ON && cmake --build "$d/cmake/build" &&
+          cmake -S "$d/cmake" -B "$d/cmake/build" -DTWO=OFF && cmake --build "$d/cmake/build" &&
+          cd "$d/meson" && meson setup build --cross-file "$d/ritteros.meson" && meson compile -C build &&
+          meson configure build -Dtwo=false && meson compile -C build
+      echo "exit $?" ) >"$d/build.log" 2>&1
+    out="cmake: $("$zig" ar t "$d/cmake/build/libparts.a" 2>&1 | tr '\n' ' ')meson: $("$zig" ar t "$d/meson/build/libparts.a" 2>&1 | tr '\n' ' ')"
+    check "the SDK's builds ran (CMake twice, Meson twice)" "$(grep -v '^exit 0$' "$d/build.log" | tail -3 | tr '\n' ' ')" \
+          eval '[ "$(tail -1 "$d/build.log")" = "exit 0" ]'
+    check "a static library rebuilt without b.c keeps no b.c object (69m)" "$out" \
+          eval '[[ "$out" = "cmake: a.c.o meson: "*"a.c.o " ]] && ! grep -q "b\.c" <<<"$out"'
+}
+
 # pngenc_host_test (41h-2): libimage's DEFLATE compressor and PNG writer
 # built on the Mac under ASan and UBSan (scripts/pngenc_host.c, the
 # library's own files with a stub ritteros.h), read back by Python's zlib
@@ -10978,7 +12443,10 @@ pngenc_host_test() {
     local out d="$WORK/pngenc"
     NAME=${P}pngenc                         # (no boot names it)
     mkdir -p "$d/stub"
-    printf '#include <stddef.h>\n#include <stdint.h>\n#include "crc32.h"\n' >"$d/stub/ritteros.h"
+    # (68n) RitterOS's programs' name for the IEEE CRC-32 (46a), as the library's
+    printf '#include <stddef.h>\n#include <stdint.h>\n#include "crc32.h"\n%s\n' \
+           'static inline uint32_t ritteros_crc32(const void *d, size_t n) { return crc32_ieee(d, n); }' \
+           >"$d/stub/ritteros.h"
     if ! /usr/bin/clang -std=c11 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
              -Wall -Wextra -Werror -iquote "$d/stub" -iquote "$ROOT/user/include" \
              -iquote "$ROOT/user/lib" -iquote "$ROOT/common" -o "$d/pngenc_host" \
@@ -11419,7 +12887,7 @@ widget_session() {
     sleep 1
     serial_type "$t/widgettest drop &\r"
     serial_wait "widgettest: drop ready" 1 15
-    serial_type "/system/$ARCH_NAME/apps/owl.program/owl /home/root/d &\r"
+    serial_type "/system/$ARCH_NAME/apps/Owl.program/Owl /home/root/d &\r"
     serial_wait "owl: started" 1 15
     sleep 1.5
     {   echo '{"execute":"qmp_capabilities"}'; sleep 0.3                 # onto note.txt, pressed, moved
@@ -11651,7 +13119,7 @@ wtermsel_session() {
     prompt_wait $n
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "/system/$ARCH_NAME/apps/term.program/term &\r"   # the text from (bx,124), 9x15 cells
+    serial_type "/system/$ARCH_NAME/apps/Term.program/Term &\r"   # the text from (bx,124), 9x15 cells
     serial_wait "term: started" 1 15
     sleep 2
     keys e c h o spc h e l l o spc w o r l d ret      # row 1: "hello world"
@@ -11768,7 +13236,15 @@ wsteady_shell_test() {
 # scroll bar the last page (35-61). term running cat of 100 lines: two
 # steps up scroll back 6 lines; a press at the top of its bar the whole
 # scrollback. Driven over QMP. Proven by a windowd that drops the wheel and
-# an owl without its bar.
+# an owl without its bar. (68m-1) Sideways: wclicks (the third window) prints
+# each WINDOW_SCROLL; x86's PS/2 mouse is an IntelliMouse Explorer (two
+# wheels): wheel-right, then wheel-left, are x 1 and -1; on both, Shift with
+# the wheel down is x 1 (windowd's rule). Proven by a kernel that drops the
+# horizontal wheel and a windowd without the Shift rule. (68m-2) `widgettest
+# entry` (80 digits in a one-line entry, wider than it): three sideways steps
+# (Shift with the wheel), then a click at its left edge lands 96 pixels in.
+# Proven by an entry without the sideways steps. (69k: iBrowser's WheelEvent
+# and wide page went with it.)
 wscroll_session() {
     local n=1 t="/system/$ARCH_NAME/apps" q="$WORK/qmp.sock" curx cury ox=0 tx
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400 tx=880; else curx=400 cury=300 tx=789; fi
@@ -11778,11 +13254,12 @@ wscroll_session() {
             nc -w 3 -U "$q" >>"$WORK/${NAME}-qmp.txt" 2>&1; }
     rel() { printf '{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"%s","value":%d}}]}}' "$1" "$2"; }
     btn() { printf '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"%s","down":%s}}]}}' "$1" "$2"; }
+    key() { printf '{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":%s,"key":{"type":"qcode","data":"%s"}}}]}}' "$2" "$1"; }
     moveto() { qmp "$(rel x $(( $1 - curx )))" "$(rel y $(( $2 - cury )))"; curx=$1; cury=$2; }
     prompt_wait $n
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "$t/owl /test/scroll &\r"
+    serial_type "$t/Owl.program/Owl /test/scroll &\r"
     serial_wait "owl: started" 1 15
     sleep 1
     moveto 400 300                                       # over owl's list
@@ -11792,7 +13269,7 @@ wscroll_session() {
     moveto $((818 + ox)) 556                             # the bottom of owl's scroll bar
     qmp "$(btn left true)" "$(btn left false)"
     serial_wait "owl: showing rows" 2 10
-    serial_type "$t/term cat /test/text/lorem.txt &\r"
+    serial_type "$t/Term.program/Term cat /test/text/lorem.txt &\r"
     serial_wait "term: started" 1 15
     sleep 2
     moveto 400 300                                       # over term's text
@@ -11803,10 +13280,42 @@ wscroll_session() {
     qmp "$(btn left true)" "$(btn left false)"
     serial_wait "term: scrolled back" 2 10
     sleep 0.5
+    serial_type "/system/$ARCH_NAME/test/wclicks 1 &\r"  # (68m-1) at 180,180: content 184,204
+    serial_wait "wclicks: ready" 1 15
+    sleep 1
+    moveto 400 300                                       # over wclicks
+    local scrolls=1
+    if [ "$ARCH_NAME" = x86_64 ]; then
+        qmp "$(btn wheel-right true)" "$(btn wheel-right false)"
+        serial_wait "wclicks: scroll" 1 10
+        qmp "$(btn wheel-left true)" "$(btn wheel-left false)"
+        serial_wait "wclicks: scroll" 2 10
+        scrolls=3
+    fi
+    qmp "$(key shift true)" "$(btn wheel-down true)" "$(btn wheel-down false)" "$(key shift false)"
+    serial_wait "wclicks: scroll" $scrolls 10
+    sleep 0.5
+    qmp "$(btn left true)" "$(btn left false)"           # wclicks ends: its place is free
+    serial_wait "wclicks: done" 1 10
+    serial_type "/system/$ARCH_NAME/test/widgettest entry &\r"   # (68m-2) at 180,180 too
+    serial_wait "widgettest: ready" 1 15
+    sleep 1.5
+    moveto 300 218                                       # over the entry
+    qmp "$(key shift true)" "$(btn wheel-down true)" "$(btn wheel-down false)" \
+        "$(btn wheel-down true)" "$(btn wheel-down false)" "$(btn wheel-down true)" \
+        "$(btn wheel-down false)" "$(key shift false)"
+    sleep 0.5
+    moveto 194 218                                       # its left edge
+    qmp "$(btn left true)" "$(btn left false)"
+    sleep 0.5
+    qmp "$(key tab true)" "$(key tab false)"; sleep 0.4
+    qmp "$(key ret true)" "$(key ret false)"             # Done
+    serial_wait "widgettest: done" 1 15
+    sleep 0.5
 }
 
 wscroll_shell_test() {
-    local image before f
+    local image before want
     image=$(make_image ${P}wscroll "")
     windows_bare "$image"
     printf 'file\n' >"$WORK/${P}one.txt"
@@ -11819,13 +13328,18 @@ wscroll_shell_test() {
     boot ${P}wscroll "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
     QEMU_EXTRA=
-    [ "$ARCH_NAME" = x86_64 ] && expect "PS/2 mouse on the i8042 (port 2) with a wheel"
+    [ "$ARCH_NAME" = x86_64 ] && expect "PS/2 mouse on the i8042 (port 2) with two wheels"
     expect_line "owl: showing rows 7-33 of 61"
     expect_line "owl: showing rows 35-61 of 61"
     check "two wheel steps up: term scrolled back 6 lines" "$(grep -a 'term: scrolled back' <<<"$TEXT" | head -1)" \
           eval 'grep -aq "^term: scrolled back 6 of [0-9][0-9]* lines" <<<"$TEXT"'
     check "its bar's top: the whole scrollback" "$(grep -a 'term: scrolled back' <<<"$TEXT" | tail -1)" \
           eval 'grep -a "^term: scrolled back" <<<"$TEXT" | tail -1 | grep -qE "back ([0-9]+) of \1 lines"'
+    want="wclicks: scroll 1,0"                         # (68m-1) Shift with the wheel down
+    [ "$ARCH_NAME" = x86_64 ] && want=$(printf 'wclicks: scroll 1,0\nwclicks: scroll -1,0\nwclicks: scroll 1,0')
+    compare "sideways: the horizontal wheel and Shift with the wheel (68m-1)" "$want" \
+            "$(grep -a '^wclicks: scroll' <<<"$TEXT")"
+    expect_line "widgettest: run 1, entry cursor 11"   # (68m-2: 96 pixels in)
     reject "panic"
     show_log_on_failure $before
 }
@@ -11839,7 +13353,7 @@ wscroll_shell_test() {
 # opens it. The pointer is driven over QMP. Proven by the old rule (the slow
 # pair opens it) and a windowd ignoring the setting.
 wdouble_session() {
-    local n=1 t="/system/$ARCH_NAME/apps/owl.program/owl" q="$WORK/qmp.sock" curx cury dx=0
+    local n=1 t="/system/$ARCH_NAME/apps/Owl.program/Owl" q="$WORK/qmp.sock" curx cury dx=0
     if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
     [ "$ARCH_NAME" = aarch64 ] && dx=-28                  # (owl's window at x 72 on ARM, 25e)
     qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
@@ -11915,12 +13429,12 @@ wfit_session() {
     prompt_wait $n
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "/system/$ARCH_NAME/apps/imageview.program/imageview /test/big.ppm &\r"
+    serial_type "/system/$ARCH_NAME/apps/Imageview.program/Imageview /test/big.ppm &\r"
     serial_wait "imageview: showing" 1 30
     sleep 2
     echo "screendump $WORK/${NAME}-picture.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
     sleep 0.5
-    serial_type "/system/$ARCH_NAME/apps/reel.program/reel /test/big.rvid &\r"
+    serial_type "/system/$ARCH_NAME/apps/Reel.program/Reel /test/big.rvid &\r"
     serial_wait "reel: done" 1 60
     sleep 2
     echo "screendump $WORK/${NAME}-video.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
@@ -11960,38 +13474,67 @@ wfit_shell_test() {
 # under windowd with an HDA controller present: a screenshot during the first
 # frame shows its colour, and QEMU captures the audio track (non-silent).
 # Proven by the host hash differing from a wrong decode.
+# (68y) `video_shell_test soundd`: the image runs the sound server and reel
+# goes through it: at `volume 50` the capture's peak is an eighth of the
+# track's (about 4096), and `q` 0.3 s into the 1 s track stops the sound at
+# once (0.35-0.62 s heard: the key's way there varies). The video is 1 fps
+# there, so its next frame is at the track's end: a reel whose sound stops
+# only when the frames do plays it whole. Proven by that reel and by one
+# that writes /dev/pcm0 itself (the peak whole). The reset that drops what
+# reel sent ahead (0.2 s at most: 0.62 s against 0.77 without it on x86) is
+# within the key's variation: soundd_shell_test checks the reset itself.
 video_session() {
     local n=1 asked=0 mon="$WORK/monitor.sock"
     prompt_wait $n
     answer_lines "/system/$ARCH_NAME/test/videotest /test/clip.rvid"
+    [ -n "$VIDEO_SOUNDD" ] && answer_lines 'volume 50'
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "/system/$ARCH_NAME/apps/reel.program/reel /test/clip.rvid &\r"
+    serial_type "/system/$ARCH_NAME/apps/Reel.program/Reel /test/clip.rvid &\r"
     serial_wait "reel: playing" 1 15
-    sleep 0.4                                            # within the first frame (2 fps)
-    echo "screendump $WORK/${NAME}-frame.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
+    if [ -n "$VIDEO_SOUNDD" ]; then
+        sleep 0.3
+        echo "sendkey q" | nc -w 3 -U "$mon" >/dev/null 2>&1
+    else
+        sleep 0.4                                        # within the first frame (2 fps)
+        echo "screendump $WORK/${NAME}-frame.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
+    fi
     serial_wait "reel: done" 1 15
+    sleep 1
 }
 
 video_shell_test() {
-    local image before w h hash peak
+    local image before w h hash peak span name=${P}video fps=2
     if [ "$ARCH_NAME" = x86_64 ]; then w=1280 h=800; else w=800 h=600; fi
-    image=$(make_image ${P}video "")
+    [ "${1:-}" = soundd ] && name=${P}videosoundd SOUNDD=on fps=1
+    image=$(make_image $name "")
+    SOUNDD=
     windows_bare "$image"
-    hash=$(python3 "$ROOT/scripts/mkvideo.py" "$WORK/${P}clip.rvid")
+    hash=$(python3 "$ROOT/scripts/mkvideo.py" "$WORK/${P}clip.rvid" 160 120 $fps)
     $RFS put "$image" $RFS_PART /test/clip.rvid "$WORK/${P}clip.rvid" >/dev/null || exit 1
+    rm -f "$WORK/$name.wav"
     QEMU_EXTRA="-device intel-hda -device hda-output,audiodev=snd"
-    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/${P}video.wav"
+    QEMU_EXTRA+=" -audiodev wav,id=snd,path=$WORK/$name.wav"
     [ "$ARCH_NAME" = aarch64 ] && QEMU_EXTRA+=" -device usb-mouse,bus=xhci.0,port=2"
     before=$failures
+    VIDEO_SOUNDD=${1:-}
     SERIAL_SCRIPT=video_session
-    boot ${P}video "$image" "RitterOS kernel: boot complete"
+    boot $name "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
+    VIDEO_SOUNDD=
     QEMU_EXTRA=
-    expect "videotest: /test/clip.rvid 160x120 2fps 3frames audio sha256 $hash"
-    check_screen region-106-142-12-12-255-128-0 $w $h "$WORK/${P}video-frame.ppm"    # the frame marker (any frame; below the menu bar)
-    peak=$(python3 "$ROOT/scripts/wavpeak.py" "$WORK/${P}video.wav" 2>/dev/null || echo 0)
-    check "reel played the audio track (peak $peak, want > 3000)" "silent" test "$peak" -gt 3000
+    expect "videotest: /test/clip.rvid 160x120 ${fps}fps 3frames audio sha256 $hash"
+    peak=$(python3 "$ROOT/scripts/wavpeak.py" "$WORK/$name.wav" 2>/dev/null || echo 0)
+    if [ "${1:-}" = soundd ]; then
+        span=$(sound_span "$WORK/$name.wav")
+        check "reel through soundd at volume 50: peak $peak, want an eighth of 32767 (68y)" \
+              "peak $peak" eval '[ "$peak" -gt 3500 ] && [ "$peak" -lt 4700 ]'
+        check "reel's sound stopped with q: $span s of the 1 s track (68y)" "span $span" \
+              eval 'awk "BEGIN { exit !($span > 0.1 && $span < 0.75) }"'
+    else
+        check_screen region-106-142-12-12-255-128-0 $w $h "$WORK/${P}video-frame.ppm"    # the frame marker (any frame; below the menu bar)
+        check "reel played the audio track (peak $peak, want > 3000)" "silent" test "$peak" -gt 3000
+    fi
     reject "panic"
     show_log_on_failure $before
 }
@@ -12111,7 +13654,14 @@ audio_shell_test() {
 # exercises calloc/realloc, and forces several kernel arenas. Proven by a
 # deliberate heap bug failing the pattern check. Since 22h: four threads at
 # once (proven by a heap without its lock) and memory given back after free
-# (proven by a heap that keeps every arena).
+# (proven by a heap that keeps every arena). (68o) Blocks of 2-120 KiB
+# replaced in random slots, some aligned (`mid`): the arenas' size classes
+# and joins by marks and footers (malloc_host_test proves those on the Mac).
+# (68r) `contention`: four threads x 200,000 blocks on the lock at once, the
+# time shown; proven, with the threads part, by a lock that lets a second
+# thread in (blocks changed). Fairness is not checked here: with two cores
+# the threads hardly overlap in QEMU (a starving lock passed too); it was
+# measured on the VivoBook and the UTM VM.
 malloc_session() {
     local n=1 asked=0
     prompt_wait $n
@@ -12128,7 +13678,11 @@ malloc_shell_test() {
     expect "malloctest: many ok"
     expect "malloctest: calloc/realloc ok"
     expect "malloctest: big ok"
+    expect "malloctest: mid ok (1200 blocks of 2-120 KiB, 12000 replaced)"
     expect "malloctest: threads ok"
+    check "four threads on the heap's lock: $(grep -ao "contention: .*" <<<"$TEXT" | head -1) (68r)" \
+          "$(grep -a "malloctest: contention" <<<"$TEXT")" \
+          eval 'grep -aq "malloctest: contention: 4 threads x 200000 blocks ok in [0-9]* ms" <<<"$TEXT"'
     expect "malloctest: give back ok"
     expect "malloctest: all ok"
     reject "malloctest: FAIL"
@@ -12151,7 +13705,14 @@ malloc_shell_test() {
 # writable (fault-relro). Since 22j: writing through a shared mapping reaches
 # the file with msync and with munmap, and a child's write is seen in this
 # program's mapping at once; proven by a msync that writes nothing back and
-# by private copies for shared mappings.
+# by private copies for shared mappings. (45c) Four 64 GiB PROT_NONE
+# reservations with MAP_NORESERVE, pieces opened and mapped over: no cost
+# until touched; proven by a library that passes MAP_NORESERVE on (the
+# kernel refuses the flag: none is made).
+# (45d) JIT memory: a memory file mapped RW and RX, code written through
+# one called through the other, rewritten and called again; proven on ARM
+# by a kernel that lets programs not clean caches (__clear_cache's first
+# instruction faults).
 mmap_session() {
     local n=1 t="/system/$ARCH_NAME/test/mmaptest"
     prompt_wait $n
@@ -12167,7 +13728,8 @@ mmap_shell_test() {
     SERIAL_SCRIPT=mmap_session
     boot ${P}mmap "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
-    for name in anonymous "malloc past 16 MiB" lazy copy-on-write file "file at an offset" \
+    for name in anonymous "malloc past 16 MiB" lazy "reservations of 4 x 64 GiB" \
+                "JIT: a memory file mapped writable and executable" copy-on-write file "file at an offset" \
                 "private copy" sharing versions "fixed in a reservation" "split and replaced" \
                 "refused: writable and executable" "refused: writing a shared file open for reading" \
                 "refused: no such descriptor" "refused: an offset off a page" "refused: no length" \
@@ -12184,6 +13746,73 @@ mmap_shell_test() {
     expect "mmaptest: all ok"
     reject "FAILED"
     reject "panic"
+    show_log_on_failure $before
+}
+
+# ipc_session / ipc_shell_test: memory files (43b-3), (45b) SOCK_SEQPACKET
+# sockets (ipctest's seqpacket checks; proven by a packet connection read
+# as a stream: boundaries and MSG_TRUNC lost), (45e) a semaphore in a
+# memory file and an eventfd passed to another program (posix_spawn) that
+# posts and writes (proven by futexes keyed by the address alone: the
+# memory lies elsewhere there, the wait times out). ipctest checks a
+# memfd read, written, sized and mapped (twice, by a forked child, passed
+# over a socket to one), SIGBUS past its end and once cut down under a
+# mapping, the seals, shm_open's names, madvise, named and shared unnamed
+# semaphores across fork, a futex woken through another mapping, and the
+# pages given back; (43b-4) eventfd and timerfd (Linux's rules); then the
+# shell sees /dev/shm: a name ipctest left there
+# listed, read by cat, removed by rm. Proven by futexes keyed by the
+# address alone (the semaphores time out, the futex is never woken) and by
+# a cut that frees the pages without taking them out of the processes
+# (the child reads the page instead of SIGBUS); (43b-4) by a poll that
+# ignores a timer's next expiry (it waits its whole 2 s).
+ipc_session() {
+    local n=1 t="/system/$ARCH_NAME/test"
+    prompt_wait $n
+    answer_lines "$t/ipctest /tmp/ipc" "$t/ipctest keep kept" 'ls -l /dev/shm' 'cat /dev/shm/kept' \
+                 'ls -l /dev' 'rm /dev/shm/kept' 'ls /dev/shm' 'cat /dev/shm/kept'
+}
+
+ipc_shell_test() {
+    local image before name
+    image=$(make_image ${P}ipc "")
+    before=$failures
+    SERIAL_SCRIPT=ipc_session
+    boot ${P}ipc "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    for name in "memfd read and write" "ftruncate longer, pread, pwrite, the end" \
+                "mapped twice: one memory with read and write" "a forked child's writes" \
+                "MAP_PRIVATE to read" "passed over a socket and mapped" \
+                "seqpacket: boundaries kept" "seqpacket: a long message cut, MSG_TRUNC" \
+                "seqpacket: 64 KiB the most, then EMSGSIZE" "seqpacket: SO_TYPE" \
+                "seqpacket: write and read whole messages" "seqpacket: O_NONBLOCK, never half a message" \
+                "seqpacket: the peer's close after its messages" \
+                "seqpacket: a named listener, a descriptor with its message" "past the end: SIGBUS" \
+                "cut down under a mapping: SIGBUS" "a cut inside a page: the rest reads 0" \
+                "without MFD_ALLOW_SEALING: sealed" F_SEAL_SHRINK F_SEAL_GROW F_SEAL_WRITE \
+                "F_SEAL_WRITE: MAP_FIXED refused, the old mapping kept" F_SEAL_SEAL \
+                "shm_open by name" "shm_unlink: the name gone, the memory kept" \
+                "madvise: anonymous memory zeroed" "madvise: shared memory kept" \
+                "madvise: a private file mapping the file's again" "sem_open across fork" \
+                "sem_close, sem_unlink" "an unnamed semaphore in shared memory" \
+                "a futex woken through another mapping" "eventfd counts" "eventfd poll and its limit" \
+                EFD_SEMAPHORE "eventfd read waits for a write" "eventfd: a forked child's write ends a poll" \
+                "timerfd once: poll wakes at its time" "timerfd every 50 ms" "timerfd disarmed" \
+                "timerfd at a time: read waits for it" "timerfd_create: an unknown clock" \
+                "a semaphore and an eventfd across programs" "pages given back"; do
+        expect "ipctest: $name ok"
+    done
+    expect "ipctest: all ok"
+    check "ls -l /dev/shm: the name, 15 bytes, mode 644" "$(command_output 'ls -l /dev/shm')" \
+          eval '[ "$(command_output "ls -l /dev/shm" | grep -c "^-rw-r--r--   1     0     0         15 .* kept$")" = 1 ]'
+    compare "cat /dev/shm/kept" "kept in memory" "$(command_output 'cat /dev/shm/kept' 1)"
+    check "ls -l /dev: shm, a folder everyone writes (1777)" "$(command_output 'ls -l /dev' | grep ' shm/$')" \
+          eval '[ "$(command_output "ls -l /dev" | grep -c "^drwxrwxrwt .* shm/$")" = 1 ]'
+    compare "rm /dev/shm/kept: gone" "" "$(command_output 'ls /dev/shm')"
+    expect_line "cat: /dev/shm/kept: No such file or directory"
+    reject "FAILED"
+    reject "panic"
+    reject "RitterOS crash"
     show_log_on_failure $before
 }
 
@@ -12827,1525 +14456,6 @@ tls_server() {
     host_service_wait "$4" ACCEPT
 }
 
-# ibrowser_session / ibrowser_shell_test: iBrowser (27a). The Mac serves a
-# small site over HTTP (python's http.server) and HTTPS (openssl s_server
-# -WWW, the test root added to the image's store): a page with a title, a
-# centred navy heading, a paragraph with a link, a box styled by a linked
-# style sheet (background, border, padding), a list, a table and a PNG
-# picture; a second page linking back; and the same page as a file on the
-# disk. iBrowser runs with -t (it prints each page's text and links): the
-# page's text as laid out, the link's address made absolute, the picture
-# loaded (its colour on the screen, and the box's), a click on the link (its
-# place from the -t lines) opens the second page, Backspace comes back, q
-# quits; then the HTTPS copy and the local file. Proven by a CSS that
-# ignores linked sheets (the box's colour is missing) and a layout that
-# makes links relative to the root (the click finds nothing).
-# (27b) The Mac's server is python's http.server with three extras: it
-# sends packed.html gzip-packed (with a length) and chunked.html
-# zlib-packed in chunks, and it logs the Accept-Encoding asked for. A long
-# page is opened at its #mid (an id), where a click on its link "#end" (an
-# <a name>) scrolls further without a reload, and Backspace returns to
-# #mid; a missing #part shows the page's top. Proven by an iBrowser that
-# drops the fragment again (no scroll: the click misses its link).
-# (27c) A page with two forms (form.html; -t lists each control's place):
-# the first sent by GET after typing into its text field, ticking its
-# checkbox and choosing a select's third option from its list with the
-# mouse; Back, then the second by keys only: Tab to a password, typing,
-# Tab to a textarea, two lines, Tab, Tab and Space to the second radio
-# button, Tab to the button, Enter: a POST, answered with 303 and a GET
-# of /done. The server logs both; the result pages show what came.
-# (27d) layout.html: a left and a right float with a paragraph between
-# them, a cleared block, two inline-blocks, a relative link, an absolute
-# box in a relative holder, two overlapping absolute boxes whose z-index
-# paints the earlier one on top, and a fixed box at the view's bottom.
-# The links' places (-t) show where CSS puts each; the screen shows the
-# floats and the overlap; after End a click on the fixed link (where the
-# window shows it) follows it.
-# (27e) slow.html has two pictures the server sends after 4 seconds each:
-# End is pressed while they come, and the page must have scrolled before
-# they are shown (and stay there after).
-ibrowser_session() {
-    local n=1 asked=0 q="$WORK/qmp.sock" mon="$WORK/monitor.sock" base lx ly cx cy
-    local web="http://10.0.2.2:$NET_HTTP_PORT" curx cury
-    if [ "$ARCH_NAME" = x86_64 ]; then curx=640 cury=400; else curx=400 cury=300; fi
-    qmp() { local c; { echo '{"execute":"qmp_capabilities"}'; sleep 0.3
-                       for c in "$@"; do echo "$c"; sleep 0.15; done; } |
-            nc -w 3 -U "$q" >>"$WORK/${NAME}-qmp.txt" 2>&1; }
-    rel() { printf '{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"%s","value":%d}}]}}' "$1" "$2"; }
-    btn() { printf '{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":%s}}]}}' "$1"; }
-    moveto() { qmp "$(rel x $(( $1 - curx )))" "$(rel y $(( $2 - cury )))"; curx=$1; cury=$2; }
-    key() { echo "sendkey $1" | nc -w 3 -U "$mon" >/dev/null 2>&1; }
-    prompt_wait $n
-    dhcp_wait eth0 10.0.2.15
-    dnsd_wait
-    serial_type 'windowd &\r'
-    serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "ibrowser -t $web/index.html &\r"
-    serial_wait "ibrowser: 1 picture(s) shown" 1 40
-    serial_wait "ibrowser: link 0 at" 1 10
-    sleep 1
-    echo "screendump $WORK/${NAME}-page.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    # The link's place: the window's content at (104, 140) (slot 0, with its
-    # menu bar), the page below the 28-pixel tool bar.
-    # (15y) a drag across "Go to the" (the paragraph's first piece, at 8,82 on the
-    # page) selects it; Ctrl+C copies it; wfield reads the clipboard.
-    moveto $((104 + 8 + 1)) $((140 + 28 + 82 + 8))
-    qmp "$(btn true)" "$(rel x 75)" "$(btn false)"
-    curx=$((curx + 75))
-    key ctrl-c
-    sleep 0.5
-    serial_type "\r"
-    serial_type "/system/$ARCH_NAME/test/wfield paste\r"
-    serial_wait "wfield: clipboard" 1 15
-    base=$(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 0 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | head -1)
-    lx=${base% *} ly=${base#* }
-    cx=$((104 + lx + 6)) cy=$((140 + 28 + ly + 6))
-    moveto $cx $cy
-    qmp "$(btn true)" "$(btn false)"
-    serial_wait "ibrowser: page $web/two.html" 1 20
-    sleep 0.5
-    key backspace
-    serial_wait "ibrowser: page $web/index.html" 2 20
-    serial_wait "ibrowser: 1 picture(s) shown" 2 20
-    sleep 0.5
-    key q
-    sleep 1
-    serial_type "\r"
-    serial_type "ibrowser -t https://test.local:$NET_TLS_PORT/index.html &\r"
-    serial_wait "ibrowser: 1 picture(s) shown" 3 40
-    sleep 0.5
-    key q
-    sleep 1
-    serial_type "\r"
-    serial_type "ibrowser -t /test/www/index.html &\r"
-    serial_wait "ibrowser: 1 picture(s) shown" 4 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-file.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27b) #part: opened at #mid, a click on its "#end" link, Backspace
-    local ymid
-    serial_type "\r"
-    serial_type "ibrowser -t $web/long.html#mid &\r"
-    serial_wait "ibrowser: scrolled to y" 1 40
-    serial_wait "ibrowser: link 1 at" 1 10
-    sleep 1
-    ymid=$(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: scrolled to y \([0-9]*\) for #mid$/\1/p' | head -1)
-    base=$(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 1 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | head -1)
-    lx=${base% *} ly=${base#* }
-    if [ -n "$ymid" ] && [ -n "$lx" ]; then
-        moveto $((104 + lx + 6)) $((140 + 28 + ly - ymid + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: scrolled to y" 2 20
-        sleep 0.5
-        key backspace
-        serial_wait "ibrowser: scrolled to y" 3 20
-    fi
-    sleep 0.5
-    key q
-    sleep 1
-    # (27b) packed pages: gzip with a length (and a #part not on the page),
-    # zlib in chunks
-    serial_type "\r"
-    serial_type "ibrowser -t $web/packed.html#nowhere &\r"
-    serial_wait "ibrowser: page $web/packed.html" 1 40
-    sleep 1
-    key q
-    sleep 1
-    serial_type "\r"
-    serial_type "ibrowser -t $web/chunked.html &\r"
-    serial_wait "ibrowser: page $web/chunked.html" 1 40
-    sleep 1
-    key q
-    sleep 1
-    # (27c) forms: the first with the mouse and typing, the second by keys
-    local c k
-    ctl() { tr -d '\r' <"$WORK/$NAME.log" |
-            sed -n "s/^ibrowser: control $1 at \([0-9]*\),\([0-9]*\) \([0-9]*\)x\([0-9]*\): .*/\1 \2 \3 \4/p" | tail -1; }
-    keys() { for k in "$@"; do key "$k"; sleep 0.15; done; }
-    serial_type "\r"
-    serial_type "ibrowser -t $web/form.html &\r"
-    serial_wait "ibrowser: control 9 at" 1 40
-    sleep 1
-    c=($(ctl 0))
-    if [ ${#c[@]} = 4 ]; then
-        moveto $((104 + c[0] + 10)) $((168 + c[1] + c[3] / 2))
-        qmp "$(btn true)" "$(btn false)"
-        sleep 0.5
-        keys h e l l o spc w o r l d
-        c=($(ctl 1))
-        moveto $((104 + c[0] + c[2] / 2)) $((168 + c[1] + c[3] / 2))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: now [checkbox: exact=yes on]" 1 10
-        c=($(ctl 2))
-        moveto $((104 + c[0] + c[2] / 2)) $((168 + c[1] + c[3] / 2))
-        qmp "$(btn true)" "$(btn false)"
-        sleep 1
-        echo "screendump $WORK/${NAME}-form.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-        sleep 0.5
-        moveto $((104 + c[0] + 10)) $((168 + c[1] + c[3] + 1 + 2 * 18 + 9))   # (the list's third row)
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: now [select: lang=German]" 1 10
-        c=($(ctl 3))
-        moveto $((104 + c[0] + c[2] / 2)) $((168 + c[1] + c[3] / 2))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: page $web/echo?" 1 20
-        sleep 0.5
-        key backspace
-        serial_wait "ibrowser: page $web/form.html" 2 20
-        sleep 1
-        keys tab tab tab tab tab tab s e c r e t 1 tab t w o ret l i n e s tab tab spc tab ret
-        serial_wait "ibrowser: page $web/done" 1 20
-    fi
-    sleep 0.5
-    key q
-    sleep 1
-    # (27e) scrolling while the pictures come
-    serial_type "\r"
-    serial_type "ibrowser -t $web/slow.html &\r"
-    serial_wait "ibrowser: loaded $web/slow.html" 1 40
-    sleep 1
-    key end
-    serial_wait "ibrowser: 2 picture(s) shown" 1 40
-    sleep 0.5
-    key q
-    sleep 1
-    # (27d) floats and positioning
-    serial_type "\r"
-    serial_type "ibrowser -t $web/layout.html &\r"
-    serial_wait "ibrowser: link 8 at" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-layout.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key end
-    sleep 1
-    c=($(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 8 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | tail -1))
-    if [ ${#c[@]} = 2 ]; then
-        moveto $((104 + c[0] + 6)) $((168 + c[1] + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: following $web/fixed" 1 20
-    fi
-    sleep 0.5
-    key q
-    sleep 1
-    # (27f) CSS
-    serial_type "\r"
-    serial_type "ibrowser -t $web/css.html &\r"
-    serial_wait "ibrowser: page $web/css.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-css.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27h) the look (its pictures come before the shot)
-    serial_type "\r"
-    serial_type "ibrowser -t $web/look.html &\r"
-    serial_wait "ibrowser: 2 picture(s) shown" 2 40      # (the first: 27e's page)
-    sleep 1
-    echo "screendump $WORK/${NAME}-look.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27i) tables
-    serial_type "\r"
-    serial_type "ibrowser -t $web/tables.html &\r"
-    serial_wait "ibrowser: page $web/tables.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-tables.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27j) SVG (its <img> comes before the shot)
-    serial_type "\r"
-    serial_type "ibrowser -t $web/svg.html &\r"
-    serial_wait "ibrowser: page $web/svg.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-svg.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27n) grids
-    serial_type "\r"
-    serial_type "ibrowser -t $web/grid.html &\r"
-    serial_wait "ibrowser: page $web/grid.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-grid.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27p) scripts (the page sends the browser on to after.html)
-    serial_type "\r"
-    serial_type "ibrowser -t $web/scripts.html &\r"
-    serial_wait "ibrowser: page $web/after.html" 1 40
-    sleep 0.5
-    key q
-    sleep 1
-    # (27q) <noscript> and <meta> refresh
-    serial_type "\r"
-    serial_type "ibrowser -t $web/noscript.html &\r"
-    serial_wait "ibrowser: page $web/after.html" 2 40
-    sleep 0.5
-    key q
-    sleep 1
-    # (27q) cookies
-    serial_type "\r"
-    serial_type "ibrowser -t $web/setcookies &\r"
-    serial_wait "ibrowser: page $web/showcookies" 1 40
-    sleep 0.5
-    key q
-    sleep 1
-    # (27r) fetch and XMLHttpRequest
-    serial_type "\r"
-    serial_type "ibrowser -t $web/requests.html &\r"
-    serial_wait "ibrowser: console: requests: done" 1 60
-    sleep 0.5
-    key q
-    sleep 1
-    # (27q) a load that waits: the window still scrolls by hand, Escape stops
-    # it, the Stop button stops the next; the third gives up after 30 s, and
-    # so does the silent server's
-    serial_type "\r"
-    serial_type "ibrowser -t $web/stop.html &\r"
-    serial_wait "ibrowser: page $web/stop.html" 1 40
-    sleep 1
-    local scrolled
-    c=($(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 0 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | tail -1))
-    if [ ${#c[@]} = 2 ]; then
-        moveto $((104 + c[0] + 6)) $((168 + c[1] + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: following http://10.0.2.2:$NET_CLOSED_PORT/x" 1 10
-        sleep 1
-        scrolled=$(tr -d '\r' <"$WORK/$NAME.log" | grep -c "^ibrowser: scrolled by hand")
-        key end
-        serial_wait "ibrowser: scrolled by hand" $((scrolled + 1)) 10
-        key esc
-        serial_wait "ibrowser: stopped" 1 10
-        key home
-        serial_wait "ibrowser: scrolled by hand" $((scrolled + 2)) 10
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: following http://10.0.2.2:$NET_CLOSED_PORT/x" 2 10
-        sleep 1
-        moveto $((104 + 28 + 12)) $((140 + 14))     # (the Stop button, after Back)
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: stopped" 2 10
-        moveto $((104 + c[0] + 6)) $((168 + c[1] + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: http://10.0.2.2:$NET_CLOSED_PORT/x: 10.0.2.2: the server did not answer" 1 60
-        sleep 0.5
-        key backspace
-        serial_wait "ibrowser: page $web/stop.html" 2 40
-        sleep 1
-        c=($(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 1 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | tail -1))
-        moveto $((104 + c[0] + 6)) $((168 + c[1] + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: $web/silent: 10.0.2.2: the server did not answer" 1 60
-        # the page with dead files: the window scrolls while they are fetched
-        # ahead, and again while an inserted one waits after the page is shown
-        sleep 0.5
-        key backspace
-        serial_wait "ibrowser: page $web/stop.html" 3 40
-        sleep 1
-        c=($(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 2 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | tail -1))
-        moveto $((104 + c[0] + 6)) $((168 + c[1] + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: following $web/dead.html" 1 10
-        sleep 1
-        scrolled=$(tr -d '\r' <"$WORK/$NAME.log" | grep -c "^ibrowser: scrolled by hand")
-        key end
-        serial_wait "ibrowser: scrolled by hand" $((scrolled + 1)) 10
-        serial_wait "ibrowser: page $web/dead.html" 1 60
-        sleep 1
-        key end
-        serial_wait "ibrowser: scrolled by hand" $((scrolled + 2)) 10
-        serial_wait "ibrowser: script error: http://10.0.2.2:$NET_CLOSED_PORT/d.js" 1 60
-    fi
-    sleep 0.5
-    key q
-    sleep 1
-    # (27q) events and timers: the box red, then a click on the link (the
-    # page cancels it and starts a timer that turns the box green), the check
-    # box (canceled), keys into the field (x canceled), Enter twice
-    serial_type "\r"
-    serial_type "ibrowser -t $web/events.html &\r"
-    serial_wait "ibrowser: console: order: interval 3" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-events.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    c=($(tr -d '\r' <"$WORK/$NAME.log" | sed -n 's/^ibrowser: link 0 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p' | tail -1))
-    if [ ${#c[@]} = 2 ]; then
-        moveto $((104 + c[0] + 6)) $((168 + c[1] + 6))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: console: a timer changed the page" 1 20
-        sleep 1
-        echo "screendump $WORK/${NAME}-events-timer.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-        sleep 0.5
-    fi
-    c=($(ctl 0))
-    if [ ${#c[@]} = 4 ]; then
-        moveto $((104 + c[0] + c[2] / 2)) $((168 + c[1] + c[3] / 2))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: console: checkbox click canceled" 1 10
-    fi
-    c=($(ctl 1))
-    if [ ${#c[@]} = 4 ]; then
-        moveto $((104 + c[0] + 10)) $((168 + c[1] + c[3] / 2))
-        qmp "$(btn true)" "$(btn false)"
-        serial_wait "ibrowser: console: focus on t" 1 10
-        sleep 0.5
-        keys a b x
-        serial_wait "ibrowser: console: keypress x canceled" 1 10
-        key ret
-        serial_wait "ibrowser: console: submit canceled with ab" 1 10
-        sleep 0.5
-        key ret
-        serial_wait "ibrowser: page $web/echo?q=ab" 1 20
-    fi
-    sleep 0.5
-    key q
-    sleep 1
-    # (27m) boxes
-    serial_type "\r"
-    serial_type "ibrowser -t $web/boxes.html &\r"
-    serial_wait "ibrowser: page $web/boxes.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-boxes.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-    # (27k) the fonts
-    serial_type "\r"
-    serial_type "ibrowser -t $web/fonts.html &\r"
-    serial_wait "ibrowser: page $web/fonts.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-fonts.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    # a drag over Times's "i"s (5 pixels each) from page x 11 to 33: the third
-    # to the seventh (clear of the window's edge, where a press resizes it)
-    moveto $((104 + 11)) $((168 + 8))
-    qmp "$(btn true)" "$(rel x 22)" "$(btn false)"
-    curx=$((curx + 22))
-    key ctrl-c
-    sleep 0.5
-    key q
-    sleep 1
-    serial_type "\r"
-    serial_type "/system/$ARCH_NAME/test/wfield paste\r"
-    serial_wait "wfield: clipboard" 2 15
-    # (27g) flexbox
-    serial_type "\r"
-    serial_type "ibrowser -t $web/flex.html &\r"
-    serial_wait "ibrowser: page $web/flex.html" 1 40
-    sleep 1
-    echo "screendump $WORK/${NAME}-flex.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
-    sleep 0.5
-    key q
-    sleep 1
-}
-
-ibrowser_shell_test() {
-    local image before c="$WORK/${P}certs" dns web tls_pids="" w h www page_lines want
-    if [ ! -x /usr/bin/openssl ]; then
-        echo "SKIP  ${P}ibrowser: no /usr/bin/openssl"
-        return
-    fi
-    if [ "$ARCH_NAME" = x86_64 ]; then w=1280 h=800; else w=800 h=600; fi
-    rm -rf "$c"
-    sh "$ROOT/scripts/testcerts.sh" "$c" || exit 1
-    www="$c/www"
-    mkdir -p "$www"
-    cat >"$www/index.html" <<'HTML'
-<!DOCTYPE html>
-<html><head><title>The  test
-  site</title>
-<link rel="stylesheet" href="style.css">
-<style>h1 { color: navy; text-align: center } body { font-family: fixed }</style></head>
-<body>
-<h1>Hello &amp; welcome</h1>
-<p>Go to the <a href="two.html">second page</a> or stay.</p>
-<div class="box">A styled box</div>
-<ul><li>one<li>two</ul>
-<table><tr><th>Name<th>Size<tr><td>pic.png<td>40x30</table>
-<p><img src="pic.png" alt="a picture"></p>
-</body></html>
-HTML
-    printf '.box { background-color: #ffd27f; border: 3px solid #006400; padding: 10px }\n' \
-        >"$www/style.css"
-    printf '<title>Second</title><p>This is the second page. <a href="index.html">Back to the first</a>.</p>\n' \
-        >"$www/two.html"
-    python3 - "$www/pic.png" <<'PY'
-import struct, sys, zlib
-w, h = 40, 30
-raw = b"".join(b"\0" + bytes([200, 40, 160]) * w for _ in range(h))
-def chunk(t, d):
-    return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
-png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + \
-      chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
-open(sys.argv[1], "wb").write(png)
-PY
-    image=$(make_image ${P}ibrowser "")
-    windows_bare "$image"                   # (no owl at the start: iBrowser is window 0)
-    for f in index.html style.css two.html pic.png; do
-        $RFS put "$image" $RFS_PART "/test/www/$f" "$www/$f" >/dev/null || exit 1
-    done
-    printf 'address = dhcp\ndns = 10.0.2.2:%s\n' $NET_DNS_PORT >"$WORK/${P}network"
-    $RFS put "$image" $RFS_PART /system/config/network/eth0 "$WORK/${P}network" >/dev/null || exit 1
-    cat "$ROOT/certs/cacert.pem" "$c/root.crt" >"$WORK/${P}cacert.pem"
-    $RFS put "$image" $RFS_PART /system/certs/cacert.pem "$WORK/${P}cacert.pem" >/dev/null || exit 1
-    guard_rules "$image" "drop out tcp $NET_CLOSED_PORT"   # (27q: a server that never answers)
-    python3 "$ROOT/scripts/testdns.py" $NET_DNS_PORT test.local=10.0.2.2 >"$WORK/${P}testdns.log" 2>&1 &
-    dns=$!
-    {   # (27b) a long page with #parts, and the pages served packed
-        printf '<title>Long</title>\n<p id="top">The top. <a href="#end">To the end</a></p>\n'
-        for i in $(seq 1 60); do printf '<p>Filler %d before the middle.</p>\n' $i; done
-        printf '<h2 id="mid">The middle</h2>\n<p>Here: <a href="#end">on to the end</a> or <a href="two.html">elsewhere</a>.</p>\n'
-        for i in $(seq 1 60); do printf '<p>Filler %d after the middle.</p>\n' $i; done
-        printf '<p><a name="end">The end</a> of the story.</p>\n'
-        for i in $(seq 1 40); do printf '<p>Filler %d after the end.</p>\n' $i; done
-    } >"$www/long.html"
-    { printf '<title>Packed</title>\n'
-      for i in $(seq 1 40); do printf '<p>Line %d of the packed page.</p>\n' $i; done; } >"$www/packed.html"
-    { printf '<title>Chunked</title>\n'
-      for i in $(seq 1 40); do printf '<p>Line %d of the chunked page.</p>\n' $i; done; } >"$www/chunked.html"
-    cat >"$www/form.html" <<'HTML'
-<title>Forms</title>
-<form action="echo" method="get">
-<p>Search: <input name="q" size="20"> <input type="checkbox" name="exact" value="yes"> exact</p>
-<p><select name="lang"><option>English<option value="es">Spanish<option>German</select></p>
-<p><input type="submit" name="go" value="Search"></p>
-</form>
-<form action="echo" method="post">
-<p><input name="user" value="anna"> <input type="password" name="pw"></p>
-<p><textarea name="note" rows="3" cols="30"></textarea></p>
-<p><input type="radio" name="size" value="s" checked> small <input type="radio" name="size" value="l"> large <button>Send</button></p>
-</form>
-HTML
-    {   # (27d) floats and positioning
-        cat <<'HTML'
-<title>Layout</title>
-<style>
-body { margin: 8px; font-family: fixed }
-.l { float: left; width: 100px; height: 60px; background: #c00000; margin-right: 10px }
-.r { float: right; width: 80px; height: 40px; background: #0000c0 }
-.clear { clear: both; background: #00a000 }
-.ib { display: inline-block; width: 120px; background: #e0e000; padding: 4px }
-.rel { position: relative; left: 30px; top: 5px }
-.holder { position: relative; height: 100px; background: #dddddd }
-.abs { position: absolute; top: 10px; right: 20px; width: 90px; background: #a000a0 }
-.low { position: absolute; left: 0; top: 0; width: 60px; height: 60px; background: #00c0c0; z-index: 3 }
-.high { position: absolute; left: 30px; top: 30px; width: 60px; height: 60px; background: #c06000; z-index: 2 }
-.fix { position: fixed; bottom: 0; left: 0; width: 200px; background: #303030; color: white }
-</style>
-<div class="l"></div><div class="r"></div>
-<p>Beside the floats: <a href="beside">a link</a> and more words to fill the line until it wraps around the two floats on both sides of it.</p>
-<div class="clear"><a href="cleared">below them</a></div>
-<p><span class="ib"><a href="one">box one</a></span> <span class="ib"><a href="two">box two</a></span> after</p>
-<p>Moved: <span class="rel"><a href="moved">relative</a></span></p>
-<div class="holder"><div class="abs"><a href="abs">absolute</a></div>
-<div class="low"><a href="low">low</a></div><div class="high"><a href="high">high</a></div></div>
-<div class="fix"><a href="fixed">fixed</a></div>
-HTML
-        for i in $(seq 1 60); do printf '<p>Filler %d</p>\n' $i; done
-    } >"$www/layout.html"
-    # (27f) the CSS of today's pages: a stripe each, red unless the rule
-    # under test makes it green (or white or blue where that is right)
-    cat >"$www/css.html" <<'HTML'
-<title>CSS</title>
-<style>
-body { margin: 0; font-family: fixed }
-.s { height: 12px; background: red }
-:root { --ok: green; --w: 100px }
-#s1 { background: var(--ok) }
-#s2 { background: var(--missing, green) }
-@media (min-width: 400px) { #s3 { background: green } }
-.g { background: green }
-@media print { #s4 { background: red } }
-#s5[data-k^="ab"][data-l~="b"] { background: green }
-.w > div:first-child { background: green }
-.w > div:nth-child(2n) { background: green }
-#s8:not(.no) { background: green }
-:is(#s9, #zz) { background: green }
-#s9 + div { background: green }
-#s1 ~ #s11 { background: green }
-#s12 { background: green !important }
-#s12.x { background: red }
-#s13 { background: green !important }
-.p14 { background: green }
-#s14 { background: inherit }
-#s15 { width: calc(100px + 2 * 25px); background: green }
-#s16::before { content: "X"; display: block; height: 12px; background: green }
-#s17 { width: 50vw; background: green }
-.r { background: red }
-#s19 { width: clamp(100px, 10%, 300px); background: green }
-@supports (color: red) { #s20 { background: green } }
-@supports not (color: red) { #s20 { background: red } }
-@media (max-width: 300px) { #s21 { background: red } }
-@media screen and (width >= 500px) { #s22 { background: var(--ok) } }
-#s23 { width: var(--w); background: green }
-#s24 { width: calc(50% + 20px); background: green }
-@media (min-width: 700px) { #s25 { background: green } }
-@media (max-width: 699px) { #s25 { background: blue } }
-</style>
-<div class="s" id="s1"></div>
-<div class="s" id="s2"></div>
-<div class="s" id="s3"></div>
-<div class="s g" id="s4"></div>
-<div class="s" id="s5" data-k="abc" data-l="a b c"></div>
-<div class="w"><div class="s" id="s6"></div><div class="s" id="s7"></div></div>
-<div class="s" id="s8"></div>
-<div class="s" id="s9"></div>
-<div class="s" id="s10"></div>
-<div class="s" id="s11"></div>
-<div class="s x" id="s12"></div>
-<div class="s" id="s13" style="background: red"></div>
-<div class="p14"><div class="s" id="s14"></div></div>
-<div class="s" id="s15"></div>
-<div class="s" id="s16" style="height: auto"></div>
-<div class="s" id="s17"></div>
-<div style="background: green"><div class="s r" id="s18" style="background: initial"></div></div>
-<div class="s" id="s19"></div>
-<div class="s" id="s20"></div>
-<div class="s g" id="s21"></div>
-<div class="s" id="s22"></div>
-<div class="s" id="s23"></div>
-<div class="s" id="s24"></div>
-<div class="s" id="s25"></div>
-<p><a href="end">the end</a></p>
-HTML
-    # (27h) the look: borders by side, corners, a shadow, alpha, a gradient,
-    # opacity, overflow, visibility, background pictures, line-height and
-    # text-transform; tile.png is blue on its left half, yellow on its right
-    python3 - "$www/tile.png" <<'PY'
-import struct, sys, zlib
-w, h = 20, 10
-raw = b"".join(b"\0" + bytes([0, 0, 255]) * 10 + bytes([255, 255, 0]) * 10 for _ in range(h))
-def chunk(t, d):
-    return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
-png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + \
-      chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
-open(sys.argv[1], "wb").write(png)
-PY
-    cat >"$www/look.html" <<'HTML'
-<title>Look</title>
-<style>
-body { margin: 0 }
-div.r { width: 400px; margin-bottom: 4px }
-#a { border-bottom: 4px solid #ff0000; height: 16px }
-#b { border: 4px solid; border-color: #ff0000 #00ff00 #0000ff #ffff00; height: 12px; box-sizing: border-box; height: 20px }
-#c { background: rgb(0, 0, 255); border-radius: 10px; height: 20px; width: 100px }
-#d { border: 3px solid #00ff00; border-radius: 8px; height: 14px; width: 94px }
-#e { box-shadow: 0 4px 0 rgba(0, 0, 0, 0.5); background: #ffffff; height: 16px; width: 100px; margin-bottom: 8px }
-#f { background: rgba(255, 0, 0, 0.5); height: 20px }
-#g { background: linear-gradient(to right, #ff0000, #0000ff); height: 20px }
-#h { opacity: 0.5; background: #000000; height: 20px }
-#i { overflow: hidden; height: 10px; margin-bottom: 14px }
-#i div { height: 40px; background: #ff0000 }
-#k { visibility: hidden; background: #ff0000; height: 20px }
-#t1 { background: url(tile.png) repeat-x; height: 10px }
-#t2 { background: url(tile.png) no-repeat; background-size: 40px 10px; height: 10px }
-#lh { line-height: 40px }
-#tt { text-transform: uppercase; margin: 0 }
-</style>
-<div class="r" id="a"></div>
-<div class="r" id="b"></div>
-<div class="r" id="c"></div>
-<div class="r" id="d"></div>
-<div class="r" id="e"></div>
-<div class="r" id="f"></div>
-<div class="r" id="g"></div>
-<div class="r" id="h"></div>
-<div class="r" id="i"><div></div></div>
-<div class="r" id="k"></div>
-<div class="r" id="t1"></div>
-<div class="r" id="t2"></div>
-<div id="lh"><a href="lh1">one</a><br><a href="lh2">two</a></div>
-<p id="tt">shout this</p>
-HTML
-    # (27i) tables: columns as wide as their contents, colspan, rowspan
-    cat >"$www/tables.html" <<'HTML'
-<title>Tables</title>
-<style>
-body { margin: 0; font-family: fixed }
-table { border-spacing: 0; margin-bottom: 10px }
-td { padding: 0 }
-</style>
-<table><tr><td><a href="t1a">a</a></td><td><a href="t1b">longer words</a></td></tr>
-<tr><td><a href="t1c">row two</a></td><td>x</td></tr></table>
-<table width="100%"><tr><td><a href="t2a">pic.png</a></td><td><a href="t2b">a picture with some words</a></td></tr></table>
-<table><tr><td colspan="2">wide cell spanning two</td></tr><tr><td>a</td><td><a href="t3b">b</a></td></tr></table>
-<table><tr><td rowspan="2" style="background: #00ff00"><a href="t4a">tall</a></td><td><a href="t4b">one</a></td></tr>
-<tr><td><a href="t4c">two</a></td></tr></table>
-HTML
-    # (27j) SVG: inline drawings, CSS on their parts, currentColor, a stroke,
-    # <use> of a symbol, a transform, and an <img> of an SVG file
-    cat >"$www/svg.html" <<'HTML'
-<title>SVG</title>
-<style>
-body { margin: 0 }
-div { height: 54px }
-.ic path { fill: #00ff00 }
-</style>
-<div><svg width="100" height="50" viewBox="0 0 100 50"><rect x="0" y="0" width="50" height="50" fill="#ff0000"/><circle cx="75" cy="25" r="20" fill="#0000ff"/></svg></div>
-<div><svg class="ic" width="40" height="40" viewBox="0 0 20 20"><path d="M0 0 H20 V20 H0 Z"/></svg> <svg style="color: #ffff00" width="40" height="40"><rect width="40" height="40" fill="currentColor"/></svg></div>
-<div><svg width="100" height="20"><line x1="0" y1="10" x2="100" y2="10" stroke="#0000ff" stroke-width="4"/></svg></div>
-<div><svg width="40" height="40"><defs><symbol id="sq" viewBox="0 0 10 10"><rect width="10" height="10" fill="#ff00ff"/></symbol></defs><use href="#sq" width="20" height="20"/><g transform="translate(20 20)"><rect width="20" height="20" fill="#00ffff"/></g></svg></div>
-<div><img src="logo.svg" width="40" height="40" alt="logo"></div>
-<p><a href="end">the end</a></p>
-HTML
-    cat >"$www/logo.svg" <<'SVG'
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="5" fill="#ff8000"/><rect y="5" width="10" height="5" fill="#008000"/></svg>
-SVG
-    # (27k) the Adobe faces: a link after letters of each face (its place is
-    # the letters' advances), lines as high as each face's ascent + descent
-    cat >"$www/fonts.html" <<'HTML'
-<title>Fonts</title>
-<style>
-body { margin: 0 }
-p { margin: 0 }
-.s { font-family: Arial, sans-serif }
-.m { font-family: monospace }
-</style>
-<p>iiiiiiiiii<a href="f1">x</a></p>
-<p>WWWWWWWWWW<a href="f2">x</a></p>
-<p class="s">iiiiiiiiii<a href="f3">x</a></p>
-<p class="s"><b>WWWWW</b><a href="f4">x</a></p>
-<p class="m">iiiiiiiiii<a href="f5">x</a></p>
-<p class="s"><i>fluffy</i><a href="f6">x</a></p>
-HTML
-    # (27m) boxes: transform translate(-50%), percentage heights, top + bottom,
-    # min-height, max-height with overflow, inset-inline-start, and a 73rd
-    # positioned box (64 were kept until 27m)
-    cat >"$www/boxes.html" <<'HTML'
-<title>Boxes</title>
-<style>
-body { margin: 0; font-family: fixed }
-.row { position: relative; width: 600px; height: 20px; margin-bottom: 4px }
-#t1 .x { position: absolute; left: 50%; width: 100px; height: 20px; transform: translate(-50%); background: #ff0000 }
-#t2 .x { height: 50%; background: #00ff00 }
-#t3 .x { position: absolute; top: 5px; bottom: 5px; left: 0; width: 100px; background: #0000ff }
-#t4 { height: auto }
-#t4 .x { min-height: 20px; width: 100px; background: #ff0000 }
-#t5 { height: auto }
-#t5 .x { max-height: 10px; overflow: hidden; width: 100px }
-#t5 .y { height: 30px; background: #00ff00 }
-#t6 .x { position: absolute; inset-inline-start: 200px; width: 100px; height: 20px; background: #0000ff }
-#t7 .ab { position: absolute; top: 0; width: 5px; height: 20px; background: #ffff00 }
-#t7 .last { position: absolute; top: 0; left: 400px; width: 100px; height: 20px; background: #ff00ff }
-</style>
-<div class="row" id="t1"><div class="x"></div></div>
-<div class="row" id="t2"><div class="x"></div></div>
-<div class="row" id="t3"><div class="x"></div></div>
-<div class="row" id="t4"><div class="x"></div></div>
-<div class="row" id="t5"><div class="x"><div class="y"></div></div></div>
-<div class="row" id="t6"><div class="x"></div></div>
-<div class="row" id="t7"><div class="ab" style="left:0px"></div><div class="ab" style="left:5px"></div><div class="ab" style="left:10px"></div><div class="ab" style="left:15px"></div><div class="ab" style="left:20px"></div><div class="ab" style="left:25px"></div><div class="ab" style="left:30px"></div><div class="ab" style="left:35px"></div><div class="ab" style="left:40px"></div><div class="ab" style="left:45px"></div><div class="ab" style="left:50px"></div><div class="ab" style="left:55px"></div><div class="ab" style="left:60px"></div><div class="ab" style="left:65px"></div><div class="ab" style="left:70px"></div><div class="ab" style="left:75px"></div><div class="ab" style="left:80px"></div><div class="ab" style="left:85px"></div><div class="ab" style="left:90px"></div><div class="ab" style="left:95px"></div><div class="ab" style="left:100px"></div><div class="ab" style="left:105px"></div><div class="ab" style="left:110px"></div><div class="ab" style="left:115px"></div><div class="ab" style="left:120px"></div><div class="ab" style="left:125px"></div><div class="ab" style="left:130px"></div><div class="ab" style="left:135px"></div><div class="ab" style="left:140px"></div><div class="ab" style="left:145px"></div><div class="ab" style="left:150px"></div><div class="ab" style="left:155px"></div><div class="ab" style="left:160px"></div><div class="ab" style="left:165px"></div><div class="ab" style="left:170px"></div><div class="ab" style="left:175px"></div><div class="ab" style="left:180px"></div><div class="ab" style="left:185px"></div><div class="ab" style="left:190px"></div><div class="ab" style="left:195px"></div><div class="ab" style="left:200px"></div><div class="ab" style="left:205px"></div><div class="ab" style="left:210px"></div><div class="ab" style="left:215px"></div><div class="ab" style="left:220px"></div><div class="ab" style="left:225px"></div><div class="ab" style="left:230px"></div><div class="ab" style="left:235px"></div><div class="ab" style="left:240px"></div><div class="ab" style="left:245px"></div><div class="ab" style="left:250px"></div><div class="ab" style="left:255px"></div><div class="ab" style="left:260px"></div><div class="ab" style="left:265px"></div><div class="ab" style="left:270px"></div><div class="ab" style="left:275px"></div><div class="ab" style="left:280px"></div><div class="ab" style="left:285px"></div><div class="ab" style="left:290px"></div><div class="ab" style="left:295px"></div><div class="ab" style="left:300px"></div><div class="ab" style="left:305px"></div><div class="ab" style="left:310px"></div><div class="ab" style="left:315px"></div><div class="ab" style="left:320px"></div><div class="ab" style="left:325px"></div><div class="ab" style="left:330px"></div><div class="ab" style="left:335px"></div><div class="ab" style="left:340px"></div><div class="last"></div></div>
-<p><a href="end">the end</a></p>
-HTML
-    # (27n) grids: fixed and fr columns, gaps, repeat(auto-fill, minmax()),
-    # spans, template areas, min-content columns centred, :has(), and
-    # white-space: nowrap
-    cat >"$www/grid.html" <<'HTML'
-<title>Grid</title>
-<style>
-body { margin: 0; font-family: fixed }
-.g { display: grid; width: 600px; margin-bottom: 4px }
-.g > div { height: 12px }
-.a { background: #ff0000 } .b { background: #00ff00 } .c { background: #0000ff } .d { background: #ffff00 }
-#t1 { grid-template-columns: 100px 1fr 2fr }
-#t2 { grid-template-columns: repeat(3, 1fr); column-gap: 30px }
-#t3 { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) }
-#t4 { grid-template-columns: 1fr 1fr 1fr } #t4 .b { grid-column: 2 / span 2 }
-#t5 { grid-template-columns: 1fr 1fr; grid-template-areas: "x y" "z z" } #t5 .a { grid-area: y } #t5 .b { grid-area: x } #t5 .c { grid-area: z }
-#t6 { grid-template-columns: min-content min-content; justify-content: center; column-gap: 20px } #t6 > div { width: 100px }
-#t7:has(.d) { background: #ff00ff; height: 12px }
-</style>
-<div class="g" id="t1"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="g" id="t2"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="g" id="t3"><div class="a"></div><div class="b"></div><div class="c"></div><div class="d"></div><div class="a"></div></div>
-<div class="g" id="t4"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="g" id="t5"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="g" id="t6"><div class="a"></div><div class="b"></div></div>
-<div id="t7"><span class="d"></span></div>
-<div id="t8" style="width: 50px; white-space: nowrap">aaaa bbbb <a href="nowrap">x</a></div>
-<p><a href="end">the end</a></p>
-HTML
-    # (27p) scripts: the page's text as they leave it, their console lines,
-    # an error that stops one script but not the next, and a jump elsewhere
-    # (27s: Intl in a page's world, loaded there at its first use)
-    cat >"$www/scripts.html" <<'HTML'
-<!doctype html>
-<html><head><title>Scripts</title><style>.gone { display: none }</style>
-<script src="scripts.js"></script></head>
-<body style="font-family: fixed">
-<h1 id="h">Written in HTML</h1>
-<p id="keep">kept paragraph</p>
-<p id="drop">a paragraph a script removes</p>
-<ul id="list"><li>first</li><li class="x">second</li></ul>
-<script>
-var h = document.getElementById("h");
-console.log("inline: " + h.textContent + " " + h.tagName + " " + document.title);
-h.textContent = "Changed by a script";
-var list = document.querySelector("#list");
-for (var i = 3; i <= 4; i++) {
-    var li = document.createElement("li");
-    li.textContent = "item " + i;
-    list.appendChild(li);
-}
-console.log("list: " + list.children.length + " " + document.querySelectorAll("li.x").length);
-document.getElementById("drop").remove();
-document.querySelector("li.x").classList.add("gone");
-document.write("<p id='w'>written by document.write</p>");
-console.log("written: " + document.getElementById("w").previousElementSibling.tagName);
-var box = document.createElement("div");
-box.innerHTML = "<b>inner</b> <a href='page2.html'>made link</a>";
-document.body.appendChild(box);
-console.log("link: " + box.querySelector("a").href);
-console.log("from the file: " + fromFile());
-console.log("later elements are not here yet: " + document.getElementById("late"));
-nosuch();
-</script>
-<p id="late">after the scripts</p>
-<script>
-console.log("the next script still runs: " + document.querySelectorAll("p").length);
-console.log("intl: " + new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(1234.5) + " | " +
-            new Intl.RelativeTimeFormat("en").format(-3, "day") + " | " + new Intl.ListFormat("en").format(["a", "b", "c"]) + " | " +
-            new Date(Date.UTC(2026, 9, 26)).toLocaleDateString("en-US", { timeZone: "UTC" }) + " | " +
-            ["b", "a", "C"].sort(new Intl.Collator().compare).join("") + " | " + (12345.678).toLocaleString());
-location.href = "after.html";
-</script>
-</body></html>
-HTML
-    cat >"$www/scripts.js" <<'JS'
-function fromFile() { return "yes " + typeof document + " " + navigator.userAgent.split(" ")[0]; }
-console.log("external: " + document.readyState + ", no body yet: " + (document.body === null));
-JS
-    cat >"$www/after.html" <<'HTML'
-<!doctype html><title>After</title><p>Arrived.</p><script>console.log("after: " + document.title)</script>
-HTML
-    # (27q) <noscript> hidden while scripts run (its refresh too); a refresh
-    # outside it goes on to after.html a second later
-    cat >"$www/noscript.html" <<'HTML'
-<!doctype html><title>Noscript</title>
-<noscript><meta http-equiv="refresh" content="0; url=nowhere.html"></noscript>
-<meta http-equiv="refresh" content="1; url=after.html">
-<body style="font-family: fixed"><noscript><p>scripts are off</p></noscript>
-<p>scripts are on</p></body>
-HTML
-    # (27r) fetch and XMLHttpRequest: the page's own origin and a second one
-    # (each of its paths a CORS answer of its own), as a browser treats them
-    cat >"$www/requests.html" <<HTML
-<!doctype html><title>Requests</title><body><script>
-var B = "http://10.0.2.2:$NET_ORIGIN_PORT";
-function log(s) { console.log("requests: " + s); }
-async function run() {
-  var r = await fetch("/echo.json", { method: "POST", body: "hello", headers: { "X-Thing": "t1", "Cookie": "evil=1" } });
-  var e = await r.json();
-  log("1 own origin " + r.status + " " + r.ok + " " + e.method + " " + e.thing + " " + e.body + " origin " + (e.origin !== null));
-  log("2 open " + await (await fetch(B + "/open")).text());
-  try { await fetch(B + "/closed"); log("3 WRONG: read a closed answer"); } catch (x) { log("3 closed refused: " + x.constructor.name); }
-  log("4 no cookies to the other origin: " + (await (await fetch(B + "/whocookie")).json()).cookie);
-  await fetch(B + "/setb", { credentials: "include" });
-  log("5 with credentials: " + (await (await fetch(B + "/cred", { credentials: "include" })).json()).cookie);
-  e = await (await fetch(B + "/put", { method: "PUT", headers: { "X-Thing": "t2" }, body: "b2" })).json();
-  log("6 preflighted " + e.method + " " + e.thing + " " + e.body);
-  try { await fetch(B + "/closed", { method: "DELETE" }); log("7 WRONG"); } catch (x) { log("7 preflight refused"); }
-  r = await fetch(B + "/closed", { mode: "no-cors" });
-  log("8 no-cors " + r.type + " " + r.status + " '" + (await r.text()) + "'");
-  r = await fetch("/to-other");
-  log("9 redirected " + r.redirected + " " + (r.url === B + "/open") + " " + (await r.text()));
-  try { await fetch("file:///system/config/users"); } catch (x) { log("10 file refused"); }
-  var ac = new AbortController(); var p = fetch("/echo.json", { signal: ac.signal }); ac.abort();
-  try { await p; } catch (x) { log("11 aborted " + x.name); }
-  await new Promise(res => {
-    var x = new XMLHttpRequest(), states = [];
-    x.onreadystatechange = () => states.push(x.readyState);
-    x.onload = () => { log("12 xhr " + x.status + " " + JSON.parse(x.responseText).method + " " + states.join("")); res(); };
-    x.open("GET", "/echo.json"); x.send();
-  });
-  await new Promise(res => {
-    var x = new XMLHttpRequest();
-    x.onerror = () => { log("13 xhr to a closed origin: error, status " + x.status); res(); };
-    x.onload = () => { log("13 WRONG"); res(); };
-    x.open("GET", B + "/closed"); x.send();
-  });
-}
-run().then(() => log("done"), x => log("FAILED " + x));
-</script></body>
-HTML
-    # (27q) cookies: a script sees the served one but not the HttpOnly one,
-    # adds its own and cannot replace the HttpOnly one; all three go back
-    cat >"$www/cookies.html" <<'HTML'
-<!doctype html><title>Cookies</title><p>cookies</p><script>
-console.log("cookie seen by the script: " + document.cookie);
-document.cookie = "script=3; path=/";
-document.cookie = "secret=4; path=/";
-location.href = "/showcookies";
-</script>
-HTML
-    # (27q) a server that does not answer: link 0 goes to a port whose
-    # connections the firewall drops (the SYN never leaves: as a site that
-    # never answers), link 1 to a server that takes the request and is silent
-    cat >"$www/stop.html" <<HTML
-<!doctype html><title>Stop</title><body style="font-family: fixed">
-<p><a href="http://10.0.2.2:$NET_CLOSED_PORT/x">nobody answers</a> <a href="/silent">a silent server</a> <a href="/dead.html">dead files</a></p>
-<div style="height: 3000px">tall</div></body>
-HTML
-    # (27q) a page whose style sheet and script file never come, and whose
-    # script inserts two more script files: one that comes, one that never does
-    cat >"$www/dead.html" <<HTML
-<!doctype html><title>Dead files</title>
-<link rel="stylesheet" href="http://10.0.2.2:$NET_CLOSED_PORT/s.css">
-<script src="http://10.0.2.2:$NET_CLOSED_PORT/s.js"></script>
-<body style="font-family: fixed"><p>the files did not come</p>
-<script>
-var a = document.createElement("script"); a.src = "/later.js"; document.body.appendChild(a);
-var b = document.createElement("script"); b.src = "http://10.0.2.2:$NET_CLOSED_PORT/d.js"; document.body.appendChild(b);
-console.log("the inline script ran");
-</script>
-<div style="height: 3000px">tall</div></body>
-HTML
-    echo 'console.log("later.js ran after the page");' >"$www/later.js"
-    # (27q) events and timers: the page's stages, a click it cancels (and a
-    # timer it starts, which redraws the box), keys into a field, a form sent
-    # at the second try
-    cat >"$www/events.html" <<'HTML'
-<!doctype html><html><head><title>Events</title>
-<style>body { font-family: fixed } #box { background: #c00000; height: 40px; width: 300px }</style>
-<script>
-function log(s) { console.log(s); }
-log("order: " + document.readyState);
-document.addEventListener("DOMContentLoaded", function () { log("order: DOMContentLoaded " + document.readyState); });
-window.onload = function () {
-    log("order: load " + document.readyState);
-    var r = document.getElementById("box").getBoundingClientRect();
-    log("box at " + r.left + "," + r.top + " " + r.width + "x" + r.height);
-};
-queueMicrotask(function () { log("order: microtask"); });
-Promise.resolve().then(function () { log("order: promise"); });      /* (27r) */
-(async function () { await null; log("order: async"); })();
-setTimeout(function () { log("order: timeout 0"); }, 0);
-var ticks = 0, iv = setInterval(function () { log("order: interval " + ++ticks); if (ticks == 3) clearInterval(iv); }, 20);
-</script></head>
-<body>
-<p><a id="stay" href="nowhere.html">Stay here</a></p>
-<div id="box">box</div>
-<form action="echo"><input type="checkbox" id="cb" name="c"> <input id="t" name="q"> <input type="submit" id="send" value="Send"></form>
-<script>
-var stay = document.getElementById("stay"), box = document.getElementById("box"), t = document.getElementById("t");
-var h1 = document.body.offsetHeight, h2 = document.body.offsetHeight;    /* (27q: no change between) */
-var more = document.createElement("p");
-more.textContent = "more";
-document.body.appendChild(more);
-var h3 = document.body.offsetHeight;
-more.remove();
-log("geometry: unchanged " + (h1 == h2) + ", grown " + (h3 > h1));
-["mousedown", "mouseup", "click"].forEach(function (type) {
-    stay.addEventListener(type, function (e) { log(type + " on " + e.target.id + " button " + e.button + " trusted " + e.isTrusted); });
-});
-document.body.addEventListener("click", function (e) { log("body captured the click on " + e.target.id); }, true);
-stay.addEventListener("click", function (e) {
-    e.preventDefault();
-    box.textContent = "clicked";
-    setTimeout(function () { box.style.background = "#00c000"; log("a timer changed the page"); }, 100);
-});
-document.getElementById("cb").onclick = function () { log("checkbox click canceled"); return false; };
-t.addEventListener("focus", function () { log("focus on " + this.id); });
-t.addEventListener("keydown", function (e) { log("keydown " + e.key + " " + e.code + " " + e.keyCode); });
-t.addEventListener("keypress", function (e) { if (e.key == "x") { e.preventDefault(); log("keypress x canceled"); } });
-t.addEventListener("input", function (e) { log("input " + t.value + " " + e.inputType); });
-var sent = 0;
-document.forms[0].addEventListener("submit", function (e) {
-    if (sent++ == 0) { e.preventDefault(); log("submit canceled with " + t.value); } else log("submit goes");
-});
-</script></body></html>
-HTML
-    # (27g) flexible boxes: each row a case, its boxes red, green, blue, yellow
-    cat >"$www/flex.html" <<'HTML'
-<title>Flex</title>
-<style>
-body { margin: 0 }
-.f { display: flex; width: 600px; margin-bottom: 4px }
-.f > div { height: 12px }
-.a { background: #ff0000 } .b { background: #00ff00 } .c { background: #0000ff } .d { background: #ffff00 }
-#t1 { justify-content: space-between } #t1 > div { width: 100px }
-#t2 > div { flex: 1 }
-#t3 > .a { flex: 1 } #t3 > .b { flex: 2 }
-#t4 { justify-content: center } #t4 > div { width: 100px }
-#t5 { height: 40px; align-items: center } #t5 > div { width: 50px }
-#t6 { height: 24px } #t6 > div { width: 50px; height: auto }
-#t7 { flex-direction: column; gap: 4px }
-#t8 { flex-wrap: wrap } #t8 > div { width: 250px }
-#t9 > div { width: 100px } #t9 > .c { margin-left: auto }
-#t10 { flex-direction: row-reverse } #t10 > div { width: 100px }
-#t11 > div { width: 100px } #t11 > .a { order: 2 }
-#t12 > div { width: 400px }
-#t13 > div { box-sizing: border-box; width: 100px; padding: 0 10px }
-#t14 { gap: 20px } #t14 > div { flex: 1 1 0 }
-#t15 div { flex: 1; height: 12px }
-</style>
-<div class="f" id="t1"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t2"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t3"><div class="a"></div><div class="b"></div></div>
-<div class="f" id="t4"><div class="a"></div><div class="b"></div></div>
-<div class="f" id="t5"><div class="a"></div></div>
-<div class="f" id="t6"><div class="a"></div></div>
-<div class="f" id="t7"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t8"><div class="a"></div><div class="b"></div><div class="c"></div><div class="d"></div></div>
-<div class="f" id="t9"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t10"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t11"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t12"><div class="a"></div><div class="b"></div></div>
-<div class="f" id="t13"><div class="a"></div><div class="b"></div></div>
-<div class="f" id="t14"><div class="a"></div><div class="b"></div><div class="c"></div></div>
-<div class="f" id="t15"><span style="display: contents"><div class="a"></div><div class="b"></div></span></div>
-<p><a href="end">the end</a></p>
-HTML
-    {   # (27e) two pictures that come slowly
-        printf '<title>Slow</title>\n<p><img src="slow.png?one"> <img src="slow.png?two"></p>\n'
-        for i in $(seq 1 80); do printf '<p>Filler %d while the pictures come.</p>\n' $i; done
-        printf '<p>The end.</p>\n'
-    } >"$www/slow.html"
-    cat >"$WORK/${P}packserver.py" <<'PY'
-import functools, gzip, http.server, json, os, sys, threading, time, zlib
-port, root = int(sys.argv[1]), sys.argv[2]
-other_port, origin = int(sys.argv[3]), sys.argv[4]        # (27r) the second origin, and the first's address
-other_origin = origin.rsplit(":", 1)[0] + ":%d" % other_port
-posted = [b""]
-class Handler(http.server.SimpleHTTPRequestHandler):
-    def page(self, text):
-        body = ("<title>Echo</title><p>%s</p>" % text).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def info(self, body=""):                    # (27r)
-        return {"method": self.command, "thing": self.headers.get("x-thing"), "cookie": self.headers.get("Cookie"),
-                "origin": self.headers.get("Origin"), "body": body}
-    def json(self, value, headers=()):
-        body = json.dumps(value).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        for k, v in headers:
-            self.send_header(k, v)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def do_POST(self):
-        if self.path == "/echo.json":           # (27r) fetch's POST
-            data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            return self.json(self.info(data.decode("latin-1")))
-        data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-        print("post", self.path, self.headers.get("Content-Type"), data.decode("latin-1"), flush=True)
-        posted[0] = data
-        self.send_response(303)
-        self.send_header("Location", "/done")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-    def do_GET(self):
-        print("accept-encoding:", self.headers.get("Accept-Encoding"), "for", self.path, flush=True)
-        name = self.path.split("?")[0].split("#")[0]
-        if name == "/echo":
-            print("get", self.path, flush=True)
-            return self.page("got GET " + self.path.partition("?")[2])
-        if name == "/done":
-            return self.page("got POST " + posted[0].decode("latin-1"))
-        if name == "/setcookies":               # (27q) cookies set on a redirection
-            self.send_response(302)
-            self.send_header("Set-Cookie", "served=1; Path=/")
-            self.send_header("Set-Cookie", "secret=2; Path=/; HttpOnly")
-            self.send_header("Location", "/cookies.html")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        if name == "/showcookies":
-            return self.page("cookies: " + self.headers.get("Cookie", "none"))
-        if name == "/silent":                   # (27q) takes the request, never answers
-            time.sleep(45)
-            return
-        if name == "/echo.json":                # (27r) what came: method, a header, cookies, origin
-            return self.json(self.info())
-        if name == "/to-other":                 # (27r) a redirection to the second origin
-            self.send_response(302)
-            self.send_header("Location", other_origin + "/open")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        if name == "/slow.png":                 # (27e) a picture that takes its time
-            time.sleep(4)
-            data = open(os.path.join(root, "pic.png"), "rb").read()
-            self.send_response(200)
-            self.send_header("Content-Type", "image/png")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-        if name not in ("/packed.html", "/chunked.html"):
-            return super().do_GET()
-        data = open(os.path.join(root, name[1:]), "rb").read()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        if name == "/packed.html":
-            body = gzip.compress(data, mtime=0)
-            self.send_header("Content-Encoding", "gzip")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            body = zlib.compress(data)
-            self.send_header("Content-Encoding", "deflate")
-            self.send_header("Transfer-Encoding", "chunked")
-            self.end_headers()
-            for at in range(0, len(body), 100):
-                part = body[at:at + 100]
-                self.wfile.write(b"%x\r\n" % len(part) + part + b"\r\n")
-            self.wfile.write(b"0\r\n\r\n")
-        print("sent", name, len(data), "bytes packed into", len(body), flush=True)
-class Other(http.server.BaseHTTPRequestHandler):  # (27r) the second origin: each path its CORS answer
-    def log_message(self, *a):
-        pass
-    def send(self, code, body, headers=()):
-        b = body.encode()
-        self.send_response(code)
-        for k, v in headers:
-            self.send_header(k, v)
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(b)
-    def answer(self):
-        n = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(n).decode("latin-1") if n else ""
-        info = json.dumps({"method": self.command, "thing": self.headers.get("x-thing"),
-                           "cookie": self.headers.get("Cookie"), "body": body})
-        print("other", self.command, self.path, "cookie", self.headers.get("Cookie"), flush=True)
-        p = self.path
-        if self.command == "OPTIONS":
-            if p == "/put":
-                return self.send(204, "", [("Access-Control-Allow-Origin", origin), ("Access-Control-Allow-Methods", "PUT"),
-                                           ("Access-Control-Allow-Headers", "x-thing")])
-            return self.send(204, "", [("Access-Control-Allow-Origin", origin)])
-        if p == "/open":
-            return self.send(200, "open data", [("Access-Control-Allow-Origin", "*")])
-        if p == "/closed":
-            return self.send(200, "secret", [])
-        if p == "/whocookie":
-            return self.send(200, info, [("Access-Control-Allow-Origin", "*")])
-        if p == "/setb":
-            return self.send(200, "set", [("Access-Control-Allow-Origin", origin), ("Access-Control-Allow-Credentials", "true"),
-                                          ("Set-Cookie", "b=bcookie; Path=/")])
-        if p == "/cred":
-            return self.send(200, info, [("Access-Control-Allow-Origin", origin), ("Access-Control-Allow-Credentials", "true")])
-        if p == "/put":
-            return self.send(200, info, [("Access-Control-Allow-Origin", origin)])
-        return self.send(404, "no", [("Access-Control-Allow-Origin", "*")])
-    do_GET = do_POST = do_PUT = do_OPTIONS = do_HEAD = answer
-other = http.server.ThreadingHTTPServer(("127.0.0.1", other_port), Other)
-threading.Thread(target=other.serve_forever, daemon=True).start()
-server = http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(Handler, directory=root))
-print("Serving on", port, flush=True)
-server.serve_forever()
-PY
-    python3 -u "$WORK/${P}packserver.py" $NET_HTTP_PORT "$www" $NET_ORIGIN_PORT "http://10.0.2.2:$NET_HTTP_PORT" \
-            >"$WORK/${P}httpserver.log" 2>&1 &
-    web=$!
-    host_service_wait "$WORK/${P}testdns.log" listening
-    host_service_wait "$WORK/${P}httpserver.log" Serving
-    tls_server $NET_TLS_PORT leaf AEAD-AES128-GCM-SHA256 "$WORK/${P}tls-leaf.log"
-    QEMU_EXTRA="-netdev user,id=net0 -device e1000,netdev=net0,mac=52:54:00:12:34:56"
-    [ "$ARCH_NAME" = aarch64 ] && QEMU_EXTRA+=" -device usb-mouse,bus=xhci.0,port=2"
-    before=$failures
-    SERIAL_SCRIPT=ibrowser_session
-    boot ${P}ibrowser "$image" "RitterOS kernel: boot complete"
-    SERIAL_SCRIPT=
-    QEMU_EXTRA=
-    kill $dns $web $tls_pids 2>/dev/null
-    wait $dns $web $tls_pids 2>/dev/null
-    local web_url="http://10.0.2.2:$NET_HTTP_PORT"
-    expect_line "ibrowser: loaded $web_url/index.html (200, text/html, $(wc -c <"$www/index.html" | tr -d ' ') bytes)"
-    want_text want <<'LINES'
-ibrowser| Hello & welcome
-ibrowser| Go to the second page or stay.
-ibrowser| A styled box
-ibrowser| • one
-ibrowser| • two
-ibrowser| Name Size
-ibrowser| pic.png 40x30
-ibrowser| [picture 40x30]
-LINES
-    page_lines=$(grep '^ibrowser| ' <<<"$TEXT" | head -8)
-    compare "the page's text as laid out" "$want" "$page_lines"
-    expect "ibrowser: link 0 at "
-    expect ": $web_url/two.html"
-    expect_line "wfield: clipboard 'Go to the' (9 bytes)"
-    expect_line "ibrowser: following $web_url/two.html"
-    expect_line "ibrowser| This is the second page. Back to the first."
-    check "Backspace: the first page again" \
-          "$(grep -c "^ibrowser: page $web_url/index.html" <<<"$TEXT") time(s)" \
-          test "$(grep -c "^ibrowser: page $web_url/index.html" <<<"$TEXT")" = 2
-    expect_line "ibrowser: loaded https://test.local:$NET_TLS_PORT/index.html (200, text/html, $(wc -c <"$www/index.html" | tr -d ' ') bytes)"
-    check "over HTTPS: the same page and its picture" \
-          "$(sed '/^ibrowser: loaded .*\/slow.html/q' <<<"$TEXT" | grep -c '^ibrowser: 1 picture(s) shown') picture line(s)" \
-          test "$(sed '/^ibrowser: loaded .*\/slow.html/q' <<<"$TEXT" | grep -c '^ibrowser: 1 picture(s) shown')" = 4     # (the index pages')
-    expect_line "ibrowser: loaded /test/www/index.html (0, text/html, $(wc -c <"$www/index.html" | tr -d ' ') bytes)"
-    # (27b) #part scrolling
-    local ymid yend ymid2
-    ymid=$(sed -n 's/^ibrowser: scrolled to y \([0-9]*\) for #mid$/\1/p' <<<"$TEXT" | head -1)
-    yend=$(sed -n 's/^ibrowser: scrolled to y \([0-9]*\) for #end$/\1/p' <<<"$TEXT" | head -1)
-    ymid2=$(sed -n 's/^ibrowser: scrolled to y \([0-9]*\) for #mid$/\1/p' <<<"$TEXT" | sed -n 2p)
-    expect "ibrowser: link 1 at "
-    expect ": $web_url/long.html#end"
-    check "long.html#mid: opened scrolled to its id's place" "y ${ymid:-none}" \
-          test "${ymid:-0}" -gt 1000
-    expect_line "ibrowser: following $web_url/long.html#end"
-    check "the click on #end: scrolled further to the <a name>" "y ${yend:-none} after ${ymid:-none}" \
-          test "${yend:-0}" -gt "$(( ${ymid:-0} + 1000 ))"
-    check "a #part of the page shown: no reload" \
-          "$(grep -c "^ibrowser: page $web_url/long.html" <<<"$TEXT") time(s) laid out" \
-          test "$(grep -c "^ibrowser: page $web_url/long.html" <<<"$TEXT")" = 1
-    check "Backspace: back at #mid" "y ${ymid2:-none}, first ${ymid:-none}" \
-          test -n "$ymid2" -a "$ymid2" = "$ymid"
-    # (27b) packed answers
-    check "iBrowser asks for gzip and deflate (and never sends the #part)" \
-          "$(grep '^accept-encoding: .* /packed' "$WORK/${P}httpserver.log")" \
-          grep -qx "accept-encoding: gzip, deflate for /packed.html" "$WORK/${P}httpserver.log"
-    expect "ibrowser: loaded $web_url/packed.html (200, text/html, $(wc -c <"$www/packed.html" | tr -d ' ') bytes, gzip from "
-    expect_line "ibrowser| Line 40 of the packed page."
-    expect_line "ibrowser: #nowhere is not on the page"
-    expect "ibrowser: loaded $web_url/chunked.html (200, text/html, $(wc -c <"$www/chunked.html" | tr -d ' ') bytes, deflate from "
-    expect_line "ibrowser| Line 1 of the chunked page."
-    expect_line "ibrowser| Line 40 of the chunked page."
-    expect ": /test/www/two.html"
-    # (27c) forms
-    local q_get="q=hello+world&exact=yes&lang=German&go=Search" q_post="user=anna&pw=secret1&note=two%0D%0Alines&size=l"
-    expect_line "ibrowser: sending GET $web_url/echo?$q_get"
-    check "the server got the GET" "$(grep '^get ' "$WORK/${P}httpserver.log")" \
-          grep -qx "get /echo?$q_get" "$WORK/${P}httpserver.log"
-    expect_line "ibrowser| got GET $q_get"
-    expect_line "ibrowser: sending POST $web_url/echo (${#q_post} bytes): $q_post"
-    check "the server got the POST (urlencoded)" "$(grep '^post ' "$WORK/${P}httpserver.log")" \
-          grep -qx "post /echo application/x-www-form-urlencoded $q_post" "$WORK/${P}httpserver.log"
-    expect_line "ibrowser| got POST $q_post"
-    expect_line "ibrowser: now [radio: size=l on]"
-    local box sel
-    box=($(sed -n 's/^ibrowser: control 1 at \([0-9]*\),\([0-9]*\) \([0-9]*\)x\([0-9]*\): .*/\1 \2 \3 \4/p' <<<"$TEXT" | head -1))
-    sel=($(sed -n 's/^ibrowser: control 2 at \([0-9]*\),\([0-9]*\) \([0-9]*\)x\([0-9]*\): .*/\1 \2 \3 \4/p' <<<"$TEXT" | head -1))
-    if [ ${#box[@]} = 4 ] && [ ${#sel[@]} = 4 ]; then
-        # the ticked box (blue inside it), and the select's open list below it
-        # (its chosen row blue; nothing of that colour is there without it)
-        check_screen region-$((104 + box[0]))-$((168 + box[1]))-13-13-61-111-208 $w $h "$WORK/${P}ibrowser-form.ppm"
-        check_screen region-$((104 + sel[0]))-$((168 + sel[1] + sel[3] + 1))-${sel[2]}-54-61-111-208 $w $h \
-                     "$WORK/${P}ibrowser-form.ppm"
-    else
-        check "the form's controls listed" "no control 1 or 2 line" false
-    fi
-    # (27e) the page scrolled while its pictures came, and stayed there
-    local slow before_shown hand after
-    slow=$(sed -n '/^ibrowser: loaded .*\/slow.html/,$p' <<<"$TEXT")
-    hand=$(grep -m1 -n '^ibrowser: scrolled by hand to y ' <<<"$slow")
-    before_shown=$(grep -m1 -n '^ibrowser: 2 picture(s) shown' <<<"$slow")
-    check "End scrolled the page while its pictures were still coming" \
-          "scroll at line '${hand:-none}', pictures at line '${before_shown:-none}'" \
-          test -n "$hand" -a -n "$before_shown" -a "${hand%%:*}" -lt "${before_shown%%:*}" 2>/dev/null
-    after=$(sed -n "${before_shown%%:*},\$p" <<<"$slow" | grep -m1 '^ibrowser: scrolled to y ' | sed 's/^ibrowser: scrolled to y //')
-    hand=${hand##*to y }
-    check "the pictures, in, kept the place it was scrolled to" "after: ${after:-none}, scrolled to ${hand:-none}" \
-          test -n "$after" -a "$after" = "$hand"
-    # (27d) floats and positioning: the links' places
-    local -a L
-    lk() { sed -n '/^ibrowser: page .*\/layout.html:/,$p' <<<"$TEXT" |
-           sed -n "s/^ibrowser: link $1 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p" | head -1; }
-    L=($(lk 0) $(lk 1) $(lk 2) $(lk 3) $(lk 4) $(lk 5) $(lk 6))
-    if [ ${#L[@]} = 14 ]; then
-        check "beside the left float: its first line starts at 8 + 100 + 10" "link 0 at ${L[0]},${L[1]}" \
-              test "${L[0]}" = $((118 + 19 * 9)) -a "${L[1]}" -lt 68     # ("Beside the floats: ")
-        check "clear: below the floats, at the left edge" "link 1 at ${L[2]},${L[3]}" \
-              test "${L[2]}" = 8 -a "${L[3]}" -ge 68
-        check "two inline-blocks on one line, side by side" "links 2, 3 at ${L[4]},${L[5]} and ${L[6]},${L[7]}" \
-              test "${L[5]}" = "${L[7]}" -a $((L[6] - L[4])) = 137
-        check "position: relative moves its link 30 right" "link 4 at ${L[8]},${L[9]}" test "${L[8]}" = 101
-        check "position: absolute in its holder (top 10 of it)" "abs at ${L[10]},${L[11]}, holder ${L[12]},${L[13]}" \
-              test "${L[12]}" = 8 -a "${L[11]}" = $((L[13] + 10)) -a "${L[10]}" -gt "${L[6]}"
-        # the screen: the left float, the right one, and the overlap (z-index 3 over 2)
-        check_screen px-$((104 + 8 + 50))-$((168 + 8 + 30))-192-0-0 $w $h "$WORK/${P}ibrowser-layout.ppm"
-        check_screen region-104-168-$((w - 114))-50-0-0-192 $w $h "$WORK/${P}ibrowser-layout.ppm"
-        check_screen px-$((104 + L[12] + 55))-$((168 + L[13] + 55))-0-192-192 $w $h "$WORK/${P}ibrowser-layout.ppm"
-    else
-        check "the layout page's links listed" "${#L[@]} numbers" false
-    fi
-    expect_line "ibrowser: following $web_url/fixed"
-    # (27f) the CSS page: stripe k is 12 pixels from 12k; the window's
-    # content is 888 pixels wide on x86, 648 on ARM (900 or 660 minus the
-    # scroll bar), which @media and vw see
-    local cw=888 pts="" k green=0.128.0 white=255.255.255 blue=0.0.255
-    [ "$ARCH_NAME" = x86_64 ] || cw=648
-    stripe() { pts="$pts${pts:+_}$((104 + $2)).$((168 + 12 * ($1 - 1) + 6)).$3"; }
-    for k in $(seq 1 24); do stripe $k 6 $green; done
-    stripe 15 145 $green; stripe 15 155 $white                    # calc(100px + 2 * 25px)
-    stripe 17 $((cw / 2 - 5)) $green; stripe 17 $((cw / 2 + 5)) $white      # 50vw
-    stripe 19 95 $green; stripe 19 105 $white                     # clamp(100px, 10%, 300px)
-    stripe 23 95 $green; stripe 23 105 $white                     # var(--w)
-    stripe 24 $((cw / 2 + 15)) $green; stripe 24 $((cw / 2 + 25)) $white    # calc(50% + 20px)
-    if [ $cw -ge 700 ]; then stripe 25 6 $green; else stripe 25 6 $blue; fi # @media by the window
-    check_screen pixels-$pts $w $h "$WORK/${P}ibrowser-css.ppm"
-    # (27g) the flex page: points of each row's boxes (page x,y and colour;
-    # worked out by hand and checked against the layout drawn on the Mac)
-    local fx="" xy col
-    for xy in 50,6:R 300,6:G 550,6:B 150,6:w 100,22:R 300,22:G 500,22:B 150,38:R 250,38:G 550,38:G 250,54:R 350,54:G 150,54:w 450,54:w 25,84:R 25,70:w 25,128:R 300,142:R 300,150:w 300,158:G 300,174:B 125,190:R 375,190:G 125,202:B 375,202:Y 550,218:B 350,218:w 550,234:R 350,234:B 50,250:G 250,250:R 250,266:R 450,266:G 150,282:G 210,282:w 197,298:w 300,298:G 595,298:B 150,314:R 450,314:G; do
-        case ${xy#*:} in R) col=255.0.0 ;; G) col=0.255.0 ;; B) col=0.0.255 ;; Y) col=255.255.0 ;;
-                         w) col=255.255.255 ;; esac
-        xy=${xy%:*}
-        fx="$fx${fx:+_}$((104 + ${xy%,*})).$((168 + ${xy#*,})).$col"
-    done
-    check_screen pixels-$fx $w $h "$WORK/${P}ibrowser-flex.ppm"
-    # (27h) the look page: K the shadow's and opacity's grey, P half-red,
-    # V the gradient's middle (worked out by hand as the flex page's)
-    local lx=""
-    for xy in 100,5:w 100,18:R 200,25:R 398,34:G 200,42:B 1,34:Y 200,34:w 1,49:w 50,58:B 1,73:w 50,73:G 50,82:w 98,82:G 50,114:K 50,104:w 150,114:w 200,130:P 0,154:R 200,154:V 200,178:K 200,197:R 200,206:w 200,226:w 5,245:B 15,245:Y 25,245:B 395,245:Y 15,259:B 30,259:Y 50,259:w; do
-        case ${xy#*:} in R) col=255.0.0 ;; G) col=0.255.0 ;; B) col=0.0.255 ;; Y) col=255.255.0 ;;
-                         w) col=255.255.255 ;; K) col=127.127.127 ;; P) col=255.127.127 ;;
-                         V) col=127.0.127 ;; esac
-        xy=${xy%:*}
-        lx="$lx${lx:+_}$((104 + ${xy%,*})).$((168 + ${xy#*,})).$col"
-    done
-    check_screen pixels-$lx $w $h "$WORK/${P}ibrowser-look.ppm"
-    local look ya yb
-    look=$(sed -n '/^ibrowser: page .*\/look.html:/,$p' <<<"$TEXT")
-    ya=$(sed -n 's/^ibrowser: link 0 at [0-9]*,\([0-9]*\): .*/\1/p' <<<"$look" | head -1)
-    yb=$(sed -n 's/^ibrowser: link 1 at [0-9]*,\([0-9]*\): .*/\1/p' <<<"$look" | head -1)
-    check "line-height: 40px puts the next line 40 pixels down" "links at y ${ya:-none} and ${yb:-none}" \
-          test -n "$ya" -a -n "$yb" -a "$((yb - ya))" = 40
-    check "text-transform: uppercase" "$(grep -m1 'SHOUT' <<<"$look")" grep -q '^ibrowser| SHOUT THIS' <<<"$look"
-    # (27k) the fonts page: each link's x from the BDF files' advances
-    # (DWIDTH), each line's pitch from FONT_ASCENT + FONT_DESCENT (+2), read
-    # here by Python, not by the system's font code
-    local fonts fx fwant
-    fonts=$(sed -n '/^ibrowser: page .*\/fonts.html:/,$p' <<<"$TEXT")
-    fx=$(for i in 0 1 2 3 4 5; do sed -n "s/^ibrowser: link $i at \([0-9]*\),\([0-9]*\): .*/\1,\2/p" <<<"$fonts" | head -1; done | tr '\n' ' ')
-    fwant=$(python3 - "$ROOT/fonts" <<'PY'
-import sys
-def face(name):
-    adv, a, d, cur = {}, 0, 0, None
-    for line in open(f"{sys.argv[1]}/{name}.bdf", encoding="latin-1"):
-        w = line.split()
-        if not w: continue
-        if w[0] == "FONT_ASCENT": a = int(w[1])
-        elif w[0] == "FONT_DESCENT": d = int(w[1])
-        elif w[0] == "ENCODING": cur = int(w[1])
-        elif w[0] == "DWIDTH" and cur is not None: adv[cur] = int(w[1])
-    return adv, a + d + 2
-rows = [("timR12", "i" * 10), ("timR12", "W" * 10), ("helvR12", "i" * 10), ("helvB12", "W" * 5),
-        ("courR12", "i" * 10), ("helvO12", "fluffy")]
-y, out = 0, []
-for name, text in rows:
-    adv, line = face(name)
-    out.append(f"{sum(adv[ord(c)] for c in text)},{y}")
-    y += line
-print(" ".join(out))
-PY
-)
-    check "the faces' advances and lines (Times, Helvetica, bold, Courier, oblique)" \
-          "links at ${fx:-none}, wanted $fwant" test "$(echo $fx)" = "$fwant"
-    check_screen region-104-168-200-60-0-0-0 $w $h "$WORK/${P}ibrowser-fonts.ppm"   # (the text drawn)
-    expect_line "wfield: clipboard 'iiiii' (5 bytes)"       # (selected by each letter's own width)
-    # (27n) the grid page (worked out by hand, checked on the Mac)
-    local gx="" grid nw
-    for xy in 50,6:R 183,6:G 400,6:B 90,22:R 195,22:w 300,22:G 510,22:B 75,38:R 525,38:Y 75,50:R 225,50:w 100,66:R 400,66:G 100,78:B 300,78:w 150,94:G 450,94:R 300,106:B 240,122:R 360,122:G 180,122:w 300,122:w 300,138:M; do
-        case ${xy#*:} in R) col=255.0.0 ;; G) col=0.255.0 ;; B) col=0.0.255 ;; Y) col=255.255.0 ;;
-                         w) col=255.255.255 ;; M) col=255.0.255 ;; esac
-        xy=${xy%:*}
-        gx="$gx${gx:+_}$((104 + ${xy%,*})).$((168 + ${xy#*,})).$col"
-    done
-    check_screen pixels-$gx $w $h "$WORK/${P}ibrowser-grid.ppm"
-    grid=$(sed -n '/^ibrowser: page .*\/grid.html:/,$p' <<<"$TEXT")
-    nw=$(sed -n 's/^ibrowser: link 0 at \([0-9]*,[0-9]*\): .*/\1/p' <<<"$grid" | head -1)
-    check "white-space: nowrap keeps the link on the line (90,144)" "link at ${nw:-none}" test "$nw" = 90,144
-    # (27p) the scripts page: what its scripts printed, and its text as they left it
-    expect_line "ibrowser: console: external: loading, no body yet: true"
-    expect_line "ibrowser: console: inline: Written in HTML H1 Scripts"
-    expect_line "ibrowser: console: list: 4 1"
-    expect_line "ibrowser: console: written: SCRIPT"
-    expect_line "ibrowser: console: link: http://10.0.2.2:$NET_HTTP_PORT/page2.html"
-    expect_line "ibrowser: console: from the file: yes object Mozilla/5.0"
-    expect_line "ibrowser: console: later elements are not here yet: null"
-    expect "ibrowser: script error: ReferenceError: Can't find variable: nosuch at http://10.0.2.2:$NET_HTTP_PORT/scripts.html:"
-    expect_line "ibrowser: console: the next script still runs: 3"
-    expect_line 'ibrowser: console: intl: $1,234.50 | 3 days ago | a, b, and c | 10/26/2026 | abC | 12,345.678'
-    expect_line "ibrowser: console: after: After"
-    want_text want <<'LINES'
-ibrowser| Changed by a script
-ibrowser| kept paragraph
-ibrowser| • first
-ibrowser| • item 3
-ibrowser| • item 4
-ibrowser| written by document.write
-ibrowser| inner made link
-ibrowser| after the scripts
-LINES
-    compare "the page as its scripts left it" "$want" \
-            "$(sed -n '/^ibrowser: page .*\/scripts.html:/,/^ibrowser: /{/^ibrowser|/p;}' <<<"$TEXT")"
-    # (27q) the loads that wait: the window alive meanwhile (a scroll by hand
-    # between the click and Escape), two stops, then both limits
-    check "a waiting load left the window alive" "the window did not scroll while a load waited" \
-          grep -q "^ibrowser: scrolled by hand" <<<"$(sed -n "/^ibrowser: following http:\/\/10.0.2.2:$NET_CLOSED_PORT\/x/,/^ibrowser: stopped/p" <<<"$TEXT")"
-    check "Escape and the Stop button stopped a load" "a load was not stopped twice" \
-          test "$(grep -c '^ibrowser: stopped$' <<<"$TEXT")" = 2
-    expect_line "ibrowser: http://10.0.2.2:$NET_CLOSED_PORT/x: 10.0.2.2: the server did not answer"
-    expect_line "ibrowser: http://10.0.2.2:$NET_HTTP_PORT/silent: 10.0.2.2: the server did not answer"
-    # (27q) the page's files: fetched ahead without the window waiting, the
-    # page shown without the dead ones, an inserted file that came run, and
-    # the window alive while the dead inserted one waited
-    check "the window went on while a page's files were fetched" "the window waited for a page's files" \
-          grep -q "^ibrowser: scrolled by hand" <<<"$(sed -n "/^ibrowser: following http:\/\/10.0.2.2:$NET_HTTP_PORT\/dead.html/,/^ibrowser: page http:\/\/10.0.2.2:$NET_HTTP_PORT\/dead.html/p" <<<"$TEXT")"
-    local waited
-    waited=$(sed -n "/^ibrowser: page http:\/\/10.0.2.2:$NET_HTTP_PORT\/dead.html/,/^ibrowser: script error: http:\/\/10.0.2.2:$NET_CLOSED_PORT\/d.js/p" <<<"$TEXT")
-    check "the window went on while an inserted script file waited" "the window waited for an inserted script file" \
-          eval 'grep -q "^ibrowser: scrolled by hand" <<<"$waited" && grep -q "d.js: 10.0.2.2: the server did not answer" <<<"$waited"'
-    expect_line "ibrowser: style sheet http://10.0.2.2:$NET_CLOSED_PORT/s.css: 10.0.2.2: the server did not answer"
-    expect_line "ibrowser: script error: http://10.0.2.2:$NET_CLOSED_PORT/s.js: 10.0.2.2: the server did not answer"
-    expect_line "ibrowser: script error: http://10.0.2.2:$NET_CLOSED_PORT/d.js: 10.0.2.2: the server did not answer"
-    expect_line "ibrowser: console: the inline script ran"
-    expect_line "ibrowser: console: later.js ran after the page"
-    # (27q) the <noscript> page: its text without the <noscript> part, then
-    # its refresh to after.html, not the one inside <noscript>
-    want_text want <<'LINES'
-ibrowser| scripts are on
-LINES
-    compare "a page's text without its <noscript> while scripts run" "$want" \
-            "$(sed -n '/^ibrowser: page .*\/noscript.html:/,/^ibrowser: /{/^ibrowser|/p;}' <<<"$TEXT")"
-    check "a <meta> refresh went on to its page" "no <meta> refresh to after.html" \
-          grep -q "^ibrowser: loaded http://10.0.2.2:$NET_HTTP_PORT/after.html" <<<"$(sed -n '/^ibrowser: page .*\/noscript.html:/,$p' <<<"$TEXT")"
-    reject "ibrowser: loaded http://10.0.2.2:$NET_HTTP_PORT/nowhere.html"
-    # (27r) the requests page: each case as a browser treats it
-    want_text want <<'LINES'
-ibrowser: console: requests: 1 own origin 200 true POST t1 hello origin true
-ibrowser: console: requests: 2 open open data
-ibrowser: console: requests: 3 closed refused: TypeError
-ibrowser: console: requests: 4 no cookies to the other origin: null
-ibrowser: console: requests: 5 with credentials: b=bcookie
-ibrowser: console: requests: 6 preflighted PUT t2 b2
-ibrowser: console: requests: 7 preflight refused
-ibrowser: console: requests: 8 no-cors opaque 0 ''
-ibrowser: console: requests: 9 redirected true true open data
-ibrowser: console: requests: 10 file refused
-ibrowser: console: requests: 11 aborted AbortError
-ibrowser: console: requests: 12 xhr 200 GET 1234
-ibrowser: console: requests: 13 xhr to a closed origin: error, status 0
-ibrowser: console: requests: done
-LINES
-    compare "fetch and XMLHttpRequest as a browser treats them" "$want" "$(grep '^ibrowser: console: requests: ' <<<"$TEXT")"
-    # (27q) cookies: what the script saw, and what the server got back
-    expect_line "ibrowser: console: cookie seen by the script: served=1"
-    expect_line "ibrowser| cookies: served=1; secret=2; script=3"
-    # (27q) the events page: its stages and timers in order, the click (the
-    # body's capturing listener first; canceled: no link followed), the
-    # check box left off, the keys, the form's second submit sent
-    want_text want <<'LINES'
-ibrowser: console: order: loading
-ibrowser: console: order: microtask
-ibrowser: console: order: promise
-ibrowser: console: order: async
-ibrowser: console: order: DOMContentLoaded interactive
-ibrowser: console: order: load complete
-ibrowser: console: order: timeout 0
-ibrowser: console: order: interval 1
-ibrowser: console: order: interval 2
-ibrowser: console: order: interval 3
-LINES
-    compare "a page's stages and timers in order" "$want" "$(grep '^ibrowser: console: order: ' <<<"$TEXT")"
-    want_text want <<'LINES'
-ibrowser: console: mousedown on stay button 0 trusted true
-ibrowser: console: mouseup on stay button 0 trusted true
-ibrowser: console: body captured the click on stay
-ibrowser: console: click on stay button 0 trusted true
-ibrowser: console: a timer changed the page
-ibrowser: console: body captured the click on cb
-ibrowser: console: checkbox click canceled
-ibrowser: console: focus on t
-ibrowser: console: keydown a KeyA 65
-ibrowser: console: input a insertText
-ibrowser: console: keydown b KeyB 66
-ibrowser: console: input ab insertText
-ibrowser: console: keydown x KeyX 88
-ibrowser: console: keypress x canceled
-ibrowser: console: keydown Enter Enter 13
-ibrowser: console: body captured the click on send
-ibrowser: console: submit canceled with ab
-ibrowser: console: keydown Enter Enter 13
-ibrowser: console: body captured the click on send
-ibrowser: console: submit goes
-LINES
-    compare "the events a click, keys and a form gave the page" "$want" \
-            "$(sed -n '/^ibrowser: console: box at /,/^ibrowser: console: submit goes/p' <<<"$TEXT" |
-               grep '^ibrowser: console: ' | grep -v '^ibrowser: console: \(box at\|order:\) ')"
-    expect_line "ibrowser: console: geometry: unchanged true, grown true"
-    reject "ibrowser: following http://10.0.2.2:$NET_HTTP_PORT/nowhere.html"
-    reject "ibrowser: now [checkbox: c=on on]"
-    expect_line "ibrowser: sending GET http://10.0.2.2:$NET_HTTP_PORT/echo?q=ab"
-    local ex
-    ex=($(sed -n 's/^ibrowser: console: box at \([0-9]*\),\([0-9]*\) \([0-9]*\)x\([0-9]*\)$/\1 \2 \3 \4/p' <<<"$TEXT" | tail -1))
-    if [ ${#ex[@]} = 4 ]; then
-        # the box's right end (past its text): red as styled, green once the timer ran
-        check_screen pixels-$((104 + ex[0] + ex[2] - 10)).$((168 + ex[1] + ex[3] / 2)).192.0.0 $w $h \
-                     "$WORK/${P}ibrowser-events.ppm"
-        check_screen pixels-$((104 + ex[0] + ex[2] - 10)).$((168 + ex[1] + ex[3] / 2)).0.192.0 $w $h \
-                     "$WORK/${P}ibrowser-events-timer.ppm"
-    else
-        check false "the events page told where its box is"
-    fi
-    # (27m) the boxes page (worked out by hand, checked on the Mac)
-    local bx=""
-    for xy in 260,10:R 360,10:w 240,10:w 300,28:G 300,38:w 50,58:B 50,50:w 50,66:w 50,90:R 50,100:G 50,108:w 250,120:B 150,120:w 450,144:M; do
-        case ${xy#*:} in R) col=255.0.0 ;; G) col=0.255.0 ;; B) col=0.0.255 ;; w) col=255.255.255 ;;
-                         M) col=255.0.255 ;; esac
-        xy=${xy%:*}
-        bx="$bx${bx:+_}$((104 + ${xy%,*})).$((168 + ${xy#*,})).$col"
-    done
-    check_screen pixels-$bx $w $h "$WORK/${P}ibrowser-boxes.ppm"
-    # (27j) the SVG page: inside each drawing's shapes (worked out by hand;
-    # M magenta, C cyan, O orange, D dark green)
-    local sx=""
-    for xy in 10,10:R 75,25:B 52,10:w 20,74:G 69,74:Y 50,117:B 50,118:B 50,113:w 10,172:M 30,192:C 30,172:w 20,226:O 20,246:D; do
-        case ${xy#*:} in R) col=255.0.0 ;; G) col=0.255.0 ;; B) col=0.0.255 ;; Y) col=255.255.0 ;;
-                         w) col=255.255.255 ;; M) col=255.0.255 ;; C) col=0.255.255 ;; O) col=255.128.0 ;;
-                         D) col=0.128.0 ;; esac
-        xy=${xy%:*}
-        sx="$sx${sx:+_}$((104 + ${xy%,*})).$((168 + ${xy#*,})).$col"
-    done
-    check_screen pixels-$sx $w $h "$WORK/${P}ibrowser-svg.ppm"
-    # (27i) the tables page: its links' places (worked out by hand: no
-    # spacing or padding, 9-pixel characters, 17-pixel lines)
-    local tabs
-    local -a T
-    tabs=$(sed -n '/^ibrowser: page .*\/tables.html:/,$p' <<<"$TEXT")
-    tl() { sed -n "s/^ibrowser: link $1 at \([0-9]*\),\([0-9]*\): .*/\1 \2/p" <<<"$tabs" | head -1; }
-    T=($(tl 0) $(tl 1) $(tl 2) $(tl 4) $(tl 5) $(tl 6) $(tl 7) $(tl 8))
-    if [ ${#T[@]} = 16 ]; then
-        local wide=$((cw == 888 ? 194 : 142))  # (63 + the room left, shared as 63 : 225)
-        check "a column as wide as its widest cell ('row two')" "link 1 at ${T[2]},${T[3]}" \
-              test "${T[2]}" = 63 -a "${T[3]}" = "${T[1]}"
-        check "the next row 17 pixels down" "link 2 at ${T[4]},${T[5]}" test "${T[4]}" = 0 -a $((T[5] - T[1])) = 17
-        check "width=100%: the room shared by the columns' widths" "link 4 at x ${T[6]}, wanted $wide" \
-              test "${T[6]}" = "$wide"
-        check "colspan: the wide cell's width shared by its columns" "link 5 at x ${T[8]}" test "${T[8]}" = 99
-        check "rowspan: its contents in the middle of its two rows" "links 6, 7, 8 at y ${T[11]}, ${T[13]}, ${T[15]}" \
-              test $((T[11] - T[13])) = 8 -a $((T[15] - T[13])) = 17
-        check_screen pixels-$((104 + 20)).$((168 + T[13] + 1)).0.255.0_$((104 + 20)).$((168 + T[15] + 14)).0.255.0 \
-                     $w $h "$WORK/${P}ibrowser-tables.ppm"   # (its background over both rows)
-    else
-        check "the tables page's links listed" "${#T[@]} numbers" false
-    fi
-    check_screen region-104-168-500-300-255-210-127 $w $h "$WORK/${P}ibrowser-page.ppm"  # the box (CSS)
-    check_screen region-104-168-500-300-0-100-0 $w $h "$WORK/${P}ibrowser-page.ppm"      # its border
-    check_screen region-104-168-500-400-200-40-160 $w $h "$WORK/${P}ibrowser-page.ppm"   # the picture
-    check_screen region-104-168-500-60-0-0-128 $w $h "$WORK/${P}ibrowser-page.ppm"       # the heading
-    check_screen region-104-168-500-400-200-40-160 $w $h "$WORK/${P}ibrowser-file.ppm"   # (from the disk)
-    reject "panic"
-    show_log_on_failure $before
-}
-
 tlsclient_shell_test() {
     local image before c="$WORK/${P}certs" tc="/system/$ARCH_NAME/test/tlsclient" tls_pids=""
     local r="-c /test/tlsroot.crt" h=10.0.2.2 hello big ok cut
@@ -14542,10 +14652,10 @@ ldso_session() {
     local n=1 asked=0 t="/system/$ARCH_NAME/test" l="/system/$ARCH_NAME/lib"
     prompt_wait $n
     answer_lines "$t/ldtest dynamic" "$t/ldtest-static static" "$l/ld.so" \
-                 "mv $l/libimage.so.1 $l/libimage.away" "imageview" "ldd imageview" \
-                 "cp $l/libaudio.so.1 $l/libimage.so.1" "imageview" "ldd imageview" \
+                 "mv $l/libimage.so.1 $l/libimage.away" "Imageview" "ldd Imageview" \
+                 "cp $l/libaudio.so.1 $l/libimage.so.1" "Imageview" "ldd Imageview" \
                  "rm $l/libimage.so.1" "mv $l/libimage.away $l/libimage.so.1" "$t/ldtest dynamic" \
-                 "ldd imageview" "ldd $t/ldtest-static"
+                 "ldd Imageview" "ldd $t/ldtest-static"
 }
 
 ldso_shell_test() {
@@ -14562,21 +14672,21 @@ ldso_shell_test() {
     check "ldtest passes dynamic, static and dynamic again" "$(grep -c '^ldtest: all ok' <<<"$TEXT") runs" \
           eval '[ "$(grep -c "^ldtest: all ok" <<<"$TEXT")" -eq 3 ]'
     expect_line "ld.so: the dynamic loader; the system starts it for programs that use shared libraries"
-    expect_line "ld.so: imageview: libimage.so.1 is not in /system/$a/lib/ (No such file or directory)"
-    expect "ld.so: imageview: imageview needs image_"
+    expect_line "ld.so: Imageview: libimage.so.1 is not in /system/$a/lib/ (No such file or directory)"
+    expect "ld.so: Imageview: Imageview needs image_"
     expect ", which none of its libraries has"
-    expect_line "imageview: exit code 127"
+    expect_line "Imageview: exit code 127"
     # ldd (22d): the same faults found without running the program, then all there.
     expect_line "    libimage.so.1 => not found"
-    expect_line "    imageview needs image_load, which none of its libraries has"
+    expect_line "    Imageview needs image_load, which none of its libraries has"
     expect_line "ldd: exit code 1"
     want_text want <<LINES
-/system/$a/apps/imageview.program/imageview:
+/system/$a/apps/Imageview.program/Imageview:
     libritteros.so.1 => /system/$a/lib/libritteros.so.1
     libwindow.so.1 => /system/$a/lib/libwindow.so.1
     libimage.so.1 => /system/$a/lib/libimage.so.1
 LINES
-    compare "ldd imageview" "$want" "$(command_output "ldd imageview" 3)"
+    compare "ldd Imageview" "$want" "$(command_output "ldd Imageview" 3)"
     compare "ldd of a static program" \
             "$(printf '/system/%s/test/ldtest-static:\n    statically linked: it needs no libraries' "$a")" \
             "$(command_output "ldd /system/$a/test/ldtest-static")"
@@ -14585,7 +14695,7 @@ LINES
     # How they link, read from the files on the host.
     links=$(cd "$d" && python3 "$ROOT/scripts/elfneeded.py" lib/libritteros.so.1 lib/libwindow.so.1 \
                 lib/libimage.so.1 lib/libaudio.so.1 lib/libvideo.so.1 lib/libtls.so.1 lib/ld.so \
-                bin/ls apps/imageview.program/imageview test/ldtest-static test/tlsclient)
+                bin/ls apps/Imageview.program/Imageview test/ldtest-static test/tlsclient)
     want_text want <<'LINES'
 lib/libritteros.so.1: soname libritteros.so.1; needs -
 lib/libwindow.so.1: soname libwindow.so.1; needs libritteros.so.1
@@ -14595,11 +14705,152 @@ lib/libvideo.so.1: soname libvideo.so.1; needs libritteros.so.1
 lib/libtls.so.1: soname libtls.so.1; needs libritteros.so.1
 lib/ld.so: static
 bin/ls: soname -; needs libritteros.so.1
-apps/imageview.program/imageview: soname -; needs libritteros.so.1 libwindow.so.1 libimage.so.1
+apps/Imageview.program/Imageview: soname -; needs libritteros.so.1 libwindow.so.1 libimage.so.1
 test/ldtest-static: static
 test/tlsclient: soname -; needs libritteros.so.1 libtls.so.1
 LINES
     compare "the libraries and what programs need" "$want" "$links"
+    show_log_on_failure $before
+}
+
+# bundle_session / bundle_shell_test: an app's own libraries (43e, the
+# user's: as macOS's, in APP.program/lib). On the machine, with its own cc
+# and ld: libplug.so.1 and libwhich.so.1 (which needs libplug) in the
+# bundle's lib, another libwhich.so.1 in /system/<arch>/lib, and the app
+# linked with -rpath '$ORIGIN/lib'. The bundle's libraries win over the
+# system's; libplug is found through the program's RUNPATH (libwhich has
+# none, as @rpath on macOS); dlopen of a bare name looks in the bundle too;
+# the bundle moved, and run through a symbolic link (the kernel's AT_EXECFN
+# is the real path), still finds them; ldd lists the same files; without
+# the bundle's lib the system's library is taken and the message names
+# every folder tried. A setuid copy run by anna ignores $ORIGIN
+# (AT_SECURE): the system's library, and ldd says so too. The same app
+# linked by cc with -Wl,-rpath (cc hands -Wl, words to ld) finds them too.
+# A bundle of 20 libraries of its own and libhub.so.1, which names all 20
+# (23 files: ld.so took 16, and 16 names a file, before): it runs, and ldd
+# lists them. Proven by an ld.so that ignores RUNPATH, one that ignores
+# AT_SECURE, a cc that ignores -Wl, and ld.so's old limit of 16.
+bundle_session() {
+    local n=1 a=$ARCH_NAME l="/system/$ARCH_NAME/lib"
+    prompt_wait $n
+    answer_lines 'mkdir -p /tmp/bt/app.program/lib' 'cd /tmp/bt' \
+                 'cc -c -fPIC /bt-plug.c -o plug.o' 'cc -c -fPIC /bt-bundle.c -o bundle.o' \
+                 'cc -c -fPIC /bt-system.c -o system.o' 'cc -c /bt-main.c -o main.o' \
+                 'ld -shared -soname libplug.so.1 -o app.program/lib/libplug.so.1 plug.o' \
+                 'ld -shared -soname libwhich.so.1 -o app.program/lib/libwhich.so.1 bundle.o app.program/lib/libplug.so.1' \
+                 "ld -shared -soname libwhich.so.1 -o $l/libwhich.so.1 system.o" \
+                 "ld -rpath '\$ORIGIN/lib' -o app.program/app $l/start.o main.o --as-needed $l/libritteros.so.1 app.program/lib/libwhich.so.1 --no-as-needed $l/libritteros.a" \
+                 'app.program/app' "cc -o app.program/app2 /bt-main.c app.program/lib/libwhich.so.1 -Wl,-rpath,'\$ORIGIN/lib'" \
+                 'app.program/app2'
+    serial_type 'sh /bt-many.sh\r'                    # (42 compilations and links: minutes under TCG)
+    n=$((n + 1)); prompt_wait $n 600
+    answer_lines 'mv app.program /tmp/moved.program' '/tmp/moved.program/app' \
+                 'ln -s /tmp/moved.program/app /tmp/applink' '/tmp/applink' 'ldd /tmp/applink' \
+                 'mv /tmp/moved.program/lib /tmp/moved.program/away' '/tmp/moved.program/app' \
+                 'mv /tmp/moved.program/away /tmp/moved.program/lib' 'chmod 4755 /tmp/moved.program/app' \
+                 'useradd anna'
+    serial_type 'passwd anna\r'
+    serial_wait "New password: " 1
+    serial_type 'anna-pw-1\r'
+    serial_wait "Again: " 1
+    serial_type 'anna-pw-1\r'
+    n=$((n + 1)); prompt_wait $n 30
+    serial_type 'exit\r'
+    login_wait 2
+    serial_type 'anna\r'
+    serial_wait "Password: " 1
+    serial_type 'anna-pw-1\r'
+    serial_wait "[anna logged in]" 1 30
+    n=$((n + 1)); prompt_wait $n 30
+    answer_lines '/tmp/moved.program/app' 'ldd /tmp/moved.program/app'
+}
+
+bundle_shell_test() {
+    local image before a=$ARCH_NAME want
+    image=$(make_image ${P}bundle "")
+    printf 'const char *plug(void) { return "plug in the bundle"; }\n' >"$WORK/${P}bt-plug.c"
+    printf 'const char *plug(void);\nconst char *which(void) { return "the bundle"; }\nconst char *which_plug(void) { return plug(); }\n' \
+        >"$WORK/${P}bt-bundle.c"
+    printf 'const char *which(void) { return "the system"; }\nconst char *which_plug(void) { return "no plug"; }\n' \
+        >"$WORK/${P}bt-system.c"
+    cat >"$WORK/${P}bt-main.c" <<'EOF'
+#include <dlfcn.h>
+#include <stdio.h>
+const char *which(void);
+const char *which_plug(void);
+int main(void)
+{
+    void *h = dlopen("libplug.so.1", RTLD_NOW);
+    const char *(*f)(void) = h ? (const char *(*)(void))dlsym(h, "plug") : 0;
+    printf("bundletest: %s's library; %s; dlopen: %s\n", which(), which_plug(), f ? f() : dlerror());
+    return 0;
+}
+EOF
+    # (43e) 20 libraries in a bundle, libhub naming them all, and a program using them
+    printf '#define F_(n) f##n\n#define F(n) F_(n)\nint F(N)(void) { return N; }\n' >"$WORK/${P}bt-l.c"
+    printf 'int hub(void) { return 0; }\n' >"$WORK/${P}bt-hub.c"
+    { echo '#include <stdio.h>'
+      echo 'int hub(void);'
+      for i in $(seq 1 20); do echo "int f$i(void);"; done
+      echo 'int main(void)'
+      echo '{'
+      printf '    int sum = hub()'; for i in $(seq 1 20); do printf ' + f%d()' $i; done; echo ';'
+      echo '    printf("many: sum %d from libhub and 20 libraries\n", sum);'
+      echo '    return 0;'
+      echo '}'; } >"$WORK/${P}bt-many.c"
+    cat >"$WORK/${P}bt-many.sh" <<'EOF'
+cd /tmp/bt
+mkdir -p many.program/lib
+cc -c -fPIC /bt-hub.c -o hub.o
+i=1
+libs=
+while [ $i -le 20 ]; do
+    cc -c -fPIC -DN=$i /bt-l.c -o l$i.o
+    ld -shared -soname libm$i.so.1 -o many.program/lib/libm$i.so.1 l$i.o
+    libs="$libs many.program/lib/libm$i.so.1"
+    i=$((i + 1))
+done
+ld -shared -soname libhub.so.1 -o many.program/lib/libhub.so.1 hub.o $libs
+cc -o many.program/many /bt-many.c many.program/lib/libhub.so.1 $libs -Wl,-rpath,'$ORIGIN/lib'
+many.program/many
+n=$(ldd many.program/many | grep -c /tmp/bt/many.program/lib/)
+echo "many: ldd lists $n of the bundle's libraries"
+EOF
+    for f in plug.c bundle.c system.c main.c l.c hub.c many.c many.sh; do
+        $RFS put "$image" $RFS_PART /bt-$f "$WORK/${P}bt-$f" >/dev/null || exit 1
+    done
+    before=$failures
+    SERIAL_SCRIPT=bundle_session
+    boot ${P}bundle "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    local own="bundletest: the bundle's library; plug in the bundle; dlopen: plug in the bundle"
+    compare "the bundle's libraries win over the system's" "$own" "$(command_output 'app.program/app')"
+    compare "cc -Wl,-rpath: the same" "$own" "$(command_output 'app.program/app2')"
+    expect_line "many: sum 210 from libhub and 20 libraries"
+    expect_line "many: ldd lists 21 of the bundle's libraries"
+    compare "the bundle moved" "$own" "$(command_output '/tmp/moved.program/app')"
+    compare "the bundle through a symbolic link" "$own" "$(command_output '/tmp/applink')"
+    want_text want <<LINES
+/tmp/applink:
+    libritteros.so.1 => /system/$a/lib/libritteros.so.1
+    libwhich.so.1 => /tmp/moved.program/lib/libwhich.so.1
+    libplug.so.1 => /tmp/moved.program/lib/libplug.so.1
+LINES
+    compare "ldd: the bundle's libraries" "$want" "$(command_output 'ldd /tmp/applink')"
+    compare "without the bundle's lib: the system's library" \
+            "bundletest: the system's library; no plug; dlopen: libplug.so.1 is not in /tmp/moved.program/lib/, /system/$a/lib/ (No such file or directory)" \
+            "$(command_output '/tmp/moved.program/app' 2)"
+    compare "a setuid copy run by another user: no \$ORIGIN" \
+            "bundletest: the system's library; no plug; dlopen: libplug.so.1 is not in /system/$a/lib/ (No such file or directory)" \
+            "$(command_output '/tmp/moved.program/app' 3)"
+    want_text want <<LINES
+/tmp/moved.program/app:
+    libritteros.so.1 => /system/$a/lib/libritteros.so.1
+    libwhich.so.1 => /system/$a/lib/libwhich.so.1
+LINES
+    compare "ldd of the setuid copy: the system's library" "$want" \
+            "$(command_output 'ldd /tmp/moved.program/app')"
+    reject "panic"
     show_log_on_failure $before
 }
 
@@ -14627,12 +14878,12 @@ fonts_session() {
     serial_wait "fonttest: the user's text size is 21" 1 15
     serial_type 'windowd &\r'
     serial_wait "windowd: listening on /run/windowd" 1 15
-    serial_type "term -f 10x20 echo RitterOS &\r"
+    serial_type "Term -f 10x20 echo RitterOS &\r"
     serial_wait "term: started, font 10x20" 1 15
     sleep 1.5                                       # echo runs and exits; term shows the exit line
     echo "screendump $WORK/${NAME}-big.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
     sleep 0.5
-    serial_type "term -f nosuch echo hi &\r"
+    serial_type "Term -f nosuch echo hi &\r"
     serial_wait "term: started, font 9x15" 1 15
 }
 
@@ -15210,7 +15461,7 @@ exec_lines() {
         "sh -c 'exec /nonexistent; echo not reached'; echo code \$?"
         "x=0123456789; x=\$x\$x\$x\$x\$x\$x\$x\$x\$x\$x; a=\$x; i=1; while [ \$i -lt 60 ]; do a=\"\$a \$x\"; i=\$((i + 1)); done; sh -c \"exec echo \$a\" | wc -c"
         # (42b) execlp by name, into an app bundle (after the compared lines)
-        "/system/$ARCH_NAME/test/exectest byname imageview"
+        "/system/$ARCH_NAME/test/exectest byname Imageview"
     )
 }
 exec_session() {
@@ -15238,7 +15489,7 @@ exec_shell_test() {
     expect_line "exectest: execv of a file without x: EACCES"
     expect_line "exectest: execv of a script without #!: ENOEXEC"
     expect_line "exectest: a plain script ran with an argument"
-    expect_line "imageview: found by name: No such file or directory"   # (42b) execlp finds apps/imageview.program/imageview
+    expect_line "imageview: found by name: No such file or directory"   # (42b) execlp finds apps/Imageview.program/Imageview
     expect_line "exectest: execvp runs it through sh: exit code 0"
     expect_line "exectest: a hash-bang script ran with an argument"
     expect_line "exectest: execvp of a #! script: exit code 0"
@@ -16209,6 +16460,64 @@ screen_off_session() {
     echo "screendump $WORK/${NAME}-wdon.ppm" | nc -w 3 -U "$mon" >/dev/null 2>&1
 }
 
+# power_settings_session / power_settings_test (69a, the user's names):
+# /system/config/power read again while running. `power settings` prints
+# what the kernel applied (the default file login's start made); then the
+# file says power_button = nothing and screen_off = 1, and after `power
+# settings` the screen goes off a minute later (the default 5 would not)
+# and the power button's press is only logged (the default would switch
+# the machine off). `power clock` says the clock setting is not used here
+# (QEMU's processor has no CPPC: the clock on every core is the laptops').
+# A user who is not root is refused. Proven by a kernel that read the
+# file but applied nothing again (the screen stayed on, the press powered
+# the machine off).
+power_settings_session() {
+    local n=1 asked=0 mon="$WORK/monitor.sock" power=/system/$ARCH_NAME/bin/power
+    prompt_wait $n
+    answer_lines "$power settings" "$power clock" \
+                 'echo "power_button = nothing" > /system/config/power; echo "screen_off = 1" >> /system/config/power' \
+                 "$power settings # (again)" 'useradd anna' "echo $power settings | su anna"
+    serial_wait "screen: off after 1 minute without input" 1 100
+    echo system_powerdown | nc -w 3 -U "$mon" >/dev/null 2>&1
+    serial_wait "acpi: the power button: power_button = nothing" 1 20
+    sleep 1
+    serial_type 'echo still-on\r'
+    n=$((n + 1)); prompt_wait $n 20
+}
+
+power_settings_test() {
+    local image before out
+    image=$(make_image ${P}powersettings "")
+    before=$failures
+    SERIAL_SCRIPT=power_settings_session
+    boot ${P}powersettings "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    out=$(command_output "/system/$ARCH_NAME/bin/power settings")
+    compare "power settings: the defaults applied (69a)" "$(printf '%s\n' \
+            'power_button = off (/system/config/power)' \
+            'lid = nothing (/system/config/power)' \
+            'screen_off = 5, screen_dim = 2 (minutes; /system/config/power): the screen goes off' \
+            'sleep_after = 0 (minutes; /system/config/power): it never sleeps by itself')" \
+            "$(sed 's/; no button events on this machine//' <<<"$out")"
+    check "power clock: not used on QEMU's processor (69a)" \
+          "$(command_output "/system/$ARCH_NAME/bin/power clock")" \
+          eval 'command_output "/system/$ARCH_NAME/bin/power clock" | grep -qE "^clock = performance \(/system/config/cpu\): not used, this processor.s clock is the firmware.s$"'
+    out=$(command_output "/system/$ARCH_NAME/bin/power settings # (again)")
+    compare "power settings: the new file applied" "$(printf '%s\n' \
+            'power_button = nothing (/system/config/power)' \
+            'lid = nothing (the default: no lid in /system/config/power)' \
+            'screen_off = 1, screen_dim = 2 (minutes; /system/config/power): the screen goes off' \
+            'sleep_after = 0 (minutes; /system/config/power): it never sleeps by itself')" \
+            "$(sed 's/; no button events on this machine//' <<<"$out")"
+    expect_line "screen: off after 1 minute without input"
+    expect_line "acpi: the power button: power_button = nothing"
+    compare "the machine still on after the press" "still-on" "$(command_output 'echo still-on')"
+    expect_line "power: settings: only root may"
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
 screen_off_test() {
     local image before shot lit
     image=$(make_image ${P}screenoff "")
@@ -16345,6 +16654,59 @@ cpus_test() {
 # time.h with a zone of -05:00 (22o: /system/config/time, TZ on the Mac). user/test/libctest.c is plain standard C: the
 # test builds it on the Mac too, and the Mac's C library is the reference,
 # line by line.
+# cxx_session / cxx_shell_test (43c): C++ on RitterOS. On the Mac first:
+# every header of user/include compiles as C++ (C++11, 17 and 23, both
+# architectures, -pedantic, as system headers); then user/test/cxx/cxxtest
+# (plain C++23) runs on the Mac against Apple's libc++ and on RitterOS
+# against libc++.so.1, libc++abi.so.1 and libunwind.so.1 (built from the
+# pinned zig's LLVM sources): every "cxxtest:" line the same (exceptions
+# through frames and threads, RTTI, the containers, format, streams, files
+# and std::filesystem, threads, thread_local destructors, chrono, regex,
+# random, the static objects' destruction after main); ldd names the C++
+# libraries. Proven by a libunwind without the frames' index (an lld
+# without --eh-frame-hdr: every throw ends in std::terminate) and by
+# headers without their C++ guards (no C function links).
+cxx_session() {
+    local n=1 asked=0
+    prompt_wait $n
+    answer_lines "/system/$ARCH_NAME/test/cxxtest /tmp" "ldd /system/$ARCH_NAME/test/cxxtest"
+}
+
+cxx_shell_test() {
+    local image before host="$WORK/cxxtest-host" out="$WORK/cxxtest-host.d" std arch h bad=""
+    NAME=${P}cxx
+    for std in c++11 c++17 c++23; do
+        for arch in x86_64 aarch64; do
+            for h in $(cd "$ROOT/user/include" && find . -name '*.h' | sed 's|^\./||' | sort); do
+                printf '#include <%s>\n' "$h" >"$WORK/${P}cxxheader.cpp"
+                "$ROOT/tools/zig/zig" clang -x c++ -target $arch-unknown-none-elf -ffreestanding -nostdinc \
+                    -nostdinc++ -isystem "$ROOT/tools/zig/lib/include" -isystem "$ROOT/user/include" -std=$std \
+                    -fsyntax-only -Wall -Wextra -Werror -pedantic "$WORK/${P}cxxheader.cpp" >/dev/null 2>&1 ||
+                    bad+="$std/$arch/$h "
+            done
+        done
+    done
+    check "every header compiles as C++ (C++11, 17, 23 on both architectures)" "${bad:-none failed}" test -z "$bad"
+    image=$(make_image ${P}cxx "")
+    before=$failures
+    SERIAL_SCRIPT=cxx_session
+    boot ${P}cxx "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    rm -rf "$out"; mkdir -p "$out"
+    check "cxxtest builds on the Mac" "the Mac cannot build cxxtest.cpp" \
+          eval 'clang++ -std=c++23 -O2 -o "$host" "$ROOT/user/test/cxx/cxxtest.cpp"'
+    compare "every line as with the Mac's libc++" "$("$host" "$out" 2>&1 | grep '^cxxtest:')" \
+            "$(command_output "/system/$ARCH_NAME/test/cxxtest /tmp" | grep '^cxxtest:')"
+    for name in libc++.so.1 libc++abi.so.1 libunwind.so.1 libritteros.so.1; do
+        check "ldd: cxxtest needs $name" "$(command_output "ldd /system/$ARCH_NAME/test/cxxtest")" \
+              eval 'command_output "ldd /system/$ARCH_NAME/test/cxxtest" | grep -q "'"$name"'"'
+    done
+    reject "terminate"
+    reject "RitterOS crash"
+    reject "panic"
+    show_log_on_failure $before
+}
+
 libc_session() {
     local n=1 asked=0
     prompt_wait $n
@@ -16363,13 +16725,47 @@ libc_shell_test() {
     SERIAL_SCRIPT=
     rm -rf "$out"; mkdir -p "$out"
     check "the test program builds on the Mac" "the Mac cannot build libctest.c" \
-          eval 'cc -w -o "$host" "$ROOT/user/test/libctest.c"'
+          eval 'cc -w -o "$host" "$ROOT/user/test/libctest.c" -liconv'
     # (only the program's own lines: RitterOS's sh -c, which system runs,
     # also reports a command's nonzero exit code, which Unix shells do not)
     compare "every line as the Mac's C library's" \
             "$(TZ='<UTC-05:00>5' "$host" "$out" 2>&1 | grep '^libctest:')" \
             "$(command_output "/system/$ARCH_NAME/test/libctest /home/root" | grep '^libctest:')"
     expect_line "libctest-own: times: bad nsec -1 EINVAL 1"     # (63m: POSIX's, not the Mac's)
+    # (43a) what the Mac has not (GNU's) or has otherwise (its qsort_r's
+    # order, rand_r's numbers, its users): glibc's results
+    expect_line "libctest-own: 43a strchrnul 3 mempcpy 3 strverscmp 1 1 1 1 1"
+    expect_line "libctest-own: 43a rand_r 476707713 qsort_r 9 5 3 1"
+    expect_line "libctest-own: 43a reallocarray 1 overflow 1"
+    expect_line "libctest-own: 43a stat 5000 blocks 16 blksize 4096 recent 1 nsec 1"
+    expect_line "libctest-own: 43a getpwnam root x 0 0 root /home/root /bin/sh getgrgid root root"
+    expect_line "libctest-own: 43a getpwuid_r 34 1"
+    # (43a-2) glibc's C.UTF-8 classes, its UTF-16 (a mark, then little
+    # endian), its ASCII//TRANSLIT ('?'), its codeset name for C
+    expect_line "libctest-own: 43a-2 nbsp 0 separator 1"
+    # (43a-3) RitterOS's own numbers (a test machine: 2 cores) and calls
+    # the Mac has not
+    expect_line "libctest-own: 43a-3 sysconf page 4096 cores 2 2 2 2 open 256 clk 100 phys 1 ram 1 unit 4096"
+    expect_line "libctest-own: 43a-3 confstr /bin:/usr/bin gethostname 0 getlogin_r 0 root getresuid 0 0 getauxval 4096 1 getrandom 300 nofile 256 pathconf 255"
+    expect_line "libctest-own: 43a-3 execvpe exit 9"
+    # (43a-4) the loaded objects, thread_local destructors, the threads'
+    # stacks as pthread_getattr_np tells them, semaphores, one policy
+    expect_line "libctest-own: 43a-4 sched_getparam 0 0 policy 0 max 0"
+    expect_line "libctest-own: 43a-4 dl_iterate_phdr 1 1 1 dladdr 1 libritteros.so.1 printf"
+    expect_line "libctest-own: 43a-4 thread dtor 1 stack 1 main 1 8388608"
+    expect_line "libctest-own: 43a-4 sem 1 -1/1 -1/1 1 cores 2"
+    # (43b-1) pipe2, dup3, SOCK_CLOEXEC (the Mac has none of them)
+    expect_line "libctest-own: 43b-1 pipe2 0 cloexec 1 1 empty read -1 EAGAIN 1 dup3 30 1 socket cloexec 1 statvfs block 4096"
+    # (43b-2) two descriptors, room for one: cut off (one closed), and the
+    # next read stops at the message without any
+    expect_line "libctest-own: 43b-2 cut -2 5 first then 0 6 second"
+    expect_line "libctest-own: 43b-5 kill's si_code SI_USER 1"
+    expect_line "libctest-own: 43b-5 sigaltstack off: SS_DISABLE 1"
+    expect_line "libctest-own: 43b-6 thread name 0 0 libctest-main, long 1, small 1; pthread_getcpuclockid 1"
+    expect_line "libctest-own: 43b-6 getifaddrs 0: lo 127.0.0.1/8 1 ::1 1, 2 entries; if_nametoindex lo 65, back lo, if_nameindex first lo, none 0"
+    expect_line "libctest-own: 43b-6 AT_HWCAP 1"
+    expect_line "libctest-own: 43b-5 SIGSEGV read-only: ACCERR 1 at 1 1; unmapped: MAPERR 1 at 1 1"
+    expect_line "libctest-own: 43a-2 utf16 mark ff fe 41 00 translit 1 A? codeset ANSI_X3.4-1968 gettext hello one file files"
     reject "assertion failed"
     reject "panic"
     show_log_on_failure $before
@@ -16598,7 +16994,10 @@ expansion_shell_test() {
 # quoted parts ("$d"/*.txt, a folder with a space, a quoted * that matches
 # nothing, \*, a $VAR's * and \, sets, set -f, an assignment, a for list)
 # in /tmp, its output the Mac's (LC_ALL=C: our sort's order). Proven by
-# the old rule (a word with any quote never globbed).
+# the old rule (a word with any quote never globbed). (44c-2) Scripts whose
+# first command is a compound one with a redirection (while ...; done <
+# FILE, { ...; } < FILE, a missing file's message): the shell crashed there
+# (its words' buffer not yet set before a simple command had run).
 control_lines() {
     local s="/system/$ARCH_NAME/bin/sh"
     CONTROL_LINES=(
@@ -16762,7 +17161,8 @@ control_session() {
     serial_type 'done\r'
     n=$((n + 1))
     prompt_wait $n
-    answer_lines "sh /test/case.sh" "cd /tmp; sh /test/glob.sh; cd /"
+    answer_lines "sh /test/case.sh" "cd /tmp; sh /test/glob.sh; cd /" \
+                 "sh /test/redir1.sh" "sh /test/redir2.sh" "sh /test/redir3.sh"
 }
 
 control_shell_test() {
@@ -16824,6 +17224,14 @@ say "$d"/s*/*.txt
 say "$d"/'s'*/'*'.txt
 SCRIPT
     $RFS put "$image" $RFS_PART /test/glob.sh "$globs" >/dev/null || exit 1
+    # (44c-2) a compound command with a redirection as a script's first
+    printf 'one\ntwo two\n' >"$WORK/${P}redir.txt"
+    printf 'while read f; do echo "line: $f"; done < /test/redir.txt\n' >"$WORK/${P}redir1.sh"
+    printf '{ read a; echo "group: $a"; } < /test/redir.txt\n' >"$WORK/${P}redir2.sh"
+    printf 'while read f; do :; done < /nope\necho "after $?"\n' >"$WORK/${P}redir3.sh"
+    for f in redir.txt redir1.sh redir2.sh redir3.sh; do
+        $RFS put "$image" $RFS_PART /test/$f "$WORK/${P}$f" >/dev/null || exit 1
+    done
     before=$failures
     SERIAL_SCRIPT=control_session
     boot ${P}control "$image" "RitterOS kernel: boot complete"
@@ -16847,6 +17255,12 @@ SCRIPT
     rm -rf "$run"; mkdir -p "$run"
     compare "filename patterns with quoted parts, as the Mac's /bin/sh" \
             "$(cd "$run" && LC_ALL=C /bin/sh "$globs" 2>&1)" "$(command_output "cd /tmp; sh /test/glob.sh; cd /")"
+    compare "a script's first command: while ... done < FILE (44c-2)" $'line: one\nline: two two' \
+            "$(command_output "sh /test/redir1.sh")"
+    compare "a script's first command: { ...; } < FILE" "group: one" "$(command_output "sh /test/redir2.sh")"
+    compare "a script's first command: a missing file" $'sh: /nope: No such file or directory\nafter 1' \
+            "$(command_output "sh /test/redir3.sh")"
+    reject "sh: page fault"
     reject "panic"
     show_log_on_failure $before
 }
@@ -17267,12 +17681,34 @@ thrd_shell_test() {
 # in floating-point registers while a second process sends SIGUSR1 every
 # 10 ms, the handler computing too: every run as one without signals (the
 # kernel kept the FP/SIMD registers); sleep: nanosleep interrupted, with
-# the time left; int: Ctrl-C typed at a program with a SIGINT handler.
-# Proven by a sigreturn that does not put the FP/SIMD registers back.
+# the time left; int: Ctrl-C typed at a program with a SIGINT handler;
+# (43b-5) context: the handler's ucontext_t read and changed (its PC moved,
+# a register changed: raise's result); (44a) stop: stopping and continuing
+# (sigtest's own lines), and from the shell kill -STOP, ps's `stopped`,
+# kill -CONT; (44b) job: job control at the console (Ctrl-Z typed at the
+# foreground job, SIGTTIN, a line typed, TOSTOP and tcsetattr's SIGTTOU, an
+# ignored SIGTTIN's EIO, an orphaned group's SIGHUP and SIGCONT), and
+# jobpty: the same on a pseudo-terminal (its Ctrl-Z typed into the
+# master). Proven by a sigreturn that does not put the FP/SIMD
+# registers back, (43b-5) by one that keeps the frame's registers instead
+# of the context's (raise gives 0), (44a) by threads that do not park, a
+# call the stop interrupted not made again, and a sleep made again whole,
+# (44b) by a terminal without Ctrl-Z, a background read at its end as
+# before, writes and tcsetattr that never stop, and no orphan check.
 signals_session() {
     local n=1 asked=0 t="/system/$ARCH_NAME/test/sigtest"
     prompt_wait $n
-    answer_lines "$t fp" "$t sleep"
+    answer_lines "$t fp" "$t sleep" "$t context" "$t stop" 'sleep 100 &' 'kill -STOP $!' 'ps' \
+                 'kill -CONT $!' 'ps' 'kill $!'
+    serial_type "$t job\r"                         # (44b) its Ctrl-Z and its line typed here
+    serial_wait "sigtest: job: type Ctrl-Z now" 1 30
+    sleep 0.3
+    serial_type '\032'
+    serial_wait "sigtest: job: type a line now" 1 30
+    sleep 0.3
+    serial_type 'hello\r'
+    n=$((n + 1)); prompt_wait $n 60
+    answer_lines "$t jobpty"
     serial_type "$t int\r"
     serial_wait "sigtest: waiting for Ctrl-C" 1
     sleep 0.5
@@ -17296,8 +17732,528 @@ signals_shell_test() {
             "$(command_output "$t sleep")"
     expect "sigtest: int: SIGINT handled"
     reject "sigtest: int: no Ctrl-C"
+    compare "a handler's ucontext_t: the fault's PC and address, the mask, the stack, FP (43b-5)" \
+            "sigtest: context: pc in the faulting function 1, address 1, blocked set 1, no alternate stack 1, FP state 1, resumed where the handler said 1" \
+            "$(command_output "$t context" | head -1)"
+    expect_line "sigtest: context: raise gave 4242 (the handler's register)"
+    want_text want <<'LINES'
+sigtest: stop: SIGSTOP reported 1 (WIFSTOPPED, WSTOPSIG), both threads still 1, SIGCHLD CLD_STOPPED 1, reported once 1
+sigtest: stop: SIGCONT reported 1 (WIFCONTINUED), CLD_CONTINUED 1, both threads going 1
+sigtest: stop: SIGTSTP stops by default 1, SIGKILL ends a stopped one 1
+sigtest: stop: a handled SIGTSTP runs its handler 1, it and an ignored SIGTTOU stop nothing 1
+sigtest: stop: a blocked SIGTSTP waits 1, stops it once unblocked 1
+sigtest: stop: a stopped reader reads nothing 1, then its read gives "4 0" (4 bytes, no error)
+sigtest: stop: a stopped nanosleep gives "0 0 1" (0, no error, ended at its end: 1.95-2.5 s)
+sigtest: stop: SA_NOCLDSTOP: no SIGCHLD 1, waitpid reports it 1
+LINES
+    compare "stopping and continuing (44a)" "$want" "$(command_output "$t stop")"
+    check "kill -STOP: ps shows the job stopped (44a)" "$(command_output 'ps' 1)" \
+          eval 'command_output ps 1 | grep -qE "  stopped  sleep$"'
+    check "kill -CONT: it runs again" "$(command_output 'ps' 2)" \
+          eval 'command_output ps 2 | grep -qE "  running  sleep$"'
+    want_text want <<'LINES'
+sigtest: job: Ctrl-Z stopped the foreground job by SIGTSTP 1
+sigtest: job: continued in the background, its read stopped it by SIGTTIN 1
+sigtest: job: the job read 'hello' after SIGCONT
+sigtest: job: in the foreground again it read and ended 1
+sigtest: job: a background write without TOSTOP goes out
+sigtest: job: with TOSTOP a background write stopped it by SIGTTOU 1, without it went out 1
+sigtest: job: a background tcsetattr stopped it by SIGTTOU 1, with SIGTTOU ignored it went on 1
+sigtest: job: with SIGTTIN ignored a background read is EIO 1
+sigtest: job: an orphaned group's stopped member: its parent gone 1, SIGHUP and SIGCONT, then EIO: "he"
+LINES
+    compare "job control at the console (44b)" "$want" \
+            "$(command_output "$t job" | grep '^sigtest: job:' | grep -v ': type ')"
+    compare "job control on a pseudo-terminal (44b)" "$want"$'\n'"sigtest: jobpty: it ended 1" \
+            "$(command_output "$t jobpty" | grep -E '^sigtest: job(pty)?:' | grep -v ': type ')"
     reject "program stopped"
     reject "panic"
+    show_log_on_failure $before
+}
+
+# timers_session / timers_shell_test (45a): how precisely timed waits end:
+# nanosleep, pthread_cond_timedwait (the futex), poll's timeout and a
+# periodic timerfd, each 1 ms asked 50 times (user/test/timertest): the
+# mean under 3 ms (the core's timer armed for the deadline). Proven by the
+# deadlines as ticks again (each waited for the next 10 ms tick). (68p)
+# `timertest clock`: the clock read from the kernel's clock page, no system
+# call: the page in the auxiliary vector; 2 x 200,000 readings on two
+# threads never going back, every hundredth between SYS_TIME's around it; a
+# reading under half a system call; the clock set an hour back moving
+# CLOCK_REALTIME and not CLOCK_MONOTONIC; a CLOCK_MONOTONIC timerfd at an
+# absolute time 30 ms on waiting 25-60 ms. Proven by a library that always
+# asks SYS_TIME (the cost), CLOCK_MONOTONIC as the date's clock (the set
+# moves it) and a timerfd on the date's clock (it fires at once). (68u)
+# x86: the counter's rate measured again against the ACPI PM timer (the
+# thread tscrate, ~3 s after the start): the rate within 0.5% of the
+# boot's, and the clock going on without a jump over the change: by no
+# more than the change took on the counter (+10 us; a step back wraps to a
+# huge number), less by the readings' own time; ARM's rate is CNTFRQ_EL0's (no such line). Proven by
+# a change that keeps the clock's base (the clock jumps back).
+timers_session() {
+    local n=1 asked=0
+    prompt_wait $n
+    [ "$ARCH_NAME" = x86_64 ] && serial_wait "time stamp counter: " 1 30
+    answer_lines "/system/$ARCH_NAME/test/timertest" "/system/$ARCH_NAME/test/timertest clock"
+}
+
+timers_shell_test() {
+    local image before what out
+    image=$(make_image ${P}timers "")
+    before=$failures
+    SERIAL_SCRIPT=timers_session
+    boot ${P}timers "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    out=$(command_output "/system/$ARCH_NAME/test/timertest")
+    for what in "nanosleep 1 ms" "pthread_cond_timedwait 1 ms" "poll timeout 1 ms" "timerfd every 1 ms"; do
+        check "$what: $(grep -a "timertest: $what:" <<<"$out" | sed 's/.*: mean/mean/')" \
+              "$what: $(grep -a "timertest: $what:" <<<"$out")" \
+              eval 'grep -a "timertest: $what:" <<<"$out" | grep -q "mean under 3 ms 1$"'
+    done
+    out=$(command_output "/system/$ARCH_NAME/test/timertest clock")
+    expect_line "timertest: clock page there"
+    check "the clock on two threads: in order, between the kernel's readings (68p)" \
+          "$(grep -a "clock readings" <<<"$out")" \
+          eval 'grep -aq "timertest: clock readings: 2 threads, 0 out of order or outside the kernel.s$" <<<"$out"'
+    check "a clock reading without a system call: $(grep -a "clock reading " <<<"$out" | sed 's/.*clock reading //')" \
+          "$(grep -a "clock reading " <<<"$out")" eval 'grep -a "clock reading " <<<"$out" | grep -q "under half 1$"'
+    expect_line "timertest: clock set an hour back 1: realtime back 1, monotonic on 1"
+    check "a monotonic timerfd at an absolute time: $(grep -a "monotonic timerfd" <<<"$out" | sed 's/.*on: //')" \
+          "$(grep -a "monotonic timerfd" <<<"$out")" eval 'grep -a "monotonic timerfd" <<<"$out" | grep -q "25-60 ms 1$"'
+    if [ "$ARCH_NAME" = x86_64 ]; then
+        local rate
+        rate=$(grep -a "time stamp counter: .* refined against" <<<"$TEXT" | head -1)
+        check "the counter's rate measured again (68u): ${rate#*counter: }" "no refined rate: $rate" \
+              eval '[[ "$rate" =~ refined\ against\ the\ ACPI\ PM\ timer\ \([+-][0-9]+\.[0-9]\ ppm ]]'
+        local went took
+        went=$(sed -nE 's/.*the clock went on ([0-9]+) ns in ([0-9]+) ns.*/\1/p' <<<"$rate")
+        took=$(sed -nE 's/.*the clock went on ([0-9]+) ns in ([0-9]+) ns.*/\2/p' <<<"$rate")
+        check "the clock went on $went ns over the change, which took $took ns: no jump (68u)" "$rate" \
+              eval '[ -n "$went" ] && [ "$went" -le $((took + 10000)) ]'
+    else
+        reject "time stamp counter: "
+    fi
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# zlib_session / zlib_shell_test (46a): zlib, libz.so.1 built from
+# upstream's sources (user/test/zlibtest): its own checks (version, CRC-32
+# and Adler-32 with their combine functions, every level, zlib, gzip and raw
+# streams in pieces with every strategy, a dictionary, a corrupted stream,
+# a gzip file written and read back), then files made on the Mac decoded:
+# gzip -9 and -1 of the same data, two gzip members in one file, a zlib
+# stream from Python's zlib (the Mac's zlib 1.2.12), each one's length and
+# CRC-32 compared with Python's; a damaged file is an error; ldd shows the
+# library. And no two of the system's libraries export the same name (the
+# loader binds every call to the first library defining it: libritteros's
+# own crc32 clashed with zlib's until 46a renamed it ritteros_crc32).
+zlib_session() {
+    local n=1 asked=0 t="/system/$ARCH_NAME/test/zlibtest"
+    prompt_wait $n
+    answer_lines "$t" "$t gunzip /src/zlib/nine.gz" "$t gunzip /src/zlib/one.gz" \
+                 "$t gunzip /src/zlib/two.gz" "$t inflate /src/zlib/data.z" \
+                 "$t gunzip /src/zlib/bad.gz" "ldd $t"
+}
+
+zlib_shell_test() {
+    local image before t="/system/$ARCH_NAME/test/zlibtest" what want got
+    image=$(make_image ${P}zlib "")
+    python3 - "$image" "$ROOT" "$WORK/${P}zlib-want" <<'PY' || exit 1
+import gzip, os, sys, zlib
+image, root, want = sys.argv[1:4]
+sys.path.insert(0, os.path.join(root, 'scripts'))
+import ritterfs
+# 300,000 bytes that compress somewhat: words with noise between them.
+x, data = 7, bytearray()
+words = b'zlib inflate deflate gzip member stream window '
+while len(data) < 300000:
+    x = (x * 1103515245 + 12345) & 0xffffffff
+    data += words[(x >> 8) % 40:][:(x >> 16) % 9 + 1] if x & 0x300 else bytes([x >> 24])
+data = bytes(data[:300000])
+second = data[::-1][:50000]
+files = {
+    '/src/zlib/nine.gz': gzip.compress(data, 9, mtime=0),
+    '/src/zlib/one.gz': gzip.compress(data, 1, mtime=0),
+    '/src/zlib/two.gz': gzip.compress(data, 6, mtime=0) + gzip.compress(second, 6, mtime=0),
+    '/src/zlib/data.z': zlib.compress(data, 6),
+}
+bad = bytearray(files['/src/zlib/nine.gz'])
+bad[len(bad) // 2] ^= 0x55
+files['/src/zlib/bad.gz'] = bytes(bad)
+with open(want, 'w') as f:
+    for name, content in (('nine.gz', data), ('one.gz', data), ('two.gz', data + second)):
+        f.write('zlibtest: gunzip /src/zlib/%s: %d bytes, crc32 %08x\n' % (name, len(content), zlib.crc32(content)))
+    f.write('zlibtest: inflate /src/zlib/data.z: %d bytes, crc32 %08x\n' % (len(data), zlib.crc32(data)))
+with open(image, 'r+b') as f:
+    ritterfs.install(ritterfs.Partition(f, 133120, 1961984), files)
+PY
+    before=$failures
+    SERIAL_SCRIPT=zlib_session
+    boot ${P}zlib "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    got=$(command_output "$t")
+    check "zlib's own checks: $(grep -c ' ok$' <<<"$got") ok" "zlib's own checks: $(grep -v ' ok$' <<<"$got")" \
+          eval 'grep -qx "zlibtest: all ok" <<<"$got" && ! grep -q FAILED <<<"$got" && [ "$(grep -c " ok$" <<<"$got")" -ge 30 ]'
+    for what in nine one two; do
+        compare "the Mac's $what.gz decoded" "$(grep "/$what.gz:" "$WORK/${P}zlib-want")" \
+                "$(command_output "$t gunzip /src/zlib/$what.gz" | grep '^zlibtest:')"
+    done
+    compare "Python's zlib stream decoded" "$(grep "/data.z:" "$WORK/${P}zlib-want")" \
+            "$(command_output "$t inflate /src/zlib/data.z" | grep '^zlibtest:')"
+    check "a damaged gzip file is an error" "$(command_output "$t gunzip /src/zlib/bad.gz")" \
+          eval 'command_output "$t gunzip /src/zlib/bad.gz" | grep -q "an error$"'
+    check "zlibtest uses libz.so.1" "$(command_output "ldd $t")" \
+          eval 'command_output "ldd $t" | grep -q "libz.so.1 => /system/$ARCH_NAME/lib/libz.so.1"'
+    check "no two system libraries export the same name" "$(system_lib_clashes)" \
+          eval '[ -z "$(system_lib_clashes)" ]'
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# The names more than one of /system/<arch>/lib's shared libraries define
+# (zlib_shell_test): "NAME: LIB LIB", none expected.
+system_lib_clashes() {
+    local f
+    for f in "$ROOT/build/system/$ARCH_NAME/lib/"*.so.*; do
+        nm -D --defined-only "$f" 2>/dev/null | awk -v lib="${f##*/}" '{ sub(/@.*/, "", $3); print $3, lib }' | sort -u
+    done | awk '{ n[$1]++; libs[$1] = libs[$1] " " $2 } END { for (k in n) if (n[k] > 1) print k ":" libs[k] }'
+}
+
+# openssl_session / openssl_shell_test (46b): OpenSSL, libcrypto.so.3 and
+# libssl.so.3 built from upstream's sources, and its openssl program.
+# user/test/openssltest: known answers from the standards for WebCrypto's
+# algorithms, RSA and EC round trips, a forked child's random bytes, eight
+# threads, the default CA file (/system/config/openssl/cert.pem, mkdisk's
+# link to /system/certs/cacert.pem) with the system's roots. Then openssl
+# s_client against the Mac's LibreSSL s_server with scripts/testcerts.sh's
+# certificates: TLS 1.3 with ALPN h2, a TLS 1.2-only server (an RSA
+# certificate), refused: an expired certificate, another host name; and
+# openssl s_server -www on the machine itself (its own client): an OCSP answer
+# stapled (made by the Mac's openssl ocsp), a TLS 1.2 session and a TLS 1.3
+# one resumed. version -a and info -cpusettings into the log (the
+# assembly's processor features: QEMU's default x86 model has no AES-NI, so
+# `openssl_shell_test max`, on -cpu max, runs the AES-NI, PCLMUL and AVX2
+# code; ARM's HVF has the crypto extensions). Proven by broken variants:
+# OpenSSL's AES-NI code changed (max), SME's trap left a SIGSEGV (ARM:
+# every program stopped at its start).
+openssl_session() {
+    local n=1 asked=0 t="/system/$ARCH_NAME/test/openssltest" h=10.0.2.2
+    local c="openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local"
+    prompt_wait $n
+    dhcp_wait eth0 10.0.2.15
+    answer_lines "$t" "openssl version -a" "openssl info -cpusettings" \
+                 ": h2; echo | $c -connect $h:$NET_OSSL_PORT -alpn h2 -verify_return_error" \
+                 ": tls12; echo | $c -connect $h:$NET_OSSL12_PORT -brief -verify_return_error" \
+                 ": old; echo | $c -connect $h:$NET_OSSL_OLD_PORT -brief -verify_return_error" \
+                 ": other; echo | openssl s_client -CAfile /test/tlsroot.crt -verify_hostname other.local -connect $h:$NET_OSSL_PORT -brief -verify_return_error" \
+                 "openssl s_server -www -accept 4433 -cert /test/leaf.crt -key /test/leaf.key -cert_chain /test/int.crt -status_file /test/leaf.ocsp -naccept 5 < /dev/null > /tmp/server.log 2>&1 &" \
+                 "sleep 1" \
+                 ": ocsp; echo | $c -connect 127.0.0.1:4433 -status" \
+                 ": out12; echo | $c -connect 127.0.0.1:4433 -tls1_2 -sess_out /tmp/s12" \
+                 ": in12; echo | $c -connect 127.0.0.1:4433 -tls1_2 -sess_in /tmp/s12" \
+                 ": out13; (sleep 1; echo) | $c -connect 127.0.0.1:4433 -sess_out /tmp/s13" \
+                 ": in13; echo | $c -connect 127.0.0.1:4433 -sess_in /tmp/s13" \
+                 "wait"
+}
+
+# ossl_server PORT LOG ARGS...: the Mac's LibreSSL s_server in the
+# background (openssl_shell_test), its process number in tls_pids; -www, a
+# status page (without it, LibreSSL's server stops answering once its
+# input, /dev/null, has ended: even its own client waits forever), or
+# OSSL_MODE=-WWW: the files of the certificates' folder.
+ossl_server() {
+    local port=$1 log=$2
+    shift 2
+    (cd "$WORK/${P}certs" && exec /usr/bin/openssl s_server "${OSSL_MODE:--www}" -accept "$port" "$@" >"$log" 2>&1 </dev/null) &
+    tls_pids+=" $!"
+    host_service_wait "$log" ACCEPT
+}
+
+openssl_shell_test() {
+    local image before c="$WORK/${P}certs" t="/system/$ARCH_NAME/test/openssltest" tls_pids="" got ser end
+    local model=${1:-} caps
+    [ "$model" = max ] && [ "$ARCH_NAME" != x86_64 ] && return 0
+    rm -rf "$c"
+    sh "$ROOT/scripts/testcerts.sh" "$c" >/dev/null 2>&1 || exit 1
+    # the leaf's OCSP answer, signed by its issuer
+    ser=$(/usr/bin/openssl x509 -serial -noout -in "$c/leaf.crt" | cut -d= -f2)
+    end=$(/usr/bin/openssl x509 -enddate -noout -in "$c/leaf.crt" | cut -d= -f2)
+    printf 'V\t%s\t\t%s\tunknown\t/CN=leaf\n' "$(date -j -f '%b %d %H:%M:%S %Y %Z' "$end" +%y%m%d%H%M%SZ)" \
+           "$ser" >"$c/ocsp-index.txt"
+    (cd "$c" && /usr/bin/openssl ocsp -index ocsp-index.txt -rsigner int.crt -rkey int.key -CA int.crt \
+         -issuer int.crt -cert leaf.crt -respout leaf.ocsp -ndays 7 >/dev/null 2>&1) || exit 1
+    image=$(make_image ${P}openssl$model "")
+    for f in root:tlsroot leaf:leaf int:int; do
+        $RFS put "$image" $RFS_PART "/test/${f#*:}.crt" "$c/${f%%:*}.crt" >/dev/null || exit 1
+    done
+    $RFS put "$image" $RFS_PART /test/leaf.key "$c/leaf.key" >/dev/null || exit 1
+    $RFS put "$image" $RFS_PART /test/leaf.ocsp "$c/leaf.ocsp" >/dev/null || exit 1
+    ossl_server $NET_OSSL_PORT "$WORK/${P}ossl-h2.log" -tls1_3 -cert leaf.crt -key leaf.key -CAfile int.crt -alpn h2
+    ossl_server $NET_OSSL12_PORT "$WORK/${P}ossl-12.log" -tls1_2 -cert leafrsa.crt -key leafrsa.key -CAfile int.crt
+    ossl_server $NET_OSSL_OLD_PORT "$WORK/${P}ossl-old.log" -tls1_3 -cert expired.crt -key expired.key -CAfile int.crt
+    QEMU_EXTRA="-netdev user,id=net0 -device e1000,netdev=net0,mac=52:54:00:12:34:56"
+    [ "$model" = max ] && QEMU_EXTRA="-cpu max $QEMU_EXTRA"
+    before=$failures
+    SERIAL_SCRIPT=openssl_session
+    boot ${P}openssl$model "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    kill $tls_pids 2>/dev/null
+    wait $tls_pids 2>/dev/null
+    got=$(command_output "$t")
+    check "openssltest: $(grep -c ' ok$' <<<"$got") ok" "openssltest: $(grep -v ' ok$' <<<"$got")" \
+          eval 'grep -qx "openssltest: all ok" <<<"$got" && ! grep -q FAILED <<<"$got" && [ "$(grep -c " ok$" <<<"$got")" -ge 30 ]'
+    if [ "$model" = max ]; then
+        # CPUID 1's ECX is the first word's high half: AES-NI bit 25, PCLMULQDQ bit 1
+        caps=$(command_output "openssl info -cpusettings" | sed -n 's/^OPENSSL_ia32cap=0x\([0-9a-f]\{8\}\).*/\1/p')
+        check "-cpu max: OpenSSL uses AES-NI and PCLMULQDQ (ECX 0x$caps)" "-cpu max: no AES-NI or PCLMULQDQ (ECX 0x$caps)" \
+              eval '[ -n "$caps" ] && (( (0x$caps >> 25 & 1) && (0x$caps >> 1 & 1) ))'
+    fi
+    check "openssl version -a: OpenSSL 3.5.9, OPENSSLDIR /system/config/openssl" "$(command_output "openssl version -a")" \
+          eval 'command_output "openssl version -a" | grep -q "^OpenSSL 3\.5\.9 " &&
+                command_output "openssl version -a" | grep -q "^OPENSSLDIR: \"/system/config/openssl\""'
+    # (-brief leaves the ALPN out)
+    got=$(command_output ": h2; echo | openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local -connect 10.0.2.2:$NET_OSSL_PORT -alpn h2 -verify_return_error")
+    check "TLS 1.3 to the Mac's server, ALPN h2, verified" "$(grep -E "^(New,|ALPN|Verify return)" <<<"$got")" \
+          eval 'grep -q "^New, TLSv1.3," <<<"$got" && grep -q "^ALPN protocol: h2" <<<"$got" &&
+                grep -q "Verify return code: 0 (ok)" <<<"$got"'
+    got=$(command_output ": tls12; echo | openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local -connect 10.0.2.2:$NET_OSSL12_PORT -brief -verify_return_error")
+    check "TLS 1.2 to a TLS 1.2-only server, an RSA certificate, verified" "$got" \
+          eval 'grep -q "^Protocol version: TLSv1.2" <<<"$got" && grep -q "^Verification: OK" <<<"$got" &&
+                grep -q "^Ciphersuite: ECDHE-RSA-" <<<"$got"'
+    got=$(command_output ": old; echo | openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local -connect 10.0.2.2:$NET_OSSL_OLD_PORT -brief -verify_return_error")
+    check "an expired certificate refused" "$got" \
+          eval 'grep -q "certificate has expired" <<<"$got" && ! grep -q "^Verification: OK" <<<"$got"'
+    got=$(command_output ": other; echo | openssl s_client -CAfile /test/tlsroot.crt -verify_hostname other.local -connect 10.0.2.2:$NET_OSSL_PORT -brief -verify_return_error")
+    check "another host name refused" "$got" \
+          eval 'grep -q "hostname mismatch" <<<"$got" && ! grep -q "^Verification: OK" <<<"$got"'
+    got=$(command_output ": ocsp; echo | openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local -connect 127.0.0.1:4433 -status")
+    check "the machine's own server: the OCSP answer stapled, good" "$(grep -E "OCSP|Cert Status" <<<"$got")" \
+          eval 'grep -q "OCSP Response Status: successful" <<<"$got" && grep -q "Cert Status: good" <<<"$got"'
+    got=$(command_output ": in12; echo | openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local -connect 127.0.0.1:4433 -tls1_2 -sess_in /tmp/s12")
+    check "a TLS 1.2 session resumed" "$(grep -E "^(New|Reused)," <<<"$got")" eval 'grep -q "^Reused, TLSv1.2" <<<"$got"'
+    got=$(command_output ": in13; echo | openssl s_client -CAfile /test/tlsroot.crt -servername test.local -verify_hostname test.local -connect 127.0.0.1:4433 -sess_in /tmp/s13")
+    check "a TLS 1.3 session resumed" "$(grep -E "^(New|Reused)," <<<"$got")" eval 'grep -q "^Reused, TLSv1.3" <<<"$got"'
+    reject "panic"
+    reject "RitterOS crash"
+    show_log_on_failure $before
+}
+
+# netlibs_session / netlibs_shell_test (46c): nghttp2, brotli and libpsl,
+# system libraries built from upstream's sources by their own CMake and
+# Meson through the SDK's files (user/test/netlibstest): RFC 7541's HPACK
+# examples decoded, a client's and a server's HTTP/2 session in memory (a
+# request, a 100,000-byte answer); brotli's own reference streams (its
+# tests/testdata, put on the image) decoded, every quality and back, a
+# byte at a time, a damaged stream; the public-suffix list built in and its
+# answers for well-known names. ldd shows the libraries.
+netlibs_session() {
+    local n=1 asked=0 t="/system/$ARCH_NAME/test/netlibstest"
+    prompt_wait $n
+    answer_lines "$t /test/brotli" "ldd $t"
+}
+
+netlibs_shell_test() {
+    local image before t="/system/$ARCH_NAME/test/netlibstest" got f
+    image=$(make_image ${P}netlibs "")
+    for f in ukkonooa ukkonooa.compressed empty empty.compressed zerosukkanooa.compressed; do
+        $RFS put "$image" $RFS_PART "/test/brotli/$f" "$ROOT/tools/src/brotli-$(sed -n 's/^BROTLI_VER=//p' \
+            "$ROOT/user/upstream/versions")/tests/testdata/$f" >/dev/null || exit 1
+    done
+    before=$failures
+    SERIAL_SCRIPT=netlibs_session
+    boot ${P}netlibs "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    got=$(command_output "$t /test/brotli")
+    check "netlibstest: $(grep -c ' ok$' <<<"$got") ok" "netlibstest: $(grep -v ' ok$' <<<"$got")" \
+          eval 'grep -qx "netlibstest: all ok" <<<"$got" && ! grep -q FAILED <<<"$got" && [ "$(grep -c " ok$" <<<"$got")" -ge 15 ]'
+    got=$(command_output "ldd $t")
+    check "netlibstest uses libnghttp2.so.14, libbrotlidec/enc/common.so.1, libpsl.so.5" "$got" \
+          eval '[ "$(grep -cE "^ *(libnghttp2\.so\.14|libbrotli(dec|enc|common)\.so\.1|libpsl\.so\.5) => /system/$ARCH_NAME/lib/" <<<"$got")" -eq 5 ]'
+    check "no two system libraries export the same name" "$(system_lib_clashes)" \
+          eval '[ -z "$(system_lib_clashes)" ]'
+    reject "panic"
+    reject "RitterOS crash"
+    show_log_on_failure $before
+}
+
+# curl_session / curl_shell_test (46d-2): curl, libcurl.so.4 and its
+# program, built from upstream's sources against the system libraries, as
+# WebKit's port uses it. Names through dnsd (scripts/testdns.py: test.local
+# and www.example.co.uk are the Mac), so the threaded resolver resolves
+# them. The program: TLS 1.3 to the Mac's LibreSSL s_server, TLS 1.2 to a
+# TLS 1.2-only one, refused: an expired certificate, another host name, a
+# root not in the system's bundle (the default CA file, named by -v);
+# scripts/testcurl.py: HTTP/2 over TLS chosen by ALPN (200,000 bytes),
+# gzip and brotli answers decoded (brotli's own test data, the same bytes
+# again), IPv6 (the Mac's ::1 through fec0::2), a proxy for a plain request
+# and a CONNECT tunnel to its TLS port. user/test/curltest: libcurl's
+# versions and features, eight HTTP/2 transfers at once on one multi
+# handle (curl_multi_poll, a curl_multi_wakeup from another thread first),
+# six threads of transfers, the cookie engine (a cookie for the public
+# suffix co.uk refused: libpsl), a WebSocket's text and binary echoes,
+# CURLOPT_CONNECT_ONLY with curl_easy_send/recv.
+curl_session() {
+    local n=1 asked=0 t="/system/$ARCH_NAME/test/curltest" r="--cacert /test/tlsroot.crt"
+    local h="http://test.local:$NET_CURL_HTTP_PORT" s="https://test.local:$NET_CURL_TLS_PORT"
+    prompt_wait $n
+    dhcp_wait eth0 10.0.2.15
+    dnsd_wait
+    answer_lines "$t features" \
+                 ": tls13; curl -sS -v $r https://test.local:$NET_OSSL_PORT/hello.txt 2>&1 | grep -E 'SSL connection|CAfile|^Hello'" \
+                 ": tls12; curl -sS -v $r https://test.local:$NET_OSSL12_PORT/hello.txt 2>&1 | grep -E 'SSL connection|^Hello'" \
+                 ": expired; curl -sS $r https://test.local:$NET_OSSL_OLD_PORT/hello.txt; echo exit \$?" \
+                 ": other name; curl -sS $r https://www.example.co.uk:$NET_OSSL_PORT/hello.txt; echo exit \$?" \
+                 ": system roots; curl -sS https://test.local:$NET_OSSL_PORT/hello.txt; echo exit \$?" \
+                 ": h2; curl -sS --http2 $r -o /tmp/big -D /tmp/head $s/big && head -1 /tmp/head && wc -c /tmp/big" \
+                 ": gzip; curl -sS --compressed $h/gzip | tail -1" \
+                 ": br; curl -sS --compressed $h/br; echo" \
+                 ": ipv6; curl -sS -g http://[fec0::2]:$NET_CURL_HTTP_PORT/hello.txt" \
+                 ": proxy; curl -sS -x http://10.0.2.2:$NET_CURL_PROXY_PORT http://example.invalid/proxied" \
+                 ": tunnel; curl -sS -x http://10.0.2.2:$NET_CURL_PROXY_PORT $r $s/hello.txt" \
+                 "$t multi $s/big 8 /test/tlsroot.crt" "$t threads $h/big 6" "$t cookies http://www.example.co.uk:$NET_CURL_HTTP_PORT" \
+                 "$t ws ws://test.local:$NET_CURL_HTTP_PORT/ws" "$t connect $h /hello.txt" "ldd /system/$ARCH_NAME/bin/curl"
+}
+
+curl_shell_test() {
+    local image before c="$WORK/${P}certs" t="/system/$ARCH_NAME/test/curltest" tls_pids="" dns web got
+    local r="--cacert /test/tlsroot.crt" h="http://test.local:$NET_CURL_HTTP_PORT" s="https://test.local:$NET_CURL_TLS_PORT"
+    local brotli="$ROOT/tools/src/brotli-$(sed -n 's/^BROTLI_VER=//p' "$ROOT/user/upstream/versions")/tests/testdata"
+    local nghttp2="$ROOT/tools/src/nghttp2-$(sed -n 's/^NGHTTP2_VER=//p' "$ROOT/user/upstream/versions")"
+    rm -rf "$c"
+    sh "$ROOT/scripts/testcerts.sh" "$c" >/dev/null 2>&1 || exit 1
+    printf 'Hello over TLS from LibreSSL\n' >"$c/hello.txt"
+    cat "$c/leaf.crt" "$c/int.crt" >"$c/chain.pem"
+    image=$(make_image ${P}curl "")
+    printf 'address = dhcp\ndns = 10.0.2.2:%s\n' $NET_DNS_PORT >"$WORK/${P}network"
+    $RFS put "$image" $RFS_PART /system/config/network/eth0 "$WORK/${P}network" >/dev/null || exit 1
+    $RFS put "$image" $RFS_PART /test/tlsroot.crt "$c/root.crt" >/dev/null || exit 1
+    python3 "$ROOT/scripts/testdns.py" $NET_DNS_PORT test.local=10.0.2.2 www.example.co.uk=10.0.2.2 \
+        >"$WORK/${P}testdns.log" 2>&1 &
+    dns=$!
+    python3 "$ROOT/scripts/testcurl.py" $NET_CURL_HTTP_PORT $NET_CURL_TLS_PORT $NET_CURL_PROXY_PORT "$c/chain.pem" \
+        "$c/leaf.key" "$brotli/ukkonooa.compressed" "$nghttp2" >"$WORK/${P}testcurl.log" 2>&1 &
+    web=$!
+    host_service_wait "$WORK/${P}testdns.log" listening
+    host_service_wait "$WORK/${P}testcurl.log" listening
+    OSSL_MODE=-WWW
+    ossl_server $NET_OSSL_PORT "$WORK/${P}ossl-13.log" -tls1_3 -cert leaf.crt -key leaf.key -CAfile int.crt
+    ossl_server $NET_OSSL12_PORT "$WORK/${P}ossl-12.log" -tls1_2 -cert leafrsa.crt -key leafrsa.key -CAfile int.crt
+    ossl_server $NET_OSSL_OLD_PORT "$WORK/${P}ossl-old.log" -tls1_3 -cert expired.crt -key expired.key -CAfile int.crt
+    OSSL_MODE=
+    QEMU_EXTRA="-netdev user,id=net0 -device e1000,netdev=net0,mac=52:54:00:12:34:56"
+    before=$failures
+    SERIAL_SCRIPT=curl_session
+    boot ${P}curl "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    QEMU_EXTRA=
+    kill $tls_pids $dns $web 2>/dev/null
+    wait $tls_pids $dns $web 2>/dev/null
+    got=$(command_output "$t features")
+    check "libcurl 8.23.0 with OpenSSL, nghttp2, zlib, brotli, libpsl" "$got" \
+          eval 'grep -q "^curltest: libcurl/8\.23\.0 OpenSSL/3\.5\.9 zlib/1\.4 brotli/1\.2\.1 libpsl/0\.23\.3 nghttp2/1\.71\.0" <<<"$got"'
+    compare "libcurl's features" "curltest: features: SSL yes HTTP2 yes IPv6 yes AsynchDNS yes threadsafe yes libz yes brotli yes PSL yes HSTS yes alt-svc yes|curltest: protocols: http https ws wss" \
+            "$(grep -E "^curltest: (features|protocols):" <<<"$got" | tr '\n' '|' | sed 's/|$//')"
+    got=$(command_output ": tls13; curl -sS -v $r https://test.local:$NET_OSSL_PORT/hello.txt 2>&1 | grep -E 'SSL connection|CAfile|^Hello'")
+    check "TLS 1.3 to the Mac's server by name (dnsd), the body" "$got" \
+          eval 'grep -q "SSL connection using TLSv1.3" <<<"$got" && grep -qx "Hello over TLS from LibreSSL" <<<"$got"'
+    got=$(command_output ": tls12; curl -sS -v $r https://test.local:$NET_OSSL12_PORT/hello.txt 2>&1 | grep -E 'SSL connection|^Hello'")
+    check "TLS 1.2 to a TLS 1.2-only server" "$got" \
+          eval 'grep -q "SSL connection using TLSv1.2" <<<"$got" && grep -qx "Hello over TLS from LibreSSL" <<<"$got"'
+    got=$(command_output ": system roots; curl -sS https://test.local:$NET_OSSL_PORT/hello.txt; echo exit \$?")
+    check "the default CA file is the system's roots (the test's root is not among them)" "$got" \
+          eval 'grep -qx "exit 60" <<<"$got"'
+    got=$(command_output ": tls13; curl -sS -v $r https://test.local:$NET_OSSL_PORT/hello.txt 2>&1 | grep -E 'SSL connection|CAfile|^Hello'")
+    check "-v names the CA file it was given" "$got" eval 'grep -q "CAfile: /test/tlsroot.crt" <<<"$got"'
+    got=$(command_output ": expired; curl -sS $r https://test.local:$NET_OSSL_OLD_PORT/hello.txt; echo exit \$?")
+    check "an expired certificate refused" "$got" eval 'grep -qx "exit 60" <<<"$got" && grep -q "expired" <<<"$got"'
+    got=$(command_output ": other name; curl -sS $r https://www.example.co.uk:$NET_OSSL_PORT/hello.txt; echo exit \$?")
+    check "another host name refused" "$got" eval 'grep -qx "exit 60" <<<"$got"'
+    got=$(command_output ": h2; curl -sS --http2 $r -o /tmp/big -D /tmp/head $s/big && head -1 /tmp/head && wc -c /tmp/big")
+    check "HTTP/2 over TLS (ALPN), 200,000 bytes" "$got" \
+          eval 'grep -q "^HTTP/2 200" <<<"$got" && grep -qE "(^| )200000( |$)" <<<"$got"'
+    compare "a gzip answer decoded" "line 399: curl decodes gzip and brotli" \
+            "$(command_output ": gzip; curl -sS --compressed $h/gzip | tail -1")"
+    compare "a brotli answer decoded (brotli's own test data: its text)" "$(cat "$brotli/ukkonooa")" \
+            "$(command_output ": br; curl -sS --compressed $h/br; echo")"
+    compare "IPv6 (the Mac's ::1 through fec0::2)" "Hello from testcurl!" \
+            "$(command_output ": ipv6; curl -sS -g http://[fec0::2]:$NET_CURL_HTTP_PORT/hello.txt")"
+    compare "a proxy" "proxied: GET http://example.invalid/proxied" \
+            "$(command_output ": proxy; curl -sS -x http://10.0.2.2:$NET_CURL_PROXY_PORT http://example.invalid/proxied")"
+    compare "a CONNECT tunnel through the proxy to HTTPS" "Hello from testcurl!" \
+            "$(command_output ": tunnel; curl -sS -x http://10.0.2.2:$NET_CURL_PROXY_PORT $r $s/hello.txt")"
+    check "the proxy saw the request and the tunnel" "$(grep '^proxy' "$WORK/${P}testcurl.log")" \
+          eval 'grep -qx "proxy GET http://example.invalid/proxied" "$WORK/${P}testcurl.log" &&
+                grep -qx "proxy CONNECT test.local:$NET_CURL_TLS_PORT" "$WORK/${P}testcurl.log"'
+    want_text want <<'LINES'
+curltest: multi: curl_multi_wakeup ended a 10 s poll after under 2 s
+curltest: multi: 8 transfers at once, 8 done, 8 without an error, 8 of 200000 bytes each and right
+LINES
+    compare "eight HTTP/2 transfers at once on one multi handle, a wakeup" "$want" \
+            "$(command_output "$t multi $s/big 8 /test/tlsroot.crt" | grep '^curltest:')"
+    check "they went as HTTP/2 (the server's log)" "$(grep -c '^h2 GET /big' "$WORK/${P}testcurl.log") of 9" \
+          eval '[ "$(grep -c "^h2 GET /big" "$WORK/${P}testcurl.log")" -ge 9 ]'
+    compare "six threads of transfers at once" "curltest: threads: 6 threads, 18 of 18 transfers whole" \
+            "$(command_output "$t threads $h/big 6" | grep '^curltest:')"
+    compare "the cookie engine refuses a public suffix's cookie (libpsl)" \
+            'curltest: cookies: 1 kept, sent back "cookie: b=2"' \
+            "$(command_output "$t cookies http://www.example.co.uk:$NET_CURL_HTTP_PORT" | grep '^curltest:')"
+    compare "a WebSocket" "curltest: ws: upgrade ok, text echo ok, binary echo ok" \
+            "$(command_output "$t ws ws://test.local:$NET_CURL_HTTP_PORT/ws" | grep '^curltest:')"
+    compare "CURLOPT_CONNECT_ONLY, curl_easy_send and curl_easy_recv" \
+            "curltest: connect: HTTP/1.1 200 OK; body Hello from testcurl!" \
+            "$(command_output "$t connect $h /hello.txt" | grep '^curltest:')"
+    got=$(command_output "ldd /system/$ARCH_NAME/bin/curl")
+    check "curl uses libcurl.so.4" "$got" eval 'grep -q "libcurl.so.4 => /system/$ARCH_NAME/lib/libcurl.so.4" <<<"$got"'
+    check "no two system libraries export the same name" "$(system_lib_clashes)" eval '[ -z "$(system_lib_clashes)" ]'
+    reject "panic"
+    reject "RitterOS crash"
+    show_log_on_failure $before
+}
+
+# clock_session / clock_shell_test (68l): setting the clock. date -s (root,
+# clock_settime): a date and time in UTC, then @SECONDS (local time is the
+# test image's UTC); each printed as set, the running clock moved at once
+# (date reads it again), the kernel's line saying the firmware's clock
+# (UEFI SetTime) read the new time back; a date that is none refused, no
+# clock changed; then a reboot in the same machine: the next start reads
+# the firmware's clock as set (the boot's "UEFI time:" line). A user's
+# clock_settime is refused (perm.c, write_shell_test). Proven by the
+# firmware left alone (the second start reads the Mac's time again).
+clock_session() {
+    local n=1 asked=0
+    prompt_wait $n
+    answer_lines 'date -u -s "2031-05-06 07:08:09"' 'date -u +%%Y-%%m-%%d' 'date -s @1900000000' \
+                 'date -u +%%Y-%%m-%%d' 'date -s "2031-13-40 00:00"' 'date -u +%%Y' 'date -u -s "2031-05-06 07:08:09"'
+    serial_type 'reboot\r'
+    serial_wait "RitterOS kernel: boot complete" 2 90
+}
+
+clock_shell_test() {
+    local image before
+    image=$(make_image ${P}clock "")
+    before=$failures
+    SERIAL_SCRIPT=clock_session
+    boot ${P}clock "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    compare "date -u -s sets the clock and prints it" "Tue May  6 07:08:09 UTC 2031" \
+            "$(command_output 'date -u -s "2031-05-06 07:08:09"' | grep -v '^clock: ' | head -1)"
+    expect "clock: set to 2031-05-06 07:08:09 UTC by date (pid "
+    check "the firmware's clock set too (read back)" "$(grep -a 'clock: set to' <<<"$TEXT" | head -3)" \
+          eval '[ "$(grep -ac "clock: set to .*; the firmware.s clock too$" <<<"$TEXT")" -ge 3 ]'
+    compare "date -s @SECONDS" "Sun Mar 17 17:46:40 UTC 2030" \
+            "$(command_output 'date -s @1900000000' | grep -v '^clock: ' | head -1)"
+    compare "a bad date refused" "date: 2031-13-40 00:00: not @SECONDS or YYYY-MM-DD HH:MM[:SS]" \
+            "$(command_output 'date -s "2031-13-40 00:00"' | head -1)"
+    check "the clock left as it was by the refused one" "$(command_output 'date -u +%Y')" \
+          eval '[ "$(command_output "date -u +%Y")" = 2030 ]'
+    check "the running clock moved at once" "$(command_output 'date -u +%Y-%m-%d' | head -3)" \
+          eval 'command_output "date -u +%Y-%m-%d" | grep -qx 2031-05-06'
+    check "the next start reads the firmware's clock as set" "$(grep -a 'UEFI time:' <<<"$TEXT")" \
+          eval '[ "$(grep -ac "UEFI time:" <<<"$TEXT")" = 2 ] && grep -a "UEFI time:" <<<"$TEXT" | tail -1 | grep -q "UEFI time:     2031-05-06 07:0"'
+    reject "panic"
+    reject "RitterOS crash"
     show_log_on_failure $before
 }
 
@@ -17560,6 +18516,7 @@ perm: read an attribute of root's 0600 file: -1, Permission denied
 perm: take a snapshot: -1, Operation not permitted
 perm: back to root: -1, Operation not permitted
 perm: switch the machine off: -1, Operation not permitted
+perm: set the clock: -1, Operation not permitted
 perm: remove my file: 0
 LINES
 )
@@ -18387,6 +19344,14 @@ PY
     theme_shell_test
     headless_shell_test
     wshot_shell_test
+    wflushrect_shell_test
+    wsettings_shell_test
+    settingsapp_shell_test
+    settingsys_shell_test
+    settingsnet_shell_test
+    settingsuser_shell_test
+    settingslists_shell_test
+    keyring_shell_test
     wsend_shell_test
     owl_with_test
     # windowd reaps its per-connection threads (overnight review fix).
@@ -18418,18 +19383,20 @@ PY
     sshcrypto_shell_test
     pty_shell_test
     kill_shell_test
+    jobs_shell_test
     uname_shell_test
     grow_shell_test
     malloc_shell_test
     mmap_shell_test
+    ipc_shell_test
     ldso_shell_test
+    bundle_shell_test
     tls_shell_test
     dl_shell_test
     aslr_shell_test
     tlscrypto_shell_test
     tlsclient_shell_test
     https_shell_test
-    ibrowser_shell_test
     wpacrypto_shell_test
     wifi_shell_test
     wifi_join_shell_test open
@@ -18483,8 +19450,13 @@ PY
     hda_shell_test
     hdamulti_shell_test
     tune_shell_test
+    tune_shell_test soundd
     soundmix_shell_test
+    sounddev_shell_test
+    soundd_shell_test
+    volume_shell_test
     video_shell_test
+    video_shell_test soundd
     pipe_shell_test
     dup_shell_test
     fstat_shell_test
@@ -18502,6 +19474,7 @@ PY
     fork_shell_test
     lockcheck_shell_test
     cc_shell_test max
+    openssl_shell_test max
     string_shell_test max
     string_shell_test
     avx_shell_test max
@@ -18519,11 +19492,18 @@ PY
     # 4 runs.
     smpstress_test 4 descriptors
     libc_shell_test
+    cxx_shell_test
     js_shell_test
     uchar_shell_test
     complex_shell_test
     thrd_shell_test
     signals_shell_test
+    timers_shell_test
+    zlib_shell_test
+    openssl_shell_test
+    netlibs_shell_test
+    curl_shell_test
+    clock_shell_test
     math_shell_test
     environment_shell_test
     pipeline_shell_test
@@ -19757,7 +20737,7 @@ expect "IO APIC 0x00000000FEC00000 (id 0), 24 inputs from GSI 0, all masked"
 expect "serial0:       16550 UART COM1 at I/O 0x3f8, IRQ 4 -> GSI 4 (IO APIC), vector 0x30: receiving"
 expect "interrupts: MSI-X entry 0 of 65, message 0x32 to 0x00000000FEE00000"
 # The i8042 also has a PS/2 mouse on port 2 (QEMU's q35 always does).
-expect "PS/2 mouse on the i8042 (port 2) with a wheel, IRQ 12 -> GSI 12 (IO APIC)"
+expect "PS/2 mouse on the i8042 (port 2) with two wheels, IRQ 12 -> GSI 12 (IO APIC)"
 terminal_checks x86_64 1280 800 "$image"
 boot_checks "$WORK/normal-before.img"
 check_screen ok 1280 800
@@ -19774,12 +20754,16 @@ neonas_host_test                        # (32f: on the Mac, once)
 draw_host_test                          # (41b: on the Mac, once)
 ttf_host_test                           # (41c: on the Mac, once)
 pngenc_host_test                        # (41h-2: on the Mac, once)
+hidpointer_host_test                    # (68m-3: on the Mac, once)
+malloc_host_test                        # (68o: on the Mac, once)
+sdkarchive_host_test                    # (69m: on the Mac, once)
 
 power_test "rebooting: ACPI reset register, I/O port 0xcf9 = 0x0f" \
            "powering off: ACPI S5, PM1a control port 0x604, sleep type 0"
 power_button_test                       # (37c-2a)
 cstates_test                            # (37d)
 screen_off_test                         # (37e)
+power_settings_test                     # (69a)
 no_serial_test
 ps2_test
 ps2mouse_test
@@ -19896,6 +20880,7 @@ quick_boot_test "$uptime_normal"
 power_test "rebooting: PSCI 1.1 via hvc" "powering off: PSCI 1.1 via hvc"
 power_button_test                       # (37c-2b: the GED)
 screen_off_test                         # (37e)
+power_settings_test                     # (69a)
 programs_test "data abort (EC 0x24), protection violation (permission fault, level 3), write" \
               "undefined instruction (EC 0x00)" 4
 disk_tests

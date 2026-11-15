@@ -7,6 +7,10 @@
 #ifndef RITTEROS_AUDIO_H
 #define RITTEROS_AUDIO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "media.h"
 
 /* Decode a file (or a buffer) into *out (samples malloc'd). 0, or -1 with
@@ -28,5 +32,9 @@ int audio_resample(const struct audio_buffer *src, int rate, struct audio_buffer
 
 /* Add src into dst (same rate/format/channels) scaled by gain, clamped. */
 int audio_mix(struct audio_buffer *dst, const struct audio_buffer *src, float gain);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,0 +1,13 @@
+# zlib.pc (46e): libz.so.1, a system library from upstream, for builds outside
+# the tree (sdk/ritteros.cmake and sdk/ritteros.meson set arch). Version:
+# user/upstream/versions' (sdk_shell_test compares them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/build/upstream/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: zlib
+Description: zlib compression (deflate, gzip)
+Version: 1.4
+Cflags: -I${includedir}
+Libs: ${libdir}/libz.so.1

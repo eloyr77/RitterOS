@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Make a test RVID video (solid-colour frames + a tone) for the libvideo/reel
 # test, and print the SHA-256 of its frames' RGBA8888 pixels.
-#   mkvideo.py PATH [WIDTH HEIGHT]     (160 x 120 if not given)
+#   mkvideo.py PATH [WIDTH HEIGHT [FPS]]     (160 x 120 at 2 fps if not given)
 import hashlib
 import struct
 import sys
@@ -47,10 +47,12 @@ def audio():
 
 
 def main():
-    global W, H
+    global W, H, FPS
     path = sys.argv[1]
-    if len(sys.argv) == 4:
+    if len(sys.argv) >= 4:
         W, H = int(sys.argv[2]), int(sys.argv[3])
+    if len(sys.argv) == 5:
+        FPS = int(sys.argv[4])
     aud = audio()
     hdr = b"RVID" + struct.pack("<IIIIIIII", 1, W, H, FPS, len(COLORS), ARATE, ACH, AFRAMES)
     with open(path, "wb") as f:

@@ -58,7 +58,7 @@ int64_t process_swap_in_all(void);
  * has ended; returns its ID and status (common/syscalls.h), or -ERR_CHILD
  * if there is none, -ERR_INTR if the waiting process is being stopped.
  * no_hang: return 0 at once if such children exist but none has ended. */
-int process_wait(struct process *parent, int pid, int *status, bool no_hang);
+int process_wait(struct process *parent, int pid, int *status, uint64_t flags);   /* WAIT_* */
 
 /* End a process, or every process of a group, with a signal: it stops at
  * its next return to user mode, or at once if it waits for input, a child
@@ -67,7 +67,8 @@ int process_wait(struct process *parent, int pid, int *status, bool no_hang);
  * the sender (uid) is not root (49a: until then anyone could end root's
  * processes, login and the elves too). process_signal_group sends nothing
  * and returns false if no process of the group takes the signal (none
- * there, or all ignore it, like the shell at its prompt). */
+ * there, or all ignore it, like the shell at its prompt; 44b: a stop
+ * signal, the terminal's Ctrl-Z, to an orphaned group, POSIX's). */
 int process_signal(int pid, int signal, uint32_t uid);
 bool process_signal_group(int group, int signal);
 
@@ -96,8 +97,9 @@ int64_t process_syscall(uint64_t number, const uint64_t args[6]);
  * asked for that, or call its handler for a signal waiting (22r). */
 void process_before_return(void *frame);
 /* (22r) A fault in a program (frame as above): true if the program has a
- * handler for signal and it was called (the program goes on in it). */
-bool process_fault_signal(void *frame, int signal);
+ * handler for signal and it was called (the program goes on in it); (43b-5)
+ * its info says code (SEGV_MAPERR...) and the address. */
+bool process_fault_signal(void *frame, int signal, int code, uint64_t address);
 /* (56a) SYS_FORK, which the architecture's system call code handles itself
  * (the child needs the caller's registers): frame is a copy of them with
  * the result register already 0, the child's. The child's ID, or -ERR_*. */
@@ -117,6 +119,10 @@ bool process_copy_from_user(void *kernel, uint64_t addr, uint64_t size);
  * write), so it goes on; else the signal that ends it (SIGSEGV, or SIGBUS
  * past a mapped file's end). Called with interrupts on. */
 int process_page_fault(uint64_t address, bool write, bool exec);
+/* (43b-5) A fault's si_code, as Linux's: SEGV_ACCERR where something is
+ * mapped (without that access), else SEGV_MAPERR. Sleeps (the mappings'
+ * lock): with interrupts on. */
+int process_fault_code(uint64_t address);
 
 __attribute__((noreturn)) void process_fault(const char *what, uint64_t pc, uint64_t address,
                                              int signal);

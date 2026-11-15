@@ -5,8 +5,8 @@
  * run by one loop (interp.c); values, objects and the collector are in
  * gc.c, string.c and object.c, the standard objects in b_*.c.
  *
- * This header is what programs see: `js` (user/bin/js.c) and iBrowser
- * (27p). It is private to the tree (not in /system/include, not in the
+ * This header is what programs see: `js` (user/bin/js.c; iBrowser too
+ * until 69k). It is private to the tree (not in /system/include, not in the
  * SDK): the engine is linked into each program, not a shared library.
  *
  * One `struct js` is one world of objects (a realm with its global object)

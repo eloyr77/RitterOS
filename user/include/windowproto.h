@@ -13,6 +13,10 @@
 #ifndef RITTEROS_WINDOWPROTO_H
 #define RITTEROS_WINDOWPROTO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 #define WINDOW_SOCKET   "/run/windowd"
@@ -24,7 +28,9 @@
                                  * (41g-3) | 1 << 31: after the title a uint8 length
                                  * and the program's name (getprogname: its app) */
 #define WMSG_CREATE_APP (1u << 31)
-#define WMSG_DAMAGE     5       /* the window's pixels changed: please recomposite */
+#define WMSG_DAMAGE     5       /* the window's pixels changed: please recomposite; b = 0 the
+                                 * whole window, else (68s) only a: x | y << 16, b: w | h << 16
+                                 * (in the window; windowd clips it to the window) */
 #define WMSG_BUFFER     7       /* a: width, b: height; a new buffer (sent just before) replaces
                                  * the window's, at the new size (the client's reply to RESIZE) */
 #define WMSG_SET_MENU   9       /* c: length of a menu-bar blob that follows (see below); sets
@@ -44,8 +50,10 @@
 #define WMSG_MENU       10      /* a: the id of the menu item the user chose */
 #define WMSG_KEYCODE    14      /* a: a physical key's USB HID usage ID, b: 1 pressed, 0 released
                                  * (15p; beside WMSG_KEY's bytes) */
-#define WMSG_SCROLL     13      /* a: wheel steps (int32, negative up), b, c: the pointer in the
-                                 * window: the wheel turned over it (15o) */
+#define WMSG_SCROLL     13      /* a: wheel steps (int16 in bits 15-0, negative up) and (68m-1)
+                                 * the horizontal wheel's (int16 in bits 31-16, positive to the
+                                 * right), b, c: the pointer in the window: the wheel turned
+                                 * over it (15o) */
 #define WMSG_DOUBLE_CLICK 12    /* a: x, b: y in the window: the left button's second press
                                  * there within the double_click time (windowd decides, 15n) */
 #define WMSG_CLIP_TEXT  17      /* c: length of the clipboard's text that follows (the answer
@@ -85,6 +93,9 @@
                                  * (`wsend wait TITLE`): windowd answers WMSG_WINDOWS (a: how
                                  * many windows, c: the length of the text that follows), then
                                  * their titles, each ending in a newline */
+#define WMSG_SETTINGS   31      /* (69b) client -> windowd: read the window system's settings
+                                 * (~/.config/windows) again and use them; windowd -> each
+                                 * window then: they changed (libwindow: WINDOW_SETTINGS) */
 
 /* A menu-bar blob (WMSG_SET_MENU): uint8 n_menus, then per menu
  *   uint8 title_len, title bytes, uint8 n_items, then per item
@@ -103,5 +114,9 @@ struct wmsg {
     uint32_t type;
     uint32_t a, b, c;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

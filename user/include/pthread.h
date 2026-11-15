@@ -10,6 +10,10 @@
 #ifndef RITTEROS_PTHREAD_H
 #define RITTEROS_PTHREAD_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <signal.h>
 #include <stddef.h>
 #include <threads.h>
@@ -18,9 +22,19 @@
 typedef unsigned long pthread_t;        /* the thread's number (thread.h) */
 typedef unsigned int pthread_key_t;
 
+/* (43a-4) The scheduling and stack attributes too. Programs built before
+ * had only detached and stack_size, which keep their places, so the calls
+ * that touch only them serve both; pthread_attr_init and pthread_create
+ * are new symbols (the __asm__ names below), the old ones kept for those
+ * programs. */
 typedef struct {
     int detached;                       /* PTHREAD_CREATE_* */
+    int inherit;                        /* PTHREAD_INHERIT_SCHED or _EXPLICIT_SCHED */
     size_t stack_size;                  /* the thread's stack (54d) */
+    void *stack_addr;                   /* pthread_attr_setstack's (the size is used) */
+    size_t guard_size;
+    int policy, priority, scope;        /* SCHED_OTHER, 0, PTHREAD_SCOPE_SYSTEM */
+    int reserved;
 } pthread_attr_t;
 
 typedef struct {
@@ -70,14 +84,15 @@ typedef struct {
  * detached one is nobody's to join). pthread_exit ends the calling thread
  * with value (keys' destructors run first, as when start returns); the
  * program ends when its last thread has. */
-int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg);
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg)
+    __asm__("__ritteros_pthread_create2");
 int pthread_join(pthread_t thread, void **value);
 int pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
 int pthread_equal(pthread_t a, pthread_t b);
 __attribute__((noreturn)) void pthread_exit(void *value);
 
-int pthread_attr_init(pthread_attr_t *attr);
+int pthread_attr_init(pthread_attr_t *attr) __asm__("__ritteros_pthread_attr_init2");
 int pthread_attr_destroy(pthread_attr_t *attr);
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int state);
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *state);
@@ -132,6 +147,10 @@ int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(vo
 
 /* The calling thread's blocked signals (sigprocmask's, as an error number). */
 int pthread_sigmask(int how, const sigset_t *set, sigset_t *old);
+/* (43b-5) A signal to one thread of the program: its handler runs in that
+ * thread (si_code SI_TKILL); without one, its default is the program's
+ * (it ends). 0, ESRCH, EINVAL; signal 0 only asks. */
+int pthread_kill(pthread_t thread, int signal);
 
 /* (54c) Cancellation: pthread_cancel asks a thread to end. A deferred one
  * (the default) ends at its next cancellation point -- read, write, open,
@@ -231,5 +250,75 @@ int pthread_spin_destroy(pthread_spinlock_t *s);
 int pthread_spin_lock(pthread_spinlock_t *s);
 int pthread_spin_trylock(pthread_spinlock_t *s);
 int pthread_spin_unlock(pthread_spinlock_t *s);
+
+/* (43a-4) The rest of POSIX's thread attributes and GNU's _np calls:
+ * - pthread_attr_setstack/getstack: a stack's address and size (the
+ *   size is used; the kernel places each thread's stack itself, so the
+ *   address is only remembered); guard size, scope (PTHREAD_SCOPE_SYSTEM
+ *   only), scheduling (SCHED_OTHER with priority 0 only: see sched.h);
+ * - pthread_getattr_np: a running thread's attributes, its stack's place
+ *   and size (from its first frame: the stack a garbage collector scans);
+ *   pthread_setattr_default_np/getattr_default_np;
+ * - pthread_getschedparam/setschedparam/setschedprio, the affinity
+ *   (every core), pthread_getcpuclockid ((43b-6) the calling thread's:
+ *   CLOCK_THREAD_CPUTIME_ID; another's ENOENT),
+ *   the concurrency level (remembered);
+ * - the mutex attributes' protocol (PTHREAD_PRIO_NONE), priority ceiling
+ *   (0) and robustness (PTHREAD_MUTEX_STALLED), and the condition
+ *   variables', read-write locks' and barriers' pshared (PRIVATE only):
+ *   other values are ENOTSUP. */
+#include <sched.h>
+#define PTHREAD_INHERIT_SCHED   0
+#define PTHREAD_EXPLICIT_SCHED  1
+#define PTHREAD_SCOPE_SYSTEM    0
+#define PTHREAD_SCOPE_PROCESS   1
+#define PTHREAD_PRIO_NONE       0
+#define PTHREAD_PRIO_INHERIT    1
+#define PTHREAD_PRIO_PROTECT    2
+#define PTHREAD_MUTEX_STALLED   0
+#define PTHREAD_MUTEX_ROBUST    1
+int pthread_attr_setstack(pthread_attr_t *attr, void *addr, size_t size);
+int pthread_attr_getstack(const pthread_attr_t *attr, void **addr, size_t *size);
+int pthread_attr_setguardsize(pthread_attr_t *attr, size_t size);
+int pthread_attr_getguardsize(const pthread_attr_t *attr, size_t *size);
+int pthread_attr_setscope(pthread_attr_t *attr, int scope);
+int pthread_attr_getscope(const pthread_attr_t *attr, int *scope);
+int pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit);
+int pthread_attr_getinheritsched(const pthread_attr_t *attr, int *inherit);
+int pthread_attr_setschedpolicy(pthread_attr_t *attr, int policy);
+int pthread_attr_getschedpolicy(const pthread_attr_t *attr, int *policy);
+int pthread_attr_setschedparam(pthread_attr_t *attr, const struct sched_param *param);
+int pthread_attr_getschedparam(const pthread_attr_t *attr, struct sched_param *param);
+int pthread_getattr_np(pthread_t thread, pthread_attr_t *attr);
+int pthread_setattr_default_np(const pthread_attr_t *attr);
+int pthread_getattr_default_np(pthread_attr_t *attr);
+int pthread_getschedparam(pthread_t thread, int *policy, struct sched_param *param);
+int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param *param);
+int pthread_setschedprio(pthread_t thread, int priority);
+int pthread_getaffinity_np(pthread_t thread, size_t size, cpu_set_t *set);
+int pthread_setaffinity_np(pthread_t thread, size_t size, const cpu_set_t *set);
+int pthread_getcpuclockid(pthread_t thread, clockid_t *clock);
+/* (43b-6) A thread's name, as `threads` lists it (the program's name at
+ * first): at most 15 bytes (ERANGE), and read into size bytes (ERANGE if
+ * they cannot hold it). */
+int pthread_setname_np(pthread_t thread, const char *name);
+int pthread_getname_np(pthread_t thread, char *name, size_t size);
+int pthread_getconcurrency(void);
+int pthread_setconcurrency(int level);
+int pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr, int protocol);
+int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr, int *protocol);
+int pthread_mutexattr_setprioceiling(pthread_mutexattr_t *attr, int ceiling);
+int pthread_mutexattr_getprioceiling(const pthread_mutexattr_t *attr, int *ceiling);
+int pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust);
+int pthread_mutexattr_getrobust(const pthread_mutexattr_t *attr, int *robust);
+int pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr, int *shared);
+int pthread_condattr_setpshared(pthread_condattr_t *attr, int shared);
+int pthread_condattr_getpshared(const pthread_condattr_t *attr, int *shared);
+int pthread_rwlockattr_setpshared(pthread_rwlockattr_t *attr, int shared);
+int pthread_rwlockattr_getpshared(const pthread_rwlockattr_t *attr, int *shared);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

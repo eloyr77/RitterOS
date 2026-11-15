@@ -37,6 +37,12 @@ struct sound_card {
     /* Play out everything written, then stop with silence (the player
      * closed the device); the next write starts again. */
     void (*drain)(struct sound_card *card);
+    /* (7.0) The bytes written and not yet played (0 once everything was,
+     * even if the player fell behind), or -1; 0 here: the card cannot. */
+    long (*delay)(struct sound_card *card);
+    /* (7.0) Stop at once with silence, dropping what is buffered; the next
+     * write starts again. 0: the card cannot. */
+    void (*reset)(struct sound_card *card);
 };
 
 #ifndef RITTEROS_KERNEL

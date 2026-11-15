@@ -13,6 +13,7 @@ this script stays for sdkapi.py (library_of), and its LIBRARIES must list
 the same headers as libexports.c's table.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,7 +27,12 @@ LIBRARIES = {
                          'math.h', 'fenv.h', 'setjmp.h', 'locale.h', 'time.h',
                          'wchar.h', 'wctype.h', 'uchar.h', 'complex.h', 'threads.h', 'poll.h', 'termios.h',
                          'sys/socket.h', 'netinet/in.h', 'arpa/inet.h', 'sys/time.h', 'sys/select.h', 'netdb.h', 'pthread.h',
-                         'sched.h', 'spawn.h', 'regex.h', 'utime.h', 'sys/utsname.h'],
+                         'sched.h', 'spawn.h', 'regex.h', 'utime.h', 'sys/utsname.h',
+                         'inttypes.h', 'malloc.h', 'libgen.h', 'search.h', 'err.h', 'getopt.h', 'fnmatch.h', 'glob.h', 'grp.h',
+                         'iconv.h', 'libintl.h', 'langinfo.h',
+                         'sys/resource.h', 'sys/times.h', 'sys/sysinfo.h', 'sys/random.h', 'sys/ioctl.h', 'sys/auxv.h', 'syslog.h',
+                         'semaphore.h', 'link.h', 'sys/eventfd.h', 'sys/timerfd.h', 'sys/file.h', 'sys/ucontext.h', 'ucontext.h', 'net/if.h', 'ifaddrs.h',
+                         'sys/uio.h', 'sys/statvfs.h'],
     'libwindow.so.1': ['window.h', 'wfont.h'],
     'libimage.so.1': ['image.h'],
     'libaudio.so.1': ['audio.h'],
@@ -34,6 +40,7 @@ LIBRARIES = {
     'libdraw.so.1': ['draw.h'],
     'libwidget.so.1': ['widget.h'],
     'libtls.so.1': ['tls.h'],
+    'libkeyring.so.1': ['keyring.h'],
 }
 
 
@@ -44,6 +51,10 @@ def exports(library):
         for name, decl in sdkapi.declarations(body):
             if not decl.startswith('#define'):          # macros are not in the library
                 names.add(name)
+                # (43a) __asm__("NAME"): that symbol too (libexports.c's)
+                m = re.search(r'__asm__\("(\w+)"\)', decl)
+                if m:
+                    names.add(m.group(1))
     return sorted(names)
 
 

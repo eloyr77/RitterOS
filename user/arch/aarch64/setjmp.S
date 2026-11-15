@@ -46,4 +46,37 @@ longjmp:
     br      x30
     .size   longjmp, . - longjmp
 
+    /* (43a-4) int sigsetjmp(sigjmp_buf env, int save): setjmp, and with
+     * save the blocked signals too (env[22] the flag, env[23] the set),
+     * which siglongjmp (cstd.c) puts back. The set is asked first (X30
+     * kept around the call); then setjmp is branched to, so it sees the
+     * caller's stack and return. */
+    .global sigsetjmp
+    .type   sigsetjmp, %function
+sigsetjmp:
+    str     x1, [x0, #176]
+    cbz     w1, 1f
+    stp     x0, x30, [sp, #-16]!
+    add     x2, x0, #184
+    mov     x1, #0
+    mov     x0, #0                          /* SIG_BLOCK of nothing: only asks */
+    bl      sigprocmask
+    ldp     x0, x30, [sp], #16
+1:  b       setjmp
+    .size   sigsetjmp, . - sigsetjmp
+
+    /* (43a-4) BSD's _setjmp and _longjmp: setjmp and longjmp (they never
+     * touch the signal mask). */
+    .global _setjmp
+    .type   _setjmp, %function
+_setjmp:
+    b       setjmp
+    .size   _setjmp, . - _setjmp
+
+    .global _longjmp
+    .type   _longjmp, %function
+_longjmp:
+    b       longjmp
+    .size   _longjmp, . - _longjmp
+
     .section .note.GNU-stack, "", %progbits

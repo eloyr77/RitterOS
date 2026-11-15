@@ -6,10 +6,27 @@
 #ifndef RITTEROS_SETJMP_H
 #define RITTEROS_SETJMP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* The registers a call keeps (x86-64: 8 words; AArch64: 21), with room. */
 typedef long jmp_buf[22];
 
 __attribute__((returns_twice)) int setjmp(jmp_buf env);
 __attribute__((noreturn)) void longjmp(jmp_buf env, int value);
+
+/* (43a-4) POSIX's sigsetjmp/siglongjmp: setjmp/longjmp that also keep
+ * (save nonzero) and put back the blocked signals; BSD's _setjmp and
+ * _longjmp, which never touch them. */
+typedef long sigjmp_buf[24];
+__attribute__((returns_twice)) int sigsetjmp(sigjmp_buf env, int save);
+__attribute__((noreturn)) void siglongjmp(sigjmp_buf env, int value);
+__attribute__((returns_twice)) int _setjmp(jmp_buf env);
+__attribute__((noreturn)) void _longjmp(jmp_buf env, int value);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

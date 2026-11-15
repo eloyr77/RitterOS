@@ -41,6 +41,7 @@
 #include "arch.h"
 #include "arch_api.h"
 #include "kprintf.h"
+#include "log.h"
 #include "mounts.h"
 #include "process.h"
 #include "sched.h"
@@ -284,7 +285,7 @@ static int start_program(const char *why, const char *name, const char *arg)
         kprintf("acpi: %s: %s: out of memory\n", why, path);
         return -1;
     }
-    process_wait(0, pid, &status, false);
+    process_wait(0, pid, &status, 0);
     return status >> 8;
 }
 
@@ -686,7 +687,30 @@ static bool setting(const char *text, size_t n, const char *key, const char **va
 
 /* (37e) A number of minutes: the key's value, else the default (a value
  * that is not a number logged). */
-static unsigned minutes_setting(const char *text, int64_t got, const char *key, unsigned dflt)
+/* (69a) One line of the settings: to the log, and to out (a program's:
+ * SYS_POWER's POWER_SETTINGS) when there is one. */
+typedef void (*settings_out)(const char *line, void *ctx);
+
+__attribute__((format(printf, 3, 4)))
+static void say(settings_out out, void *ctx, const char *fmt, ...)
+{
+    char line[200];
+    va_list args;
+    va_start(args, fmt);
+    kvsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+    if (out) {                              /* (a program's: the log only, not its terminal) */
+        char logged[230];
+        ksnprintf(logged, sizeof(logged), "  %-15s%s\n", "power:", line);
+        log_append("kernel", logged, strlen(logged));
+        out(line, ctx);
+    } else {
+        kprintf("  %-15s%s\n", "power:", line);
+    }
+}
+
+static unsigned minutes_setting(const char *text, int64_t got, const char *key, unsigned dflt,
+                                settings_out out, void *ctx)
 {
     const char *value;
     size_t length;
@@ -697,15 +721,18 @@ static unsigned minutes_setting(const char *text, int64_t got, const char *key, 
     while (i < length && value[i] >= '0' && value[i] <= '9' && n < 100000)
         n = n * 10 + (unsigned)(value[i++] - '0');
     if (!length || i != length) {
-        kprintf("  %-15s%s = %.*s in %s is not a number of minutes: %u\n", "power:", key,
-                (int)(length < 32 ? length : 32), value, POWER_FILE, dflt);
+        say(out, ctx, "%s = %.*s in %s is not a number of minutes: %u", key,
+            (int)(length < 32 ? length : 32), value, POWER_FILE, dflt);
         return dflt;
     }
     return n;
 }
 
-void acpi_events_settings(void)
+static struct mutex settings_lock = MUTEX_INIT("power settings");
+
+void acpi_events_settings(settings_out out, void *ctx)
 {
+    mutex_lock(&settings_lock);             /* (69a: read again while running) */
     static char text[POWER_FILE_MAX];
     struct vfs *fs = mounts_root();
     uint64_t id;
@@ -724,15 +751,15 @@ void acpi_events_settings(void)
                          memcmp(button_names[k], value, length)))
             k++;
         if (k == 3)
-            kprintf("  %-15spower_button = %.*s in %s is not a setting: off\n", "power:",
-                    (int)(length < 32 ? length : 32), value, POWER_FILE);
+            say(out, ctx, "power_button = %.*s in %s is not a setting: off",
+                (int)(length < 32 ? length : 32), value, POWER_FILE);
         else
             b = (enum button)k;
     }
     ev.button = b;
     ev.button_from = from;
-    kprintf("  %-15spower_button = %s (%s)%s\n", "power:", button_names[b], from,
-            ev.started ? "" : "; no button events on this machine");
+    say(out, ctx, "power_button = %s (%s)%s", button_names[b], from,
+        ev.started ? "" : "; no button events on this machine");
     /* (37c-2c) the lid */
     enum lid l = LID_NOTHING;
     from = got < 0 ? "the default: no " POWER_FILE : POWER_FILE;
@@ -743,28 +770,29 @@ void acpi_events_settings(void)
         while (k < 2 && (strlen(lid_names[k]) != length || memcmp(lid_names[k], value, length)))
             k++;
         if (k == 2)
-            kprintf("  %-15slid = %.*s in %s is not a setting: nothing\n", "power:",
-                    (int)(length < 32 ? length : 32), value, POWER_FILE);
+            say(out, ctx, "lid = %.*s in %s is not a setting: nothing",
+                (int)(length < 32 ? length : 32), value, POWER_FILE);
         else
             l = (enum lid)k;
     }
     ev.lid = l;
     ev.lid_from = from;
-    kprintf("  %-15slid = %s (%s)\n", "power:", lid_names[l], from);
+    say(out, ctx, "lid = %s (%s)", lid_names[l], from);
     /* (37e) the screen: off after screen_off minutes without input (0
      * never); (37e-2c) dimmed at screen_dim when that comes first */
-    unsigned off = minutes_setting(text, got, "screen_off", 5);
-    unsigned dim = minutes_setting(text, got, "screen_dim", 2);
+    unsigned off = minutes_setting(text, got, "screen_off", 5, out, ctx);
+    unsigned dim = minutes_setting(text, got, "screen_dim", 2, out, ctx);
     /* (37g-7) asleep after sleep_after minutes without input (0 never) */
-    unsigned after = minutes_setting(text, got, "sleep_after", 0);
+    unsigned after = minutes_setting(text, got, "sleep_after", 0, out, ctx);
     ev.sleep_after = after;
     blank_set(off, dim, after);
-    kprintf("  %-15sscreen_off = %u, screen_dim = %u (minutes; %s): %s\n", "power:", off, dim,
-            got < 0 ? "the defaults: no " POWER_FILE : POWER_FILE,
-            off ? "the screen goes off" : "the screen stays on");
-    kprintf("  %-15ssleep_after = %u (minutes; %s): %s\n", "power:", after,
-            got < 0 ? "the default: no " POWER_FILE : POWER_FILE,
-            after ? "the machine sleeps without input" : "it never sleeps by itself");
+    say(out, ctx, "screen_off = %u, screen_dim = %u (minutes; %s): %s", off, dim,
+        got < 0 ? "the defaults: no " POWER_FILE : POWER_FILE,
+        off ? "the screen goes off" : "the screen stays on");
+    say(out, ctx, "sleep_after = %u (minutes; %s): %s", after,
+        got < 0 ? "the default: no " POWER_FILE : POWER_FILE,
+        after ? "the machine sleeps without input" : "it never sleeps by itself");
+    mutex_unlock(&settings_lock);
 }
 
 void acpi_events_print(void)

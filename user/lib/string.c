@@ -42,7 +42,7 @@ char *stpcpy(char *dst, const char *src)
     return dst + n;
 }
 
-const char *strerror(int error)
+char *strerror(int error)
 {
     switch (error) {
     case 0:            return "Success";
@@ -51,6 +51,7 @@ const char *strerror(int error)
     case EACCES:       return "Permission denied";
     case ESRCH:        return "No such process";
     case EINTR:        return "Interrupted system call";
+    case EAGAIN:       return "Resource temporarily unavailable";   /* (45b: it was missing) */
     case EIO:          return "Input/output error";
     case E2BIG:        return "Argument list too long";
     case ENOEXEC:      return "Exec format error";
@@ -100,6 +101,43 @@ const char *strerror(int error)
     case ENOTCONN:     return "Not connected";
     case ECONNREFUSED: return "Connection refused";
     case ENONAME:      return "Name not found";
+    case ENOTBLK:      return "Block device required";      /* (43a: glibc's words) */
+    case ENFILE:       return "Too many open files in system";
+    case ETXTBSY:      return "Text file busy";
+    case EFBIG:        return "File too large";
+    case ESPIPE:       return "Illegal seek";
+    case EMLINK:       return "Too many links";
+    case EDOM:         return "Numerical argument out of domain";
+    case ENOLCK:       return "No locks available";
+    case ENOMSG:       return "No message of desired type";
+    case EIDRM:        return "Identifier removed";
+    case ENOSTR:       return "Device not a stream";
+    case ETIME:        return "Timer expired";
+    case ENOSR:        return "Out of streams resources";
+    case ENONET:       return "Machine is not on the network";
+    case EREMOTE:      return "Object is remote";
+    case ENOLINK:      return "Link has been severed";
+    case EPROTO:       return "Protocol error";
+    case EMULTIHOP:    return "Multihop attempted";
+    case EBADMSG:      return "Bad message";
+    case EOVERFLOW:    return "Value too large for defined data type";
+    case EBADFD:       return "File descriptor in bad state";
+    case EUSERS:       return "Too many users";
+    case EPROTOTYPE:   return "Protocol wrong type for socket";
+    case EPFNOSUPPORT: return "Protocol family not supported";
+    case ENETDOWN:     return "Network is down";
+    case ENETRESET:    return "Network dropped connection on reset";
+    case ENOBUFS:      return "No buffer space available";
+    case ESHUTDOWN:    return "Cannot send after transport endpoint shutdown";
+    case ETOOMANYREFS: return "Too many references: cannot splice";
+    case EHOSTDOWN:    return "Host is down";
+    case ESTALE:       return "Stale file handle";
+    case EDQUOT:       return "Disk quota exceeded";
+    case ENOMEDIUM:    return "No medium found";
+    case EMEDIUMTYPE:  return "Wrong medium type";
+    case ECANCELED:    return "Operation canceled";
+    case EOWNERDEAD:   return "Owner died";
+    case ENOTRECOVERABLE: return "State not recoverable";
     default:           return "Unknown error";
     }
 }

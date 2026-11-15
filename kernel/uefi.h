@@ -21,8 +21,23 @@ bool uefi_report_time(void);
 uint64_t uefi_time_ns(void);
 
 /* Start the clock: the firmware's time now, carried on by the CPU's
- * counter (needs its rate: after timer_init). */
+ * counter (needs its rate: after timer_init). (68p) Also makes the clock
+ * page programs read it from (struct sys_clock). */
 void uefi_clock_start(void);
+
+/* (68p) The clock page's physical address (0: none), which every program
+ * maps read-only; uefi_clock_publish writes it again after anything it
+ * holds changed (the clock set; x86: the counter carried over a sleep). */
+uint64_t uefi_clock_page(void);
+void uefi_clock_publish(void);
+
+/* (68u) The counter's rate measured better: the clock goes on at hz from
+ * now, without a jump (its base moved; the page published with it). */
+void uefi_clock_rate(uint64_t hz);
+
+/* (68p) Nanoseconds since the clock started: CLOCK_MONOTONIC, which date -s
+ * does not move (the date's clock where there is no counter). */
+uint64_t uefi_clock_monotonic_ns(void);
 
 /* Nanoseconds since 1970-01-01 UTC from that clock, without calling the
  * firmware (before uefi_clock_start: the firmware's); 0 if unknown. */
@@ -31,6 +46,16 @@ uint64_t uefi_clock_ns(void);
 /* The same once the clock runs (uefi_clock_start), else 0: never calls
  * the firmware (the logs stamp every line, also the boot's first ones). */
 uint64_t uefi_clock_ns_running(void);
+
+/* (68l) Set the clock to ns (since 1970-01-01 UTC): the running clock at
+ * once, and the firmware's (SetTime, in its own zone) so the next start
+ * reads it. True when the firmware's clock read the new time back (within
+ * 3 s); false when it could not be set (no runtime services, SetTime
+ * refused). Called from a system call (the FP/SIMD registers saved). */
+bool uefi_clock_set(uint64_t ns);
+
+/* "YYYY-MM-DD HH:MM:SS" (UTC) of ns since 1970, for messages. */
+void uefi_ns_text(uint64_t ns, char *buf, size_t size);
 
 /* A firmware variable (name in ASCII, guid as the firmware keeps it), for
  * the system call efivar: get its attributes and data into buf (*size: the

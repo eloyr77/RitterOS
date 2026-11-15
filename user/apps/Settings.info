@@ -1,0 +1,3 @@
+# settings' app file (69c), installed as the bundle's info: the desktop menu lists it by name.
+name = Settings
+about = the system's and your settings

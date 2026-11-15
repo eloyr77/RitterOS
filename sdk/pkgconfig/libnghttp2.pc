@@ -1,0 +1,13 @@
+# libnghttp2.pc (46e): libnghttp2.so.14, a system library from upstream, for builds outside
+# the tree (sdk/ritteros.cmake and sdk/ritteros.meson set arch). Version:
+# user/upstream/versions' (sdk_shell_test compares them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/build/upstream/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libnghttp2
+Description: HTTP/2 framing, HPACK and sessions
+Version: 1.71.0
+Cflags: -I${includedir}
+Libs: ${libdir}/libnghttp2.so.14

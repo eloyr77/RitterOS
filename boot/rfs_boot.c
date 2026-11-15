@@ -126,7 +126,7 @@ static UINT32 find_gpt_entry(EFI_BOOT_SERVICES *bs, EFI_HANDLE disk, struct gpt_
     }
     UINT32 crc = h.header_crc;
     h.header_crc = 0;
-    if (crc32(&h, h.header_size) != crc) {
+    if (crc32_ieee(&h, h.header_size) != crc) {
         *why = u"the boot disk's GPT header is damaged (CRC)";
         return 0;
     }
@@ -139,7 +139,7 @@ static UINT32 find_gpt_entry(EFI_BOOT_SERVICES *bs, EFI_HANDLE disk, struct gpt_
     }
     UINT32 number = 0;
     if (EFI_ERROR(disk_io->ReadDisk(disk_io, media, h.entries_lba * block, bytes, entries)) ||
-        crc32(entries, bytes) != h.entries_crc) {
+        crc32_ieee(entries, bytes) != h.entries_crc) {
         *why = u"the boot disk's GPT entries are damaged (CRC)";
     } else {
         for (UINT32 i = 0; i < h.entry_count && !number; i++) {

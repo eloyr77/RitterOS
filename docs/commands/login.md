@@ -35,10 +35,17 @@ incorrect.` and take the same time. Then `login` starts the user's shell
 made at its first use), as the leader of a session of its own, with
 `HOME`, `USER`, `LOGNAME` and `SHELL` set. As a login shell, `sh -l` runs
 `~/.config/login` first. The user's settings folder `~/.config` is made
-when it is missing, with a `README` and the files `login` and `windows`,
+when it is missing, with a `README` and the files `login`, `windows`,
+`filetypes` and `keyring`,
 every line a comment until the user changes it (a file the user deleted
 comes back). Logins, refused logins and logouts are written to the log
-`/system/logs/login.log`.
+`/system/logs/login.log`. (70b) Then `login` opens the user's keyring:
+it starts the elf `keyringd` as the user when none runs, gives it the
+password and holds a session with it until the shell ends (the last
+login's end locks the keyring); `open_at_login = no` in
+`~/.config/keyring` (written at the login with the others) leaves it
+closed. It does not wait for the keyring's 600,000 rounds: a keyring with
+another password stays locked, and `keyring unlock` opens it.
 
 **Leaving.** Ctrl-D at `login:` ends `login`, and the kernel's rescue
 console (`rescue>`) takes over. Ctrl-C at `login:` only asks

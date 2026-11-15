@@ -1,7 +1,8 @@
 /*
  * ldd PROGRAM...: the shared libraries a program needs (step 22d) -- the ones
- * it names and the ones those name, each where ld.so finds it in
- * /system/<arch>/lib -- and whether all the functions they need are there,
+ * it names and the ones those name, each where ld.so finds it (43e: its
+ * own rule, user/ldso/runpath.h: the RUNPATH folders, an app's
+ * APP.program/lib, then /system/<arch>/lib) -- and whether all the functions they need are there,
  * the program and the libraries read from their files (mapped, never run).
  * A program is a path, or a bare name looked up like the shell does (bin,
  * then apps). Exit code 0 when everything is there, 1 if anything is missing.
@@ -10,12 +11,14 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "ritteros.h"
 #include "../../common/elf.h"
+#include "../ldso/runpath.h"
 
 PROGRAM_HELP("ldd PROGRAM...", "the shared libraries a program needs, and whether they are all there");
 
@@ -25,10 +28,12 @@ PROGRAM_HELP("ldd PROGRAM...", "the shared libraries a program needs, and whethe
 #define ARCH "aarch64"
 #endif
 #define LIB_DIR "/system/" ARCH "/lib/"
-#define MAX_OBJECTS 16
+#define MAX_OBJECTS 512                 /* (43e) ld.so's: 16 before */
 
 struct object {                         /* a program or a library, mapped from its file */
-    char name[64], path[160];
+    char name[64], path[256];
+    char dir[256];                      /* (43e) its folder, for $ORIGIN */
+    const char *runpath;                /* (43e) DT_RUNPATH, else DT_RPATH (0: none) */
     const uint8_t *data;
     uint64_t size;
     const Elf64_Phdr *ph;
@@ -36,8 +41,7 @@ struct object {                         /* a program or a library, mapped from i
     const char *strtab;
     const Elf64_Sym *symtab;
     const uint32_t *hash;
-    uint64_t needed[16];
-    int needed_count;
+    const Elf64_Dyn *dynamic;           /* (43e) its DT_NEEDED read from here: any number */
 };
 
 static struct object objects[MAX_OBJECTS];
@@ -87,7 +91,7 @@ static int open_object(struct object *o, const char *path)
             dyn = (const Elf64_Dyn *)(o->data + o->ph[i].p_offset);
     if (!dyn)
         return 0;
-    uint64_t strtab = 0, symtab = 0, hash = 0;
+    uint64_t strtab = 0, symtab = 0, hash = 0, runpath = 0, rpath = 0;
     for (const Elf64_Dyn *d = dyn; (const uint8_t *)(d + 1) <= o->data + o->size && d->d_tag != DT_NULL; d++) {
         if (d->d_tag == DT_STRTAB)
             strtab = d->d_val;
@@ -95,8 +99,10 @@ static int open_object(struct object *o, const char *path)
             symtab = d->d_val;
         else if (d->d_tag == DT_HASH)
             hash = d->d_val;
-        else if (d->d_tag == DT_NEEDED && o->needed_count < 16)
-            o->needed[o->needed_count++] = d->d_val;
+        else if (d->d_tag == DT_RUNPATH)
+            runpath = d->d_val + 1;
+        else if (d->d_tag == DT_RPATH)
+            rpath = d->d_val + 1;
     }
     o->strtab = at(o, strtab);
     o->symtab = at(o, symtab);
@@ -105,7 +111,20 @@ static int open_object(struct object *o, const char *path)
         errno = ENOEXEC;
         return -1;
     }
+    o->dynamic = dyn;
+    if (runpath || rpath)                       /* (RUNPATH wins, as in ld.so) */
+        o->runpath = o->strtab + (runpath ? runpath : rpath) - 1;
+    runpath_origin(path, o->dir, sizeof(o->dir));
     return 1;
+}
+
+/* (43e) The k-th library o names (its k-th DT_NEEDED), 0 past the last. */
+static const char *needed(const struct object *o, int k)
+{
+    for (const Elf64_Dyn *d = o->dynamic; (const uint8_t *)(d + 1) <= o->data + o->size && d->d_tag != DT_NULL; d++)
+        if (d->d_tag == DT_NEEDED && k-- == 0)
+            return o->strtab + d->d_val;
+    return 0;
 }
 
 static uint32_t elf_hash(const char *name)
@@ -152,10 +171,29 @@ static void release(void)
     count = 0;
 }
 
+/* (43e) Open the library `name` that `from` needs where ld.so would find
+ * it (its open_library): 1 found, into o. */
+static int find_library(struct object *o, const char *name, const struct object *from, bool secure)
+{
+    const struct object *in[2] = { from, &objects[0] };
+    for (int k = 0; k < (from == &objects[0] ? 1 : 2); k++) {
+        const char *list = in[k]->runpath;
+        char folder[256], lib[256];
+        while (list && runpath_next(&list, in[k]->dir, secure, folder, sizeof(folder))) {
+            if (snprintf(lib, sizeof(lib), "%s/%s", folder, name) >= (int)sizeof(lib) || access(lib, F_OK) != 0)
+                continue;
+            return open_object(o, lib);         /* (found there: ld.so takes it, whatever it is) */
+        }
+    }
+    char lib[256];
+    snprintf(lib, sizeof(lib), LIB_DIR "%s", name);
+    return open_object(o, lib);
+}
+
 /* One program: 0 when everything it needs is there, 1 if not. */
 static int list(const char *arg)
 {
-    char path[160];
+    char path[256];
     struct stat st;
     if (strchr(arg, '/')) {
         snprintf(path, sizeof(path), "%s", arg);
@@ -176,10 +214,16 @@ static int list(const char *arg)
         printf("    statically linked: it needs no libraries\n");
         return 0;
     }
+    /* (43e) $ORIGIN as the kernel gives it to ld.so: the program's real
+     * folder; no $ORIGIN for a setuid program run by another user. */
+    char real[256];
+    if (realpath(path, real))
+        runpath_origin(real, p->dir, sizeof(p->dir));
+    bool secure = stat(path, &st) == 0 && (st.st_mode & S_ISUID) && st.st_uid != getuid();
     int missing = 0;
-    for (int i = 0; i < count; i++)             /* the libraries, breadth first, each once */
-        for (int k = 0; k < objects[i].needed_count; k++) {
-            const char *name = objects[i].strtab + objects[i].needed[k];
+    for (int i = 0; i < count; i++) {           /* the libraries, breadth first, each once */
+        const char *name;
+        for (int k = 0; (name = needed(&objects[i], k)); k++) {
             bool have = false;
             for (int j = 1; j < count && !have; j++)
                 have = strcmp(objects[j].name, name) == 0;
@@ -189,19 +233,18 @@ static int list(const char *arg)
                 printf("    (more than %d libraries)\n", MAX_OBJECTS - 1);
                 return 1;
             }
-            char lib[160];
-            snprintf(lib, sizeof(lib), LIB_DIR "%s", name);
             struct object *o = &objects[count];
             snprintf(o->name, sizeof(o->name), "%s", name);
-            if (strchr(name, '/') || open_object(o, lib) != 1) {
+            if (strchr(name, '/') || find_library(o, name, &objects[i], secure) != 1) {
                 printf("    %s => not found\n", name);
                 missing++;
                 memset(o, 0, sizeof(*o));
                 continue;
             }
             count++;
-            printf("    %s => %s\n", name, lib);
+            printf("    %s => %s\n", name, o->path);
         }
+    }
     for (int i = 0; i < count; i++) {          /* every function they need, defined somewhere */
         const struct object *o = &objects[i];
         uint32_t nsyms = o->hash[1];

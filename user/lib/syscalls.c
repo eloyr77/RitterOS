@@ -2,16 +2,21 @@
  * puts the error number into errno. */
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
 #include <dirent.h>
+#include <sys/auxv.h>
 #include <sys/time.h>
 #include <utime.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <sys/soundcard.h>
 #include <sys/utsname.h>
 #include <thread.h>
 #include <unistd.h>
@@ -49,16 +54,108 @@ int open(const char *path, int flags, ...)
         va_end(ap);
         flags |= OPEN_MODE;
     }
-    return (int)check(syscall6(SYS_OPEN, (int64_t)path, flags, mode, 0, 0, 0));
+    /* (43b-1) O_NOFOLLOW and O_DIRECTORY are the library's checks */
+    struct stat st;
+    if ((flags & O_NOFOLLOW) && path && lstat(path, &st) == 0 && S_ISLNK(st.st_mode)) {
+        errno = ELOOP;
+        return -1;
+    }
+    int fd = (int)check(syscall6(SYS_OPEN, (int64_t)path, flags & ~(O_NOFOLLOW | O_DIRECTORY), mode, 0, 0, 0));
+    if (fd >= 0 && (flags & O_DIRECTORY) && (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode))) {
+        close(fd);
+        errno = ENOTDIR;
+        return -1;
+    }
+    return fd;
+}
+
+/* (43b-4) A record lock's range made absolute for the kernel, and back. */
+static int record_lock(int fd, int command, struct flock *l)
+{
+    if (!l || (l->l_type != F_RDLCK && l->l_type != F_WRLCK && l->l_type != F_UNLCK)) {
+        errno = EINVAL;
+        return -1;
+    }
+    off_t base = 0;
+    if (l->l_whence == SEEK_CUR) {
+        base = lseek(fd, 0, SEEK_CUR);
+    } else if (l->l_whence == SEEK_END) {
+        struct stat st;
+        base = fstat(fd, &st) == 0 ? st.st_size : -1;
+    } else if (l->l_whence != SEEK_SET) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (base < 0)
+        return -1;
+    int64_t start = base + l->l_start, length = l->l_len;
+    if (length < 0) {
+        start += length;
+        length = -length;
+    }
+    if (start < 0 || (length && start > INT64_MAX - length)) {
+        errno = EINVAL;
+        return -1;
+    }
+    struct sys_flock k = { (uint64_t)start, (uint64_t)length, (uint32_t)l->l_type, 0 };
+    if (check(syscall6(SYS_FCNTL, fd, command, (int64_t)&k, 0, 0, 0)) < 0)
+        return -1;
+    if (command == F_GETLK) {
+        l->l_type = (short)k.type;
+        if (k.type != F_UNLCK) {
+            l->l_whence = SEEK_SET;
+            l->l_start = (off_t)k.start;
+            l->l_len = (off_t)k.length;
+            l->l_pid = (pid_t)k.pid;
+        }
+    }
+    return 0;
 }
 
 int fcntl(int fd, int command, ...)
 {
     va_list ap;
     va_start(ap, command);
-    long arg = command == F_GETFD || command == F_GETFL ? 0 : va_arg(ap, long);  /* (53b) */
+    long arg = command == F_GETFD || command == F_GETFL || command == F_GET_SEALS ? 0
+               : va_arg(ap, long);                                              /* (53b) */
     va_end(ap);
+    if (command == F_GETLK || command == F_SETLK || command == F_SETLKW)
+        return record_lock(fd, command, (struct flock *)arg);
     return (int)check(syscall6(SYS_FCNTL, fd, command, arg, 0, 0, 0));
+}
+
+/* (46b) sys/ioctl.h's requests, through fcntl (no ioctl system call). */
+int ioctl(int fd, unsigned long request, ...)
+{
+    va_list ap;
+    va_start(ap, request);
+    void *arg = va_arg(ap, void *);
+    va_end(ap);
+    if (request == FIOCLEX || request == FIONCLEX) {
+        int flags = fcntl(fd, F_GETFD);
+        if (flags < 0)
+            return -1;
+        return fcntl(fd, F_SETFD, request == FIOCLEX ? flags | FD_CLOEXEC : flags & ~FD_CLOEXEC);
+    }
+    if (request == FIONBIO) {
+        int flags = fcntl(fd, F_GETFL);
+        if (flags < 0)
+            return -1;
+        return fcntl(fd, F_SETFL, *(int *)arg ? flags | O_NONBLOCK : flags & ~O_NONBLOCK);
+    }
+    if (request == SNDCTL_DSP_GETODELAY) {      /* (68v) sys/soundcard.h's */
+        int64_t r = check(syscall6(SYS_SOUND, fd, SOUND_DELAY, 0, 0, 0, 0));
+        if (r < 0)
+            return -1;
+        *(int *)arg = (int)r;
+        return 0;
+    }
+    if (request == SNDCTL_DSP_RESET)
+        return (int)check(syscall6(SYS_SOUND, fd, SOUND_RESET, 0, 0, 0, 0));
+    if (fcntl(fd, F_GETFD) < 0)
+        return -1;                      /* EBADF first, as Linux */
+    errno = ENOTTY;
+    return -1;
 }
 
 int creat(const char *path, mode_t mode)
@@ -97,6 +194,7 @@ int ritteros_pipe(int fds[2])
 
 void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
+    flags &= ~MAP_NORESERVE;                    /* (45c: what RitterOS always does) */
     int64_t r = check(syscall6(SYS_MMAP, (int64_t)addr, (int64_t)length, prot, flags, fd, offset));
     return r < 0 ? MAP_FAILED : (void *)r;
 }
@@ -114,6 +212,58 @@ int msync(void *addr, size_t length, int flags)
 int mprotect(void *addr, size_t length, int prot)
 {
     return (int)check(syscall6(SYS_MPROTECT, (int64_t)addr, (int64_t)length, prot, 0, 0, 0));
+}
+
+/* (46b) No memory locking (sys/mman.h). */
+int mlock(const void *addr, size_t length)
+{
+    (void)addr, (void)length;
+    errno = ENOSYS;
+    return -1;
+}
+
+int munlock(const void *addr, size_t length)
+{
+    (void)addr, (void)length;
+    errno = ENOSYS;
+    return -1;
+}
+
+int mlockall(int flags)
+{
+    (void)flags;
+    errno = ENOSYS;
+    return -1;
+}
+
+int munlockall(void)
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+void __clear_cache(void *start, void *end)
+{
+#if defined(__aarch64__)
+    /* (45d) CTR_EL0: the smallest data and instruction cache lines; IDC and
+     * DIC say a step is not needed on this processor. The kernel lets
+     * programs do this (SCTLR_EL1.UCT, UCI). */
+    uint64_t ctr;
+    __asm__ volatile ("mrs %0, ctr_el0" : "=r"(ctr));
+    uintptr_t from = (uintptr_t)start, to = (uintptr_t)end;
+    uintptr_t dline = (uintptr_t)4 << ((ctr >> 16) & 15), iline = (uintptr_t)4 << (ctr & 15);
+    if (!(ctr & (1ULL << 28)))
+        for (uintptr_t a = from & ~(dline - 1); a < to; a += dline)
+            __asm__ volatile ("dc cvau, %0" : : "r"(a) : "memory");
+    __asm__ volatile ("dsb ish" : : : "memory");
+    if (!(ctr & (1ULL << 29)))
+        for (uintptr_t a = from & ~(iline - 1); a < to; a += iline)
+            __asm__ volatile ("ic ivau, %0" : : "r"(a) : "memory");
+    __asm__ volatile ("dsb ish\n\tisb" : : : "memory");
+#else
+    (void)start;
+    (void)end;
+#endif
 }
 
 pid_t getpid(void)
@@ -171,13 +321,16 @@ pid_t spawn_new_group(const char *path, char *const argv[])
 
 pid_t waitpid(pid_t pid, int *status, int flags)
 {
-    if (flags & ~WNOHANG) {
+    if (flags & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
         errno = EINVAL;
         return -1;
     }
     cancel_point();
     return (pid_t)check(cancel_after(syscall6(SYS_WAIT, pid, (int64_t)status,
-                                              flags & WNOHANG ? WAIT_NO_HANG : 0, 0, 0, 0)));
+                                              (flags & WNOHANG ? WAIT_NO_HANG : 0) |
+                                                  (flags & WUNTRACED ? WAIT_UNTRACED : 0) |
+                                                  (flags & WCONTINUED ? WAIT_CONTINUED : 0),
+                                              0, 0, 0)));
 }
 
 int chdir(const char *path)
@@ -194,6 +347,11 @@ char *getcwd(char *buffer, size_t size)
 pid_t getpgrp(void)
 {
     return (pid_t)syscall6(SYS_GETPGRP, 0, 0, 0, 0, 0, 0);
+}
+
+pid_t getsid(pid_t pid)
+{
+    return (pid_t)check(syscall6(SYS_GETPGRP, pid, 1, 0, 0, 0, 0));
 }
 
 pid_t getppid(void)
@@ -248,7 +406,10 @@ int sigaction(int sig, const struct sigaction *action, struct sigaction *old)
                      : (uint64_t)(uintptr_t)action->sa_handler;
         want.mask = action->sa_mask;
         want.flags = (action->sa_flags & SA_RESETHAND ? SIGACTION_RESETHAND : 0) |
-                     (action->sa_flags & SA_NODEFER ? SIGACTION_NODEFER : 0);
+                     (action->sa_flags & SA_NODEFER ? SIGACTION_NODEFER : 0) |
+                     (action->sa_flags & SA_ONSTACK ? SIGACTION_ONSTACK : 0) |
+                     (action->sa_flags & SA_SIGINFO ? SIGACTION_SIGINFO : 0) |
+                     (action->sa_flags & SA_NOCLDSTOP ? SIGACTION_NOCLDSTOP : 0);   /* (44a) */
         want.reserved = 0;
     }
     int64_t r = syscall6(SYS_SIGACTION, sig, action ? (int64_t)(uintptr_t)&want : 0,
@@ -262,7 +423,10 @@ int sigaction(int sig, const struct sigaction *action, struct sigaction *old)
                         : (sighandler_t)(uintptr_t)had.handler;
         old->sa_mask = had.mask;
         old->sa_flags = (had.flags & SIGACTION_RESETHAND ? SA_RESETHAND : 0) |
-                        (had.flags & SIGACTION_NODEFER ? SA_NODEFER : 0);
+                        (had.flags & SIGACTION_NODEFER ? SA_NODEFER : 0) |
+                        (had.flags & SIGACTION_ONSTACK ? SA_ONSTACK : 0) |
+                        (had.flags & SIGACTION_SIGINFO ? SA_SIGINFO : 0) |
+                        (had.flags & SIGACTION_NOCLDSTOP ? SA_NOCLDSTOP : 0);
     }
     return 0;
 }
@@ -282,6 +446,26 @@ sighandler_t signal(int sig, sighandler_t action)
 int raise(int sig)
 {
     return kill(getpid(), sig);             /* (its handler has run when kill returns) */
+}
+
+int sigaltstack(const stack_t *stack, stack_t *old)
+{
+    struct sys_sigstack want, had;
+    if (stack) {
+        want.sp = (uint64_t)(uintptr_t)stack->ss_sp;
+        want.flags = stack->ss_flags;
+        want.pad = 0;
+        want.size = stack->ss_size;
+    }
+    if (check(syscall6(SYS_SIGALTSTACK, stack ? (int64_t)(uintptr_t)&want : 0,
+                       old ? (int64_t)(uintptr_t)&had : 0, 0, 0, 0, 0)) < 0)
+        return -1;
+    if (old) {
+        old->ss_sp = (void *)(uintptr_t)had.sp;
+        old->ss_flags = had.flags;
+        old->ss_size = had.size;
+    }
+    return 0;
 }
 
 int sigemptyset(sigset_t *set)
@@ -351,6 +535,7 @@ static void stat_of(const struct sys_stat *s, struct stat *st)
         [FILE_TYPE_CHAR] = S_IFCHR, [FILE_TYPE_FIFO] = S_IFIFO, [FILE_TYPE_SOCKET] = S_IFSOCK,
         [FILE_TYPE_SYMLINK] = S_IFLNK,
     };
+    memset(st, 0, sizeof(*st));
     st->st_ino = s->id;
     st->st_dev = s->device;
     st->st_mode = (s->type < sizeof(kinds) / sizeof(kinds[0]) && kinds[s->type] ? kinds[s->type]
@@ -359,9 +544,67 @@ static void stat_of(const struct sys_stat *s, struct stat *st)
     st->st_uid = s->uid;
     st->st_gid = s->gid;
     st->st_nlink = s->links;
-    st->st_size = (int64_t)s->size;
-    st->st_ctime = (int64_t)(s->created / 1000000000);
-    st->st_mtime = (int64_t)(s->modified / 1000000000);
+    st->st_size = (off_t)s->size;
+    st->st_blksize = 4096;                      /* (43a) RitterFS's block */
+    st->st_blocks = (blkcnt_t)((s->size + 4095) / 4096 * 8);
+    st->st_mtim.tv_sec = (time_t)(s->modified / 1000000000);
+    st->st_mtim.tv_nsec = (long)(s->modified % 1000000000);
+    st->st_atim = st->st_mtim;                  /* (no access times kept) */
+    st->st_ctim.tv_sec = (time_t)(s->created / 1000000000);
+    st->st_ctim.tv_nsec = (long)(s->created % 1000000000);
+}
+
+/* (43a) The struct stat of programs built before 43a, and their stat,
+ * fstat and lstat, which the library keeps under those names. */
+struct stat_v1 {
+    uint32_t st_dev;
+    uint64_t st_ino;
+    unsigned int st_mode;
+    uid_t st_uid;
+    gid_t st_gid;
+    unsigned int st_nlink;
+    int64_t st_size;
+    int64_t st_ctime_v1, st_mtime_v1;
+};
+
+static int stat_v1_of(int64_t r, const struct sys_stat *s, struct stat_v1 *old)
+{
+    if (check(r) < 0)
+        return -1;
+    struct stat st;
+    stat_of(s, &st);
+    old->st_dev = (uint32_t)st.st_dev;
+    old->st_ino = st.st_ino;
+    old->st_mode = st.st_mode;
+    old->st_uid = st.st_uid;
+    old->st_gid = st.st_gid;
+    old->st_nlink = (unsigned)st.st_nlink;
+    old->st_size = st.st_size;
+    old->st_ctime_v1 = st.st_ctim.tv_sec;
+    old->st_mtime_v1 = st.st_mtim.tv_sec;
+    return 0;
+}
+
+int stat_v1(const char *path, struct stat_v1 *st) __asm__("stat");
+int fstat_v1(int fd, struct stat_v1 *st) __asm__("fstat");
+int lstat_v1(const char *path, struct stat_v1 *st) __asm__("lstat");
+
+int stat_v1(const char *path, struct stat_v1 *st)
+{
+    struct sys_stat s;
+    return stat_v1_of(syscall6(SYS_STAT, (int64_t)path, (int64_t)&s, 0, 0, 0, 0), &s, st);
+}
+
+int fstat_v1(int fd, struct stat_v1 *st)
+{
+    struct sys_stat s;
+    return stat_v1_of(syscall6(SYS_FSTAT, fd, (int64_t)&s, 0, 0, 0, 0), &s, st);
+}
+
+int lstat_v1(const char *path, struct stat_v1 *st)
+{
+    struct sys_stat s;
+    return stat_v1_of(syscall6(SYS_LSTAT, (int64_t)path, (int64_t)&s, 0, 0, 0, 0), &s, st);
 }
 
 int poll(struct pollfd *fds, nfds_t count, int timeout)
@@ -403,13 +646,22 @@ int utimensat(int dirfd, const char *path, const struct timespec times[2], int f
         errno = EFAULT;
         return -1;
     }
-    if (dirfd != AT_FDCWD && path[0] != '/') {
-        errno = ENOTSUP;                        /* (other folders' descriptors: not yet) */
-        return -1;
-    }
     if (flags & ~AT_SYMLINK_NOFOLLOW) {
         errno = EINVAL;
         return -1;
+    }
+    char whole[PATH_MAX];                       /* (43b-1: a folder's descriptor too) */
+    if (dirfd != AT_FDCWD && path[0] != '/') {
+        int64_t k = check(syscall6(SYS_FDPATH, dirfd, (int64_t)whole, sizeof(whole), 0, 0, 0));
+        if (k < 0)
+            return -1;
+        if ((size_t)k + 2 + strlen(path) > sizeof(whole)) {
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        whole[k] = '/';
+        strcpy(whole + k + 1, path);
+        path = whole;
     }
     return utimens(path, 0, times, flags & AT_SYMLINK_NOFOLLOW ? UTIMENS_NOFOLLOW : 0);
 }
@@ -530,6 +782,105 @@ int closedir(DIR *dir)
     return r;
 }
 
+/* (43b-1) see dirent.h */
+DIR *fdopendir(int fd)
+{
+    struct stat st;
+    if (fstat(fd, &st) < 0)
+        return 0;
+    if (!S_ISDIR(st.st_mode)) {
+        errno = ENOTDIR;
+        return 0;
+    }
+    DIR *dir = calloc(1, sizeof(*dir));
+    if (dir)
+        dir->fd = fd;
+    return dir;
+}
+
+int dirfd(DIR *dir)
+{
+    return dir->fd;
+}
+
+void rewinddir(DIR *dir)
+{
+    lseek(dir->fd, 0, SEEK_SET);
+}
+
+long telldir(DIR *dir)
+{
+    return (long)lseek(dir->fd, 0, SEEK_CUR);
+}
+
+void seekdir(DIR *dir, long place)
+{
+    lseek(dir->fd, place, SEEK_SET);
+}
+
+int readdir_r(DIR *dir, struct dirent *entry, struct dirent **result)
+{
+    int saved = errno;
+    errno = 0;
+    struct dirent *e = readdir(dir);
+    int r = e ? 0 : errno;
+    errno = saved;
+    if (e) {
+        *entry = *e;
+        *result = entry;
+    } else {
+        *result = 0;
+    }
+    return r;
+}
+
+int alphasort(const struct dirent **a, const struct dirent **b)
+{
+    return strcoll((*a)->d_name, (*b)->d_name);
+}
+
+int versionsort(const struct dirent **a, const struct dirent **b)
+{
+    return strverscmp((*a)->d_name, (*b)->d_name);
+}
+
+int scandir(const char *path, struct dirent ***list, int (*filter)(const struct dirent *),
+            int (*compare)(const struct dirent **, const struct dirent **))
+{
+    DIR *dir = opendir(path);
+    if (!dir)
+        return -1;
+    struct dirent **found = 0;
+    size_t count = 0, room = 0;
+    struct dirent *e;
+    while ((e = readdir(dir))) {
+        if (filter && !filter(e))
+            continue;
+        if (count == room) {
+            room = room ? room * 2 : 16;
+            struct dirent **bigger = realloc(found, room * sizeof(*found));
+            if (!bigger)
+                goto failed;
+            found = bigger;
+        }
+        if (!(found[count] = malloc(sizeof(**found))))
+            goto failed;
+        *found[count++] = *e;
+    }
+    closedir(dir);
+    if (compare)
+        qsort(found, count, sizeof(*found), (int (*)(const void *, const void *))compare);
+    *list = found;
+    return (int)count;
+failed:
+    for (size_t i = 0; i < count; i++)
+        free(found[i]);
+    free(found);
+    closedir(dir);
+    errno = ENOMEM;
+    return -1;
+}
+
 int ritteros_sysinfo(struct sys_info *info)
 {
     return (int)check(syscall6(SYS_SYSINFO, (int64_t)info, 0, 0, 0, 0, 0));
@@ -613,8 +964,71 @@ int ritteros_unmount(const char *path_or_device)
     return (int)check(syscall6(SYS_UNMOUNT, (int64_t)path_or_device, 0, 0, 0, 0, 0));
 }
 
+/* (68p) The kernel's clock page (struct sys_clock, at the auxiliary
+ * vector's AT_RITTEROS_CLOCK): looked for once; 0 on a kernel without it. */
+static const volatile struct sys_clock *clock_page;
+static int clock_looked;
+
+static const volatile struct sys_clock *clock_find(void)
+{
+    if (!__atomic_load_n(&clock_looked, __ATOMIC_ACQUIRE)) {
+        int saved = errno;                      /* (getauxval sets it when there is none) */
+        const volatile struct sys_clock *c = (const volatile struct sys_clock *)getauxval(AT_RITTEROS_CLOCK);
+        errno = saved;
+        __atomic_store_n(&clock_page, c, __ATOMIC_RELAXED);
+        __atomic_store_n(&clock_looked, 1, __ATOMIC_RELEASE);
+    }
+    return __atomic_load_n(&clock_page, __ATOMIC_RELAXED);
+}
+
+/* The processor's counter, read as the kernel's arch_counter reads it. */
+static uint64_t counter_read(void)
+{
+#if defined(__x86_64__)
+    uint32_t lo, hi;
+    __asm__ volatile ("lfence; rdtsc" : "=a"(lo), "=d"(hi) : : "memory");
+    return ((uint64_t)hi << 32) | lo;
+#else
+    uint64_t v;
+    __asm__ volatile ("isb; mrs %0, cntvct_el0" : "=r"(v) : : "memory");
+    return v;
+#endif
+}
+
+/* (68p) Nanoseconds since the clock started (CLOCK_MONOTONIC) and the wall
+ * clock then (*base, 0: unknown), from the clock page without a system call;
+ * false where there is none (ask SYS_TIME). The page's sequence is odd
+ * while the kernel changes it: read until it was even and the same around
+ * the reading, the counter read inside. */
+bool __ritteros_clock(uint64_t *since, uint64_t *base)
+{
+    const volatile struct sys_clock *c = clock_find();
+    if (!c)
+        return false;
+    for (;;) {
+        uint32_t seq = __atomic_load_n(&c->sequence, __ATOMIC_ACQUIRE);
+        if (seq & 1)
+            continue;
+        uint32_t kind = c->counter;
+        uint64_t offset = c->offset, hz = c->hz, start = c->base_counter, at = c->base_ns;
+        uint64_t delta = counter_read() + offset - start;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&c->sequence, __ATOMIC_RELAXED) != seq)
+            continue;
+        if ((kind != SYS_CLOCK_TSC && kind != SYS_CLOCK_CNTVCT) || !hz)
+            return false;
+        /* (as the kernel's since_base: seconds and the rest apart) */
+        *since = delta / hz * 1000000000ULL + delta % hz * 1000000000ULL / hz;
+        *base = at;
+        return true;
+    }
+}
+
 uint64_t ritteros_time(void)
 {
+    uint64_t since, base;
+    if (__ritteros_clock(&since, &base))
+        return base ? base + since : 0;
     return (uint64_t)syscall6(SYS_TIME, 0, 0, 0, 0, 0, 0);
 }
 
@@ -769,6 +1183,9 @@ struct thread_start {
     uintptr_t tp;
 };
 static void *areas[PROCESS_THREADS];
+/* (43a-4) each thread's stack size as asked (0: the default), for
+ * pthread_getattr_np */
+size_t __ritteros_stack_sizes[PROCESS_THREADS];
 
 static int thread_begin(void *data)
 {
@@ -805,8 +1222,10 @@ int __ritteros_thread_create_sized(int (*fn)(void *arg), void *arg, size_t stack
         __ritteros_tls_release(area);
         return -1;
     }
-    if (number < PROCESS_THREADS)
+    if (number < PROCESS_THREADS) {
         areas[number] = area;
+        __ritteros_stack_sizes[number] = stack_size ? (stack_size + 4095) & ~(size_t)4095 : 0;
+    }
     return number;
 }
 
@@ -824,15 +1243,40 @@ int thread_join(int number, int *result)
     return 0;
 }
 
+/* (43a-4) a thread's thread_local destructors (cxa.c; weak: a program
+ * that has none does not take it in) */
+__attribute__((weak)) void __ritteros_thread_dtors(void);
+
 void thread_exit(int result)
 {
+    if (__ritteros_thread_dtors)
+        __ritteros_thread_dtors();
     syscall6(SYS_THREAD_EXIT, result, 0, 0, 0, 0, 0);
     __builtin_unreachable();
 }
 
+/* (68q) The caller's thread number, asked once per thread: kept as number
+ * + 1 in the word at the thread pointer + 8, a word of the per-thread
+ * area's header nothing else uses (x86: the 64-byte header, whose first
+ * word points to itself; AArch64: the 16-byte header before the modules'
+ * blocks; threaddata.c). A new area starts zeroed; a fork's child keeps its
+ * thread's number (the kernel's), so the kept word stays right. Not
+ * __thread: ld.so links this file and has no per-thread data of its own.
+ * Without the areas yet (ld.so, the start), the kernel is asked. */
+uintptr_t __ritteros_thread_area(void);    /* (threaddata.c) */
+
 int thread_self(void)
 {
-    return (int)syscall6(SYS_THREAD_SELF, 0, 0, 0, 0, 0, 0);
+    uintptr_t tp = __ritteros_thread_area();
+    if (tp) {
+        int kept = *(volatile int *)(tp + 8);
+        if (kept)
+            return kept - 1;
+    }
+    int self = (int)syscall6(SYS_THREAD_SELF, 0, 0, 0, 0, 0, 0);
+    if (tp && self >= 0)
+        *(volatile int *)(tp + 8) = self + 1;
+    return self;
 }
 
 /* (68i) The layouts are one: the kernel fills the program's struct. */

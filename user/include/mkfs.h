@@ -8,6 +8,10 @@
 #ifndef RITTEROS_MKFS_H
 #define RITTEROS_MKFS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -54,5 +58,9 @@ bool mkfs_zero(int fd, uint64_t offset, uint64_t n);
 void mkfs_put16(uint8_t *p, uint32_t v);
 void mkfs_put32(uint8_t *p, uint32_t v);
 void mkfs_put64(uint8_t *p, uint64_t v);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

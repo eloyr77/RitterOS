@@ -164,3 +164,24 @@ int execle(const char *path, const char *arg, ...)
     va_end(ap);
     return n < 0 ? -1 : execve(path, argv, envp);
 }
+
+/* (43a-3) execvp with an environment: the search's try gets both. */
+struct with_env {
+    char *const *argv, *const *envp;
+};
+
+static int try_exec_env(const char *path, void *ctx)
+{
+    const struct with_env *w = ctx;
+    exec_or_script(path, w->argv, w->envp);
+    return errno;
+}
+
+int execvpe(const char *name, char *const argv[], char *const envp[])
+{
+    if (strchr(name, '/'))
+        return exec_or_script(name, argv, envp);
+    struct with_env w = { argv, envp };
+    errno = __ritteros_path_search(name, try_exec_env, &w);
+    return -1;
+}

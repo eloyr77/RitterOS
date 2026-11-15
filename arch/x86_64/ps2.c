@@ -105,6 +105,7 @@ static int skip;                /* bytes left of a Pause sequence (E1 1D 45 E1 9
 static struct mouse *mouse;     /* 0 if there is none on port 2 */
 static uint8_t packet[4];       /* a mouse packet being collected */
 static int packet_index, packet_size = 3;   /* 4 with a wheel (IntelliMouse) */
+static int mouse_id;            /* 3 IntelliMouse (a wheel), 4 Explorer (68m-1: two wheels) */
 
 static bool wait_input_empty(void)
 {
@@ -157,6 +158,18 @@ static int read_data(int ms)
     return -1;
 }
 
+/* Three sample rates in a row (a knock asking for a wheel), then the
+ * mouse's id (-1 if it did not answer). */
+static const uint8_t knock_imps[] = { 200, 100, 80 }, knock_imex[] = { 200, 200, 80 };
+
+static int knock_id(const uint8_t rates[3])
+{
+    for (int i = 0; i < 3; i++)
+        if (!mouse_cmd(0xF3) || !mouse_cmd(rates[i]))
+            return -1;
+    return mouse_cmd(0xF2) ? read_data(200) : -1;
+}
+
 static void drain(void)
 {
     for (int i = 0; i < 32 && (inb(STATUS) & STATUS_OUTPUT); i++)
@@ -193,8 +206,12 @@ static void scan_code(uint8_t b)
 /* A byte from the mouse on port 2. A packet is three bytes: flags (bit 3
  * always 1, so it resynchronises; bits 0-2 the buttons, 4-5 the sign of X
  * and Y), then the signed X and Y movement; an IntelliMouse adds a fourth,
- * the signed wheel steps (positive towards the user). PS/2 Y grows upward,
- * the screen downward. Interrupt context. */
+ * the signed wheel steps (positive towards the user). (68m-1) An Explorer's
+ * fourth byte is Linux's psmouse IMEX: bits 7-6 01 the horizontal wheel in
+ * bits 5-0, 10 the wheel in bits 5-0, else the wheel in bits 3-0 (buttons
+ * 4 and 5 in bits 4-5, not used); its values are negated (positive up,
+ * positive to the right). PS/2 Y grows upward, the screen downward.
+ * Interrupt context. */
 static void mouse_byte(uint8_t b)
 {
     if (packet_index == 0 && !(b & 0x08))
@@ -207,7 +224,17 @@ static void mouse_byte(uint8_t b)
     int dx = (flags & 0x10) ? (int)packet[1] - 256 : packet[1];
     int dy = (flags & 0x20) ? (int)packet[2] - 256 : packet[2];
     int wheel = packet_size == 4 ? -(int)(int8_t)packet[3] : 0;   /* (positive up, as USB) */
-    mouse_event(mouse, dx, -dy, wheel, (uint8_t)(flags & 0x07));
+    int pan = 0;
+    if (mouse_id == 4) {
+        uint8_t z = packet[3];
+        if ((z & 0xC0) == 0x40)
+            wheel = 0, pan = (z & 32) - (z & 31);
+        else if ((z & 0xC0) == 0x80)
+            wheel = (z & 32) - (z & 31);
+        else
+            wheel = (z & 8) - (z & 7);
+    }
+    mouse_event(mouse, dx, -dy, wheel, pan, (uint8_t)(flags & 0x07));
 }
 
 /* Interrupt context: no console, no heap. */
@@ -273,14 +300,13 @@ static bool ps2_mouse_init(void)
     mouse_cmd(0xF6);                        /* set defaults */
     /* The wheel (15o): sample rates 200, 100, 80 in a row ask an IntelliMouse
      * to report it; it then says it is one (id 3) and sends four-byte
-     * packets. A plain mouse ignores the knock and stays at three. */
-    static const uint8_t knock[] = { 200, 100, 80 };
-    bool ok = true;
-    for (int i = 0; i < 3 && ok; i++)
-        ok = write_mouse(0xF3) && read_data(200) == KBD_ACK &&
-             write_mouse(knock[i]) && read_data(200) == KBD_ACK;
-    if (ok && write_mouse(0xF2) && read_data(200) == KBD_ACK && read_data(200) == 3)
+     * packets. A plain mouse ignores the knock and stays at three. (68m-1)
+     * Then 200, 200, 80 ask an IntelliMouse Explorer for its horizontal
+     * wheel too (id 4; Linux's im_explorer_detect); one without stays 3. */
+    if (knock_id(knock_imps) == 3) {
         packet_size = 4;
+        mouse_id = knock_id(knock_imex) == 4 ? 4 : 3;
+    }
     if (!write_mouse(MOUSE_ENABLE) || read_data(200) != KBD_ACK) {
         failed("the mouse does not take 'enable reporting'");
         return false;
@@ -299,7 +325,8 @@ static bool ps2_mouse_init(void)
     char label[16];
     ksnprintf(label, sizeof(label), "%s:", mouse_name(mouse));
     kprintf("  %-15sPS/2 mouse on the i8042 (port 2)%s, IRQ 12 -> GSI %u (IO APIC), "
-            "vector 0x%02x\n", label, packet_size == 4 ? " with a wheel" : "", gsi, vector);
+            "vector 0x%02x\n", label, mouse_id == 4 ? " with two wheels" :
+            packet_size == 4 ? " with a wheel" : "", gsi, vector);
     const char *kind = syn[1] == 0x47 ? "a Synaptics touchpad"
                      : elan[0] == 0x3c && elan[1] == 0x03 ? "an ELAN touchpad" : "no touchpad answer";
     kprintf("  %-15sidentify: Synaptics %02x %02x %02x, ELAN %02x %02x %02x: %s\n", "",
@@ -332,13 +359,8 @@ static bool mouse_restart(void)
         return false;
     read_data(100);                         /* device id */
     mouse_cmd(0xF6);                        /* set defaults */
-    static const uint8_t knock[] = { 200, 100, 80 };
-    bool ok = packet_size == 4;
-    for (int i = 0; i < 3 && ok; i++)
-        ok = write_mouse(0xF3) && read_data(200) == KBD_ACK &&
-             write_mouse(knock[i]) && read_data(200) == KBD_ACK;
-    if (ok && write_mouse(0xF2) && read_data(200) == KBD_ACK)
-        read_data(200);                     /* (3: the wheel again) */
+    if (packet_size == 4 && knock_id(knock_imps) == 3 && mouse_id == 4)
+        knock_id(knock_imex);               /* (the wheels again) */
     packet_index = 0;
     return write_mouse(MOUSE_ENABLE) && read_data(200) == KBD_ACK;
 }

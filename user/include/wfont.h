@@ -12,6 +12,10 @@
 #ifndef RITTEROS_WFONT_H
 #define RITTEROS_WFONT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 struct font;
@@ -80,5 +84,9 @@ uint32_t utf8_next(const char **s);
 int wfont_text(uint32_t *buf, uint32_t stride, uint32_t bw, uint32_t bh,
                const struct font *font, int x, int y, const char *utf8,
                uint32_t fg, uint32_t bg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -159,3 +159,22 @@ int unsetenv(const char *name)
     }
     return 0;
 }
+
+/* (43a) Every variable gone (the strings themselves stay: putenv's may be
+ * the program's). */
+int clearenv(void)
+{
+    if (on_heap)
+        free(env);
+    env = no_variables;
+    no_variables[0] = 0;
+    on_heap = false;
+    return 0;
+}
+
+/* (43a) getenv, except in a setuid program (its user may set the
+ * environment of a program running with more rights than they have). */
+char *secure_getenv(const char *name)
+{
+    return getuid() != geteuid() ? 0 : getenv(name);
+}

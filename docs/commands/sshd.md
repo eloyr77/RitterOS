@@ -104,7 +104,7 @@ ritteros:/$ elf
 ritteros:/$ elf stop sshd
 ritteros:/$ elf start sshd
 ritteros:/$ sshd -p 2200 &
-[7]
+[1] 7
 sshd: the host key SHA256:Xl3C...
 sshd: listening on port 2200
 ```

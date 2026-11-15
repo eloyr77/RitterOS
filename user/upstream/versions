@@ -1,0 +1,22 @@
+# (46) The upstream libraries RitterOS builds as system libraries, their
+# versions and the SHA-256 of each source archive: read by
+# scripts/setup-toolchain.sh (which downloads and checks them into
+# tools/src/NAME-VERSION) and by the Makefile ("System libraries from
+# upstream"). An update is a step of its own: change the version and the
+# hash here, run setup-toolchain.sh, build, run the library's tests.
+ZLIB_VER=1.4
+ZLIB_SHA256=4f11c512053d7bab8d9e9b89bde3575add3e4c50a383b42ef6cb837035fc5a7c
+OPENSSL_VER=3.5.9
+OPENSSL_SHA256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+NGHTTP2_VER=1.71.0
+NGHTTP2_SHA256=c0f55121d88650e4b9227aec28cebaf664d2417ca60fe70be0f8d38829f52116
+# (brotli's and libpsl's projects publish no hashes: these are the archives
+# downloaded on 2026-11-12, brotli's GitHub tag archive, libpsl's release)
+BROTLI_VER=1.2.1
+BROTLI_SHA256=98d35d11a78dc453aebb7d10c3748f3f73ff78c8267c0dc697b8631f67bf7e8f
+LIBPSL_VER=0.23.3
+LIBPSL_SHA256=93941f85a1e7bd593fa94f299233cb5dfc91cd144fd9a78a6ceb75001c5b03be
+# (curl signs its archives and publishes no hash: the one downloaded on
+# 2026-11-12)
+CURL_VER=8.23.0
+CURL_SHA256=8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5

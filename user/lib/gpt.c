@@ -48,7 +48,7 @@ static bool read_header(int fd, const struct sys_device *disk, uint64_t lba, str
         h->header_size > disk->block_size)
         return false;
     memset(block + 16, 0, 4);                       /* the checksum's own field as 0 */
-    return crc32(block, h->header_size) == h->header_crc;
+    return ritteros_crc32(block, h->header_size) == h->header_crc;
 }
 
 static uint8_t entries_buffer[GPT_ENTRIES * GPT_ENTRY_SIZE * 8];
@@ -64,7 +64,7 @@ bool gpt_read(int fd, const struct sys_device *disk, struct gpt_table *t)
         if (t->h.entry_size < sizeof(struct gpt_entry) || t->h.entry_size % 8 ||
             t->entries_bytes > sizeof(entries_buffer) ||
             !read_at(fd, t->h.entries_lba * disk->block_size, entries_buffer, t->entries_bytes) ||
-            crc32(entries_buffer, t->entries_bytes) != t->h.entries_crc)
+            ritteros_crc32(entries_buffer, t->entries_bytes) != t->h.entries_crc)
             continue;
         t->entries = entries_buffer;
         t->entries_lba = copy == 0 ? t->h.entries_lba : 2;
@@ -126,7 +126,7 @@ bool gpt_write(int fd, const struct sys_device *disk, struct gpt_table *t)
     uint64_t bs = disk->block_size;
     uint64_t array_blocks = (t->entries_bytes + bs - 1) / bs;
     struct gpt_header h = t->h;
-    h.entries_crc = crc32(t->entries, t->entries_bytes);
+    h.entries_crc = ritteros_crc32(t->entries, t->entries_bytes);
     for (int copy = 1; copy >= 0; copy--) {
         h.my_lba = copy ? disk->block_count - 1 : 1;
         h.alternate_lba = copy ? 1 : disk->block_count - 1;
@@ -134,7 +134,7 @@ bool gpt_write(int fd, const struct sys_device *disk, struct gpt_table *t)
         h.header_crc = 0;
         memset(block, 0, bs);
         memcpy(block, &h, sizeof(h));
-        h.header_crc = crc32(block, h.header_size);
+        h.header_crc = ritteros_crc32(block, h.header_size);
         memcpy(block, &h, sizeof(h));
         if (!write_at(fd, h.entries_lba * bs, t->entries, t->entries_bytes) ||
             !write_at(fd, h.my_lba * bs, block, bs))

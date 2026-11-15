@@ -19,6 +19,10 @@
 #ifndef RITTEROS_SYS_MMAN_H
 #define RITTEROS_SYS_MMAN_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <sys/types.h>
 #include "../../../common/syscalls.h"
@@ -34,6 +38,9 @@
                                          * replacing the mappings there */
 #define MAP_ANONYMOUS   MMAP_ANONYMOUS  /* zeroed memory: fd and offset are not used */
 #define MAP_ANON        MAP_ANONYMOUS
+#define MAP_NORESERVE   0x4000          /* (45c) taken, nothing more: no memory is reserved
+                                         * ahead anyway (a page costs memory from its first
+                                         * touch), so large PROT_NONE reservations are free */
 
 #define MAP_FAILED      ((void *)-1)
 
@@ -62,5 +69,54 @@ int mprotect(void *addr, size_t length, int prot);
  * [addr, addr + length) (addr on a page boundary) to their files (22j). 0, or
  * -1 with errno set (EIO if a file could not be written). */
 int msync(void *addr, size_t length, int flags);
+
+/* (43b-3) Memory files: shared memory with a size, read and written as a
+ * file (read, write, lseek, ftruncate, fstat) and mapped MAP_SHARED by
+ * every program it is given to (sendmsg's SCM_RIGHTS, fork); MAP_PRIVATE
+ * only to read (ENOTSUP for writing). A page past its size is SIGBUS.
+ * memfd_create makes one without a name (MFD_CLOEXEC; MFD_ALLOW_SEALING:
+ * else it comes with F_SEAL_SEAL, as Linux's); shm_open opens one by name
+ * in /dev/shm (O_RDONLY or O_RDWR, O_CREAT, O_EXCL, O_TRUNC; the name is
+ * "/NAME" or "NAME", no other slash), shm_unlink removes the name (its
+ * owner or root): it lives while descriptors or mappings hold it. */
+#define MFD_CLOEXEC         0x0001U
+#define MFD_ALLOW_SEALING   0x0002U
+int memfd_create(const char *name, unsigned int flags);
+int shm_open(const char *name, int flags, mode_t mode);
+int shm_unlink(const char *name);
+
+/* (43b-3) madvise: MADV_DONTNEED and MADV_FREE give the pages back
+ * (anonymous memory reads 0 at the next touch, a private file mapping the
+ * file again; shared memory keeps its content), the others change nothing.
+ * posix_madvise returns the error instead (POSIX_MADV_DONTNEED changes
+ * nothing, as glibc's). */
+#define MADV_NORMAL         0
+#define MADV_RANDOM         1
+#define MADV_SEQUENTIAL     2
+#define MADV_WILLNEED       MADVISE_WILLNEED
+#define MADV_DONTNEED       MADVISE_DONTNEED
+#define MADV_FREE           MADVISE_FREE
+#define POSIX_MADV_NORMAL       0
+#define POSIX_MADV_RANDOM       1
+#define POSIX_MADV_SEQUENTIAL   2
+#define POSIX_MADV_WILLNEED     3
+#define POSIX_MADV_DONTNEED     4
+int madvise(void *addr, size_t length, int advice);
+int posix_madvise(void *addr, size_t length, int advice);
+
+/* (46b) Memory locking: not there. RitterOS cannot keep pages out of swap
+ * (which is encrypted, with a key made at each `swap on`), so these fail
+ * with ENOSYS rather than promise it; OpenSSL's secure heap goes on
+ * without it. */
+#define MCL_CURRENT     1
+#define MCL_FUTURE      2
+int mlock(const void *addr, size_t length);
+int munlock(const void *addr, size_t length);
+int mlockall(int flags);
+int munlockall(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

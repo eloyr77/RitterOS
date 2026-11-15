@@ -45,10 +45,12 @@ int socket_bind(struct socket *s, uint16_t port);
 /* Local (SOCKET_LOCAL) sockets: a name instead of a port. bind_local names
  * the listener (then socket_listen registers it); connect_local connects to
  * a listener's name. 0 or ERR_*. */
-int socket_bind_local(struct socket *s, const char *name, int uid);
-int socket_connect_local(struct socket *s, const char *name, int uid);
+/* (70c) program: the binding or connecting process's (SYS_PEER_PROGRAM). */
+int socket_bind_local(struct socket *s, const char *name, int uid, const char *program);
+int socket_connect_local(struct socket *s, const char *name, int uid, const char *program);
 /* The user at the other end of a connected local socket; -1 otherwise. */
 int socket_peer_uid(struct socket *s);
+const char *socket_peer_program(struct socket *s);  /* (70c) local_peer_program */
 
 /* A UDP socket of one card only, before bind: it receives what arrives on
  * that card, and its broadcasts leave through it (DHCP). 0 or ERR_*. */
@@ -82,5 +84,16 @@ int socket_option(struct socket *s, bool set, int option, uint64_t *value);
 uint16_t socket_port(struct socket *s);
 /* A holder lets go; after the last, the socket ends and is freed. */
 void socket_close(struct socket *s);
+
+/* (43b-2) A local socket's bytes with things passed (descriptors), and a
+ * connected pair (socketpair); see localsock.h. Other sockets: their bytes
+ * alone (ERR_NOTSUP with things to pass). */
+int64_t socket_send_with(struct socket *s, const void *data, size_t length, void *const *items, int count);
+int64_t socket_recv_with(struct socket *s, void *data, size_t size, void **items, int max, int *got,
+                         bool *cut, bool *trunc);
+int socket_pair(int uid, const char *program, int kind, struct socket **a, struct socket **b);
+/* (45b) A packet socket (SOCKET_LOCAL_SEQPACKET): its reads and writes are
+ * whole messages. */
+bool socket_packets(struct socket *s);
 
 #endif

@@ -90,8 +90,9 @@
  *
  * (66f-2) The vertical blank interrupt, as Linux's vega10_ih and
  * nbio_v7_0 set it up: NBIO's dummy-read page and its override off (MSI);
- * IH_CHICKEN's physical addresses; the ring (a page, 1024 dwords: RB_SIZE
- * 10) and its write pointer's write-back given by physical address
+ * IH_CHICKEN's physical addresses (68t: on Cezanne only, as Linux); the
+ * ring (a page, 1024 dwords: RB_SIZE 10) and its write pointer's
+ * write-back given by physical address
  * (MC_SPACE 1), snooped, overflow detection, RPTR_REARM for MSI; both
  * pointers 0; MSI; then the ring and its interrupts on. Each entry is 8
  * dwords: client (7-0; 4 the display engine) and source (15-8; OTG k's
@@ -228,19 +229,25 @@
  * but the plane's (HUBP) block (its base, its stride, some places inside)
  * and the OTG's registers from its clock control on. The Cezanne's clock
  * block, DPP clock DTOs, interrupt destinations and plane schedule, mode
- * sets and the vertical blank are only used there (is_cezanne); the
- * snapshot of pipe 0's path and the panel's bring-up after a sleep on
- * both, each its own way (37g-6, `picasso`). */
+ * sets are only used there (is_cezanne); the snapshot of pipe 0's path
+ * and the panel's bring-up after a sleep on both, each its own way (37g-6,
+ * `picasso`), and (68t) the vertical blank and page flipping on both:
+ * SURFACE_FLIP_PENDING is bit 8 of DCSURF_FLIP_CONTROL on DCN 2.1, bit 31
+ * on DCN 1.0 (dcn_*_sh_mask.h); the VSTARTUP interrupt's source (0x3C + k,
+ * irqsrcs_dcn_1_0.h, which Linux's dcn21 IRQ service uses too) and its
+ * enable/clear bits are the same; DCN 1.0's DCHUBBUB_SDPIF_FB_BASE/TOP are
+ * at DCN 2.1's DCN_VM_FB_LOCATION_BASE/TOP's places with the same fields. */
 struct dcn_layout {
     const char *name;
     uint32_t hubp, hubp_stride, viewport_start, hubp_cntl, address, flip_control,
              earliest_inuse;
     uint32_t otg_clock_control, otg_vstartup, otg_sync_status;
+    uint32_t flip_pending;                  /* (68t) DCSURF_FLIP_CONTROL's SURFACE_FLIP_PENDING */
 };
 static const struct dcn_layout dcn21 = { "DCN 2.1", 0x5E5, 0xDC, 4, 0xE, 0x25, 0x36, 0x40,
-                                         0x5C, 0x5D, 0x60 };
+                                         0x5C, 0x5D, 0x60, 1u << 8 };
 static const struct dcn_layout dcn10 = { "DCN 1.0", 0x559, 0xC4, 3, 0xD, 0x24, 0x35, 0x3E,
-                                         0x5E, 0x5F, 0x62 };
+                                         0x5E, 0x5F, 0x62, 1u << 31 };
 static const struct dcn_layout *ly = &dcn21;
 static bool is_cezanne, picasso;
 
@@ -304,7 +311,7 @@ static bool is_cezanne, picasso;
 #define STORM 10000u
 #define HUBP_FLIP_CONTROL (ly->flip_control)
 #define HUBP_EARLIEST_INUSE (ly->earliest_inuse)    /* _HIGH follows */
-#define FLIP_PENDING (1u << 8)
+#define FLIP_PENDING (ly->flip_pending)
 #define BUFFER_SLOT ((uint64_t)32 << 20)             /* the mapping reaches past it */
 /* (66g-1) What a mode set changes, read back. */
 #define DCN_SEG1 0xC0
@@ -1666,7 +1673,8 @@ static void ih_program(void)
     wr(IH_RB_WPTR, 0);
     wr(INTERRUPT_CNTL + 1, (uint32_t)(dummy >> 8));
     wr(INTERRUPT_CNTL, rd(INTERRUPT_CNTL) & ~(0x1u | 0x8u));  /* dummy-read override, non-snoop off */
-    wr(IH_CHICKEN, rd(IH_CHICKEN) | 1u << 4);       /* MC_SPACE_GPA_ENABLE */
+    if (is_cezanne)                                 /* (68t: Linux's vega10_ih on Renoir only) */
+        wr(IH_CHICKEN, rd(IH_CHICKEN) | 1u << 4);   /* MC_SPACE_GPA_ENABLE */
     wr(IH_RB_BASE, (uint32_t)(ring >> 8));
     wr(IH_RB_BASE_HI, (uint32_t)(ring >> 40) & 0xFF);
     uint32_t c = rd(IH_RB_CNTL) & ~(0x70000000u | 0x0F000000u | 0x3Eu | 1u << 22);
@@ -3464,7 +3472,8 @@ static bool start(struct pci_device *d)
         output_path[cezanne.output_count] = k;
         cezanne.output_count++;
     }
-    for (int o = 0; regs && is_cezanne && o < cezanne.output_count && vblank_otg < 0; o++) {
+    for (int o = 0; regs && (is_cezanne || picasso) && o < cezanne.output_count && vblank_otg < 0;
+         o++) {                                     /* (68t: Picasso's too) */
         int k = output_otg(o);
         const char *why = "";
         if (k < 0)

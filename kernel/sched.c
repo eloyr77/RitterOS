@@ -509,6 +509,25 @@ struct thread *thread_create(const char *name, void (*fn)(void *arg), void *arg)
     return thread_create_for(name, fn, arg, 0, 0);
 }
 
+void thread_set_name(struct thread *t, const char *name)
+{
+    char copy[16];
+    size_t n = strlen(name) < sizeof(copy) - 1 ? strlen(name) : sizeof(copy) - 1;
+    memcpy(copy, name, n);
+    memset(copy + n, 0, sizeof(copy) - n);
+    uint64_t state = spin_lock(&sched_lock);
+    memcpy(t->name, copy, sizeof(copy));
+    spin_unlock(&sched_lock, state);
+}
+
+void thread_get_name(struct thread *t, char out[16])
+{
+    uint64_t state = spin_lock(&sched_lock);
+    memcpy(out, t->name, 16);
+    spin_unlock(&sched_lock, state);
+    out[15] = 0;
+}
+
 struct thread *thread_create_for(const char *name, void (*fn)(void *arg), void *arg,
                                  struct process *process, uint64_t space)
 {
@@ -700,7 +719,19 @@ static void stop_waiting(struct thread *t)
  * make it true then): the thread goes on the queue first, then looks, then
  * sleeps only if nothing woke it meanwhile (a wake-up of a thread still on
  * its core only marks it running again). */
+static void prepare(struct wait_queue *q, uint64_t deadline, uint64_t at);
+
 void wait_prepare(struct wait_queue *q, uint64_t deadline)
+{
+    prepare(q, deadline, 0);
+}
+
+void wait_prepare_at(struct wait_queue *q, uint64_t at)
+{
+    prepare(q, 0, at);
+}
+
+static void prepare(struct wait_queue *q, uint64_t deadline, uint64_t at)
 {
     if (!started)
         return;                             /* (before the scheduler: wait_commit halts) */
@@ -715,6 +746,7 @@ void wait_prepare(struct wait_queue *q, uint64_t deadline)
     t->wait_next = 0;
     __atomic_store_n(&t->waiting_on, q, __ATOMIC_RELEASE);
     t->wake_tick = deadline;
+    __atomic_store_n(&t->wake_at, at, __ATOMIC_RELAXED);
     t->timed_out = false;
     t->state = THREAD_BLOCKED;              /* (its own, interrupts off: no switch here) */
     spin_unlock(&q->lock, state);
@@ -732,6 +764,7 @@ void wait_cancel(void)
     struct thread *t = current;
     leave_queue(t);
     t->wake_tick = 0;
+    __atomic_store_n(&t->wake_at, 0, __ATOMIC_RELAXED);
     stop_waiting(t);
     arch_irq_restore(state);
 }
@@ -763,6 +796,50 @@ bool wait_commit(uint64_t deadline)
     bool ok = !t->timed_out;
     arch_irq_restore(state);
     return ok;
+}
+
+/* (45a) wait_commit with a precise deadline: before it sleeps, this core's
+ * timer is armed for it (its earliest such deadline), and the thread
+ * marked as that core's to wake (sched_precise_due). */
+bool wait_commit_at(uint64_t at)
+{
+    locks_none_held(0, "wait");
+    if (!started) {
+        arch_wait_for_interrupt();
+        arch_interrupts_disable();
+        return !at || arch_counter() < at;
+    }
+    uint64_t state = arch_irq_save();
+    struct thread *t = current;
+    if (!at || arch_counter() < at) {
+        if (at) {
+            struct cpu *c = arch_this_cpu();
+            t->wake_core = c->index;
+            if (!c->precise_at || at < c->precise_at)
+                c->precise_at = at;
+            arch_timer_wake_at(at);
+        }
+        spin_lock(&arch_this_cpu()->run_lock);
+        schedule();
+        spin_unlock_only(&arch_this_cpu()->run_lock);
+    }
+    if (leave_queue(t))
+        t->timed_out = at && arch_counter() >= at;
+    __atomic_store_n(&t->wake_at, 0, __ATOMIC_RELAXED);
+    stop_waiting(t);
+    bool ok = !t->timed_out;
+    arch_irq_restore(state);
+    return ok;
+}
+
+uint64_t sched_counter_after_ns(uint64_t ns)
+{
+    uint64_t hz = arch_counter_hz();
+    if (!hz)
+        return 0;
+    if (ns > 86400000000000ULL * 365 * 100)
+        ns = 86400000000000ULL * 365 * 100;     /* (a century: no overflow below) */
+    return arch_counter() + ns / 1000000000 * hz + (ns % 1000000000 * hz + 999999999) / 1000000000;
 }
 
 /* (65e-39) t made runnable, decided under the lock of the core t is on or
@@ -946,6 +1023,14 @@ void poll_watch(struct wait_queue *q)
     __atomic_thread_fence(__ATOMIC_SEQ_CST);    /* (65e: as in wait_prepare) */
 }
 
+bool poll_table_wait_at(struct poll_table *pt, uint64_t at)
+{
+    struct thread *self = thread_current();
+    return wait_event_until_at(&pt->self, __atomic_load_n(&pt->fired, __ATOMIC_ACQUIRE) ||
+                                              self->stop_requested, at) &&
+           !self->stop_requested;
+}
+
 bool poll_table_wait(struct poll_table *pt, uint64_t deadline)
 {
     struct thread *self = thread_current();
@@ -983,6 +1068,34 @@ void sched_tick(void)
     if (current == idle ? __atomic_load_n(&me->run_count, __ATOMIC_RELAXED) && takes_threads()
                         : --slice_left <= 0)
         need_resched = true;
+}
+
+uint64_t sched_precise_due(void)
+{
+    struct cpu *me = arch_this_cpu();       /* (an interrupt: it cannot move) */
+    uint64_t at = me->precise_at;
+    if (!started || !at)
+        return 0;
+    uint64_t now = arch_counter();
+    if (now < at)
+        return at;
+    /* Its threads asleep with a deadline: the due ones woken (each takes
+     * itself off its queue and sees the time, as at a tick's deadline), the
+     * next one kept. One woken meanwhile by another has wake_at 0 or runs. */
+    uint64_t next = 0;
+    uint64_t state = spin_lock(&sched_lock);
+    for (struct thread *t = all_threads; t; t = t->all_next) {
+        uint64_t w = __atomic_load_n(&t->wake_at, __ATOMIC_RELAXED);
+        if (!w || t->wake_core != me->index || t->state != THREAD_BLOCKED)
+            continue;
+        if (now >= w)
+            wake(t);
+        else if (!next || w < next)
+            next = w;
+    }
+    spin_unlock(&sched_lock, state);
+    me->precise_at = next;
+    return next;
 }
 
 void sched_irq_enter(void)

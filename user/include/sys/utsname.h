@@ -3,6 +3,10 @@
 #ifndef RITTEROS_SYS_UTSNAME_H
 #define RITTEROS_SYS_UTSNAME_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define _UTSNAME_LENGTH 65
 
 struct utsname {
@@ -16,5 +20,9 @@ struct utsname {
 
 /* Fills *name: 0, or -1 with errno EFAULT. */
 int uname(struct utsname *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

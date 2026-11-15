@@ -5,6 +5,10 @@
 #ifndef RITTEROS_LOCALE_H
 #define RITTEROS_LOCALE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LC_CTYPE    0
 #define LC_NUMERIC  1
 #define LC_TIME     2
@@ -44,5 +48,35 @@ struct lconv {
 
 char *setlocale(int category, const char *locale);
 struct lconv *localeconv(void);
+
+/* (43a-2) Locales: "C" (or "POSIX") and "C.UTF-8" (any name ending in
+ * ".UTF-8" or ".utf8", such as "en_US.UTF-8", is C.UTF-8 under its own
+ * name): in C.UTF-8 characters are UTF-8 and the wide classes Unicode's;
+ * numbers, dates and messages are the C locale's in both. setlocale(c,
+ * "") takes LC_ALL, LC_<category> or LANG from the environment (else C).
+ * newlocale makes (or changes base into) a locale with the categories of
+ * mask from name; uselocale makes it the calling thread's own
+ * (LC_GLOBAL_LOCALE: back to the program's; 0: only ask), returning the
+ * one before; duplocale copies one; freelocale frees one. */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+#define LC_CTYPE_MASK       (1 << LC_CTYPE)
+#define LC_NUMERIC_MASK     (1 << LC_NUMERIC)
+#define LC_TIME_MASK        (1 << LC_TIME)
+#define LC_COLLATE_MASK     (1 << LC_COLLATE)
+#define LC_MONETARY_MASK    (1 << LC_MONETARY)
+#define LC_MESSAGES_MASK    (1 << LC_MESSAGES)
+#define LC_ALL_MASK         0x3f
+#define LC_GLOBAL_LOCALE    ((locale_t)-1)
+locale_t newlocale(int mask, const char *name, locale_t base);
+locale_t duplocale(locale_t locale);
+void freelocale(locale_t locale);
+locale_t uselocale(locale_t locale);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

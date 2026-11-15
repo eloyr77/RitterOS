@@ -56,6 +56,7 @@ struct socket {
     uint64_t dropped;
     struct tcp *tcp;                    /* SOCKET_TCP */
     struct local *local;                /* SOCKET_LOCAL */
+    bool packets;                       /* (45b) SOCKET_LOCAL_SEQPACKET's: messages kept whole */
     uint32_t rcv_timeout_ms, snd_timeout_ms;    /* (53a) SO_RCVTIMEO, SO_SNDTIMEO (0: none) */
     uint8_t kept[SOCKOPT_BROADCAST + 1];        /* (53a) the options only kept */
     bool read_shut;                     /* (53a) UDP after shutdown(SHUT_RD) */
@@ -110,6 +111,9 @@ struct socket *socket_new(int type)
 {
     bool six = type & SOCKET_INET6;
     type &= ~SOCKET_INET6;
+    bool packets = type == SOCKET_LOCAL_SEQPACKET;  /* (45b) a local socket of another kind */
+    if (packets)
+        type = SOCKET_LOCAL;
     if (type != SOCKET_UDP && type != SOCKET_TCP && (type != SOCKET_LOCAL || six))
         return 0;
     struct socket *s = kzalloc(sizeof(*s));
@@ -117,6 +121,7 @@ struct socket *socket_new(int type)
         return 0;
     s->type = type;
     s->six = six;
+    s->packets = packets;
     s->refs = 1;
     s->lock = (struct spinlock)SPINLOCK_INIT("socket");
     s->waiters.pollable = true;
@@ -127,14 +132,16 @@ struct socket *socket_new(int type)
     return s;
 }
 
-int socket_bind_local(struct socket *s, const char *name, int uid)
+int socket_bind_local(struct socket *s, const char *name, int uid, const char *program)
 {
-    return s->type == SOCKET_LOCAL ? local_bind(&s->local, name, uid) : ERR_NOTSUP;
+    return s->type == SOCKET_LOCAL ? local_bind(&s->local, name, uid, program, s->packets)
+                                   : ERR_NOTSUP;
 }
 
-int socket_connect_local(struct socket *s, const char *name, int uid)
+int socket_connect_local(struct socket *s, const char *name, int uid, const char *program)
 {
-    return s->type == SOCKET_LOCAL ? local_connect(&s->local, name, uid) : ERR_NOTSUP;
+    return s->type == SOCKET_LOCAL ? local_connect(&s->local, name, uid, program, s->packets)
+                                   : ERR_NOTSUP;
 }
 
 int socket_bind(struct socket *s, uint16_t port)
@@ -279,7 +286,7 @@ struct socket *socket_accept(struct socket *s, int *error)
         *error = local_accept(s->local, &c);
         if (*error)
             return 0;
-        struct socket *n = socket_new(SOCKET_LOCAL);
+        struct socket *n = socket_new(s->packets ? SOCKET_LOCAL_SEQPACKET : SOCKET_LOCAL);
         if (!n) {
             local_close(c);
             *error = ERR_NOMEM;
@@ -312,9 +319,19 @@ void socket_hold(struct socket *s)
     __atomic_add_fetch(&s->refs, 1, __ATOMIC_SEQ_CST);
 }
 
+const char *socket_peer_program(struct socket *s)
+{
+    return s->type == SOCKET_LOCAL ? local_peer_program(s->local) : 0;
+}
+
 int socket_peer_uid(struct socket *s)
 {
     return s->type == SOCKET_LOCAL ? local_peer_uid(s->local) : -1;
+}
+
+bool socket_packets(struct socket *s)
+{
+    return s->packets;
 }
 
 int socket_type(struct socket *s)
@@ -442,7 +459,7 @@ int socket_option(struct socket *s, bool set, int option, uint64_t *value)
     case SOCKOPT_TYPE:
         if (set)
             return ERR_INVAL;                       /* (read only) */
-        *value = option == SOCKOPT_TYPE ? (uint64_t)s->type
+        *value = option == SOCKOPT_TYPE ? (uint64_t)(s->packets ? SOCKET_LOCAL_SEQPACKET : s->type)
                : s->type == SOCKET_TCP && s->tcp ? (uint64_t)tcp_error(s->tcp) : 0;
         return 0;
     case SOCKOPT_V6ONLY:                            /* (64d) before the socket is bound */
@@ -482,4 +499,48 @@ uint16_t socket_port(struct socket *s)
     if (s->type == SOCKET_LOCAL)
         return 0;
     return s->type == SOCKET_TCP ? tcp_local_port(s->tcp) : s->port;
+}
+
+/* (43b-2) A local socket's message with things passed (see localsock.h):
+ * SO_SNDTIMEO/SO_RCVTIMEO as for its bytes. */
+int64_t socket_send_with(struct socket *s, const void *data, size_t length, void *const *items, int count)
+{
+    if (s->type != SOCKET_LOCAL)
+        return count ? -ERR_NOTSUP : socket_sendto(s, data, length, 0, 0);
+    return s->local ? local_send_with(s->local, data, length, s->snd_timeout_ms, items, count)
+                    : -ERR_NOTCONN;
+}
+
+int64_t socket_recv_with(struct socket *s, void *data, size_t size, void **items, int max, int *got,
+                         bool *cut, bool *trunc)
+{
+    if (s->type != SOCKET_LOCAL) {
+        *got = 0;
+        *cut = false;
+        *trunc = false;
+        return socket_recvfrom(s, data, size, 0, 0, 0);
+    }
+    if (!s->local)
+        return -ERR_NOTCONN;
+    int64_t r = local_recv_with(s->local, data, size, s->rcv_timeout_ms, items, max, got, cut, trunc);
+    return s->rcv_timeout_ms && r == -ERR_TIMEDOUT ? -ERR_AGAIN : r;
+}
+
+/* (43b-2) socketpair: two local sockets connected to each other ((45b)
+ * kind SOCKET_LOCAL or SOCKET_LOCAL_SEQPACKET). */
+int socket_pair(int uid, const char *program, int kind, struct socket **a, struct socket **b)
+{
+    struct socket *x = socket_new(kind), *y = socket_new(kind);
+    int r = x && y ? local_pair(&x->local, &y->local, uid, program, kind == SOCKET_LOCAL_SEQPACKET)
+                   : ERR_NOMEM;
+    if (r) {
+        if (x)
+            socket_close(x);
+        if (y)
+            socket_close(y);
+        return r;
+    }
+    *a = x;
+    *b = y;
+    return 0;
 }

@@ -510,48 +510,11 @@ static void bridge_ports(const char *bridge, char *out, size_t size)
 
 /* KEY = VALUE in place of KEY's line of the file (added at its end when it
  * has none), or KEY's line taken out (value 0): the other lines and the
- * comments stay (the user's rule: a program changes only its line). A
- * missing file starts as its default text. 0 or 1. */
+ * comments stay (the user's rule: a program changes only its line); 69c's
+ * shared settings_set. 0 or 1. */
 static int virtual_set(const char *key, const char *value)
 {
-    static char old[8192], content[8192 + 256];
-    ssize_t got = 0;
-    int fd = open(SETTINGS_VIRTUAL, O_RDONLY);
-    if (fd >= 0) {
-        got = read(fd, old, sizeof(old) - 1);
-        close(fd);
-    } else {
-        got = snprintf(old, sizeof(old), "%s", SETTINGS_VIRTUAL_TEXT);
-    }
-    old[got > 0 ? got : 0] = 0;
-    char wanted[256] = "";
-    if (value)
-        snprintf(wanted, sizeof(wanted), "%s = %s\n", key, value);
-    size_t n = 0, klen = strlen(key);
-    bool replaced = false;
-    for (char *line = old; *line;) {
-        char *end = strchr(line, '\n');
-        size_t len = end ? (size_t)(end - line) + 1 : strlen(line);
-        const char *k = line + strspn(line, " \t");
-        bool is_key = !strncmp(k, key, klen) && k[klen] && strchr(" \t=", k[klen]);
-        if (is_key && !replaced) {
-            n += (size_t)snprintf(content + n, sizeof(content) - n, "%s", wanted);
-        } else if (!is_key && n + len + 1 < sizeof(content)) {
-            memcpy(content + n, line, len);
-            n += len;
-            if (!end)
-                content[n++] = '\n';
-        }
-        replaced |= is_key;
-        line += len;
-    }
-    if (!replaced)
-        n += (size_t)snprintf(content + n, sizeof(content) - n, "%s", wanted);
-    fd = open(SETTINGS_VIRTUAL, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    bool ok = fd >= 0 && write(fd, content, n) == (ssize_t)n;
-    if (fd >= 0 && close(fd) < 0)
-        ok = false;
-    return ok ? 0 : fail(SETTINGS_VIRTUAL, strerror(errno));
+    return settings_set(SETTINGS_VIRTUAL, key, value) == 0 ? 0 : fail(SETTINGS_VIRTUAL, strerror(errno));
 }
 
 /* (38c) The bridge's line as its ports are now (out when it has none). */

@@ -7,6 +7,11 @@ This list is made by `python3 scripts/doccheck.py --index`.
 
 | Program | What it does |
 |---|---|
+| [`Imageview`](Imageview.md) | show an image (PPM, BMP, PNG, JPEG) in a window |
+| [`Owl`](Owl.md) | a graphical file browser (needs windowd) |
+| [`Reel`](Reel.md) | play a video (RVID) in a window |
+| [`Settings`](Settings.md) | the system's and your settings, in a window |
+| [`Term`](Term.md) | a terminal in a window (FONT of /system/fonts); with a command, runs it (needs windowd) |
 | [`ar`](ar.md) | make and read archives of object files (static libraries) |
 | [`as`](as.md) | assemble |
 | [`attr`](attr.md) | list, show, set or remove a file's attributes |
@@ -20,8 +25,9 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`cp`](cp.md) | copy a file (-r: a directory), instantly; -p: keep times and modes |
 | [`cpus`](cpus.md) | list the processor's cores |
 | [`cu`](cu.md) | a terminal on a serial line (~. leaves) |
+| [`curl`](curl.md) | transfer data from or to a URL: HTTP/1.1 and HTTP/2, HTTPS, WebSockets, proxies |
 | [`cut`](cut.md) | parts of each line |
-| [`date`](date.md) | the date and time (local or -u UTC) |
+| [`date`](date.md) | the date and time (local or -u UTC); -s sets the clock |
 | [`dhclient`](dhclient.md) | the DHCP client, an elf: addresses for the cards set to dhcp (and DHCPv6) |
 | [`dirname`](dirname.md) | a path without its last part |
 | [`disks`](disks.md) | the disks and their partitions; changes to a partition table (root) |
@@ -42,11 +48,11 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`guardd`](guardd.md) | the firewall's elf: loads /system/config/guard into the kernel |
 | [`head`](head.md) | the first lines (or bytes) of files |
 | [`hello`](hello.md) | the first RitterOS program: where it is in memory |
-| [`ibrowser`](ibrowser.md) | iBrowser: show web pages (http, https, HTML files) in a window |
 | [`id`](id.md) | the user and group you are |
-| [`imageview`](imageview.md) | show an image (PPM, BMP, PNG, JPEG) in a window |
 | [`js`](js.md) | run JavaScript (a prompt without a file) |
-| [`kill`](kill.md) | ask processes to end (SIGNAL: TERM, KILL, INT, HUP, USR1, USR2 or a number) |
+| [`keyring`](keyring.md) | your passwords, kept encrypted (~/.config/keyring.db) |
+| [`keyringd`](keyringd.md) | the elf that keeps your keyring open (login starts it) |
+| [`kill`](kill.md) | ask processes to end, stop or go on (SIGNAL: TERM, KILL, INT, HUP, USR1, USR2, STOP, CONT or a number) |
 | [`ld`](ld.md) | link programs |
 | [`ldd`](ldd.md) | the shared libraries a program needs, and whether they are all there |
 | [`ln`](ln.md) | make a link: a second name for a file, or with -s a symbolic link |
@@ -63,9 +69,9 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`netnamesd`](netnamesd.md) | an elf: records new network cards in /system/config/network/names |
 | [`notify`](notify.md) | show a notification on the window system's screen (needs windowd) |
 | [`open`](open.md) | open files and folders with their apps (needs windowd) |
+| [`openssl`](openssl.md) | OpenSSL's tool: TLS connections, keys, certificates, digests and ciphers |
 | [`osinstall`](osinstall.md) | install RitterOS on another disk, the whole disk (root; it asks) |
-| [`owl`](owl.md) | a graphical file browser (needs windowd) |
-| [`passwd`](passwd.md) | set a user's password (root only so far) |
+| [`passwd`](passwd.md) | set a user's password: anyone's for root, else your own |
 | [`pci`](pci.md) | list the PCI devices |
 | [`ping`](ping.md) | send ICMP echo requests and show the round trips |
 | [`power`](power.md) | what the firmware offers for power management: sleep states, devices |
@@ -74,7 +80,6 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`ps`](ps.md) | list the processes |
 | [`readlink`](readlink.md) | print what a symbolic link names (-f: the full path) |
 | [`reboot`](reboot.md) | restart the machine |
-| [`reel`](reel.md) | play a video (RVID) in a window |
 | [`rm`](rm.md) | remove files (-r: directories with their contents; -f: missing ones are no error) |
 | [`rmdir`](rmdir.md) | remove empty directories |
 | [`sed`](sed.md) | edit a stream: replace, delete and insert lines by a script |
@@ -82,7 +87,7 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`sleep`](sleep.md) | wait (fractions like 0.5; s, m, h, d) |
 | [`snapshot`](snapshot.md) | list, take or delete file system snapshots (/.snapshots/NAME) |
 | [`sort`](sort.md) | the lines in order |
-| [`soundd`](soundd.md) | the sound mixer: lets several programs play at once |
+| [`soundd`](soundd.md) | the sound server: lets several programs play at once |
 | [`ssh`](ssh.md) | log in on another machine (SSH) |
 | [`sshd`](sshd.md) | the SSH server: log in from other machines (root) |
 | [`su`](su.md) | become another user (root if none) with their password |
@@ -91,7 +96,6 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`tail`](tail.md) | the last lines (or bytes) of a file; -f: follow it |
 | [`tar`](tar.md) | make (c), take apart (x) or list (t) archives of files and folders |
 | [`tee`](tee.md) | copy the input to the output and into files |
-| [`term`](term.md) | a terminal in a window (FONT of /system/fonts); with a command, runs it (needs windowd) |
 | [`test`](test.md) | check files, strings and numbers (exit code 0: true); also [ ... ] |
 | [`threads`](threads.md) | list the kernel's threads |
 | [`touch`](touch.md) | make empty files, or give files the time now (or another) |
@@ -105,6 +109,7 @@ This list is made by `python3 scripts/doccheck.py --index`.
 | [`usb`](usb.md) | list the USB devices |
 | [`useradd`](useradd.md) | add a user with a home directory (root only) |
 | [`versions`](versions.md) | a file's versions in the snapshots and now |
+| [`volume`](volume.md) | the master volume of the sound server (0-100) |
 | [`wc`](wc.md) | count lines, words and bytes |
 | [`wifi`](wifi.md) | the wireless link (saves networks; wifid joins them) |
 | [`wifid`](wifid.md) | join and hold the wireless link (the elf; see the wifi command) |

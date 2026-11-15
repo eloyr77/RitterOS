@@ -8,6 +8,10 @@
 #ifndef RITTEROS_MEDIA_H
 #define RITTEROS_MEDIA_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 /* A pixel's byte layout in `struct image`. libimage decodes to RGBA8888
@@ -42,5 +46,9 @@ struct audio_buffer {
     long frames;                /* samples per channel */
     void *samples;              /* frames * channels * bytes-per-sample */
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

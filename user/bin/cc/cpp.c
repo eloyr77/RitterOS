@@ -657,12 +657,30 @@ static char *directory_of(const char *path)
     return slash ? arena_strndup(path, (size_t)(slash - path)) : ".";
 }
 
-static char *find_include(const char *name, bool quoted, struct token *where)
+/* (43a) The include directory the file at path was found in: the first
+ * one, in search order, that holds it. */
+static struct include_dir *dir_of(const char *path)
+{
+    for (int pass = 0; pass < 2; pass++)
+        for (struct include_dir *d = pass ? system_dirs : user_dirs; d; d = d->next) {
+            size_t n = strlen(d->path);
+            if (strncmp(path, d->path, n) == 0 && path[n] == '/')
+                return d;
+        }
+    return 0;
+}
+
+/* next (43a: #include_next, __has_include_next): the search starts after
+ * the directory the including file was found in, as GCC and clang do (a
+ * library's limits.h adds to the compiler's); a file found in none
+ * searches them all. */
+static char *find_include(const char *name, bool quoted, struct token *where, bool next)
 {
     found_in_system = false;
     if (name[0] == '/')
         return file_exists(name) ? (char *)name : 0;
-    if (quoted) {
+    struct include_dir *after = next ? dir_of(where->src->name) : 0;
+    if (quoted && !after) {
         char *p = format("%s/%s", directory_of(where->src->name), name);
         if (strncmp(p, "./", 2) == 0)
             p += 2;
@@ -671,6 +689,11 @@ static char *find_include(const char *name, bool quoted, struct token *where)
     }
     for (int pass = 0; pass < 2; pass++)
         for (struct include_dir *d = pass ? system_dirs : user_dirs; d; d = d->next) {
+            if (after) {
+                if (d == after)
+                    after = 0;                  /* (the ones after it from here) */
+                continue;
+            }
             char *p = format("%s/%s", d->path, name);
             if (file_exists(p)) {
                 found_in_system = pass == 1;
@@ -1000,7 +1023,7 @@ static bool eval_condition(struct token **rest, struct token *t)
             x = x->next;
             if (!token_is(x, ")"))
                 error_at(x, "missing ')' after '__has_include'");
-            cur = cur->next = new_number(h, find_include(name, quoted, h) != 0);
+            cur = cur->next = new_number(h, find_include(name, quoted, h, token_is(h, "__has_include_next")) != 0);
             continue;
         }
         cur = cur->next = token_copy(x);
@@ -1278,9 +1301,9 @@ struct token *preprocess(struct token *t)
         if (t->at_line_start)
             continue;                           /* the null directive */
         if (token_is(t, "include") || token_is(t, "include_next")) {
-            bool quoted;
+            bool quoted, next = token_is(t, "include_next");
             char *name = read_include_name(&t, t->next, &quoted);
-            char *path = find_include(name, quoted, hash);
+            char *path = find_include(name, quoted, hash, next);
             if (!path)
                 error_at(hash->next, "'%s' file not found", name);
             t = include_file(t, path, hash->next->next);

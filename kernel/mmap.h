@@ -41,6 +41,9 @@ struct mmap_state {
      * pageout_at on next time (a clock over its pages). */
     bool pageable;
     uint64_t pageout_at;
+    /* (43b-3) It has mapped shared memory (an anonymous MAP_SHARED, a
+     * memory file): futexes there are looked up by the object. */
+    bool shares;
 };
 
 void mmap_init(struct mmap_state *m);
@@ -67,6 +70,7 @@ struct mmap_file {
     uint64_t object_id;
     bool readable;
     bool writable;                  /* open for writing: MAP_SHARED may write it (22j) */
+    struct anon_obj *memory;        /* (43b-3) a memory file instead (fs, object_id unused) */
 };
 
 /* Map length bytes (MMAP_* access and flags, common/syscalls.h) into space:
@@ -140,6 +144,46 @@ int64_t mmap_swap_in_all(struct mmap_state *m, uint64_t space);
  * back (swap off): 0 or -ERR_*. */
 uint64_t mmap_pageout_shared(void);
 int64_t mmap_anon_swap_in_all(void);
+
+/* (43b-3) Memory files (memfd, /dev/shm): shared memory with a size,
+ * starting empty. hold/put count the descriptors and lookers (the mappings
+ * hold it too); io reads or writes length bytes at offset from or into the
+ * kernel's buffer (writing past the end makes it longer): bytes, or -ERR_*
+ * (ERR_PERM by a seal); resize sets the size (-ERR_PERM by a seal,
+ * -ERR_NOSPC past 64 GiB); seal adds SEAL_* bits (-ERR_PERM once SEAL_SEAL
+ * is there, -ERR_BUSY for SEAL_WRITE while a process maps it writable).
+ * Takes mappings' locks: never under one, nor copy_user's holds. */
+struct anon_obj;
+#define SEAL_SEAL           1               /* Linux's F_SEAL_* bits */
+#define SEAL_SHRINK         2
+#define SEAL_GROW           4
+#define SEAL_WRITE          8
+#define SEAL_FUTURE_WRITE   16
+#define SEALS_ALL           31
+struct anon_obj *mmap_memory_new(void);
+void mmap_memory_hold(struct anon_obj *o);
+void mmap_memory_put(struct anon_obj *o);
+uint64_t mmap_memory_size(struct anon_obj *o);
+unsigned mmap_memory_seals(struct anon_obj *o);
+int64_t mmap_memory_io(struct anon_obj *o, uint64_t offset, void *buffer, uint64_t length,
+                       bool write);
+int64_t mmap_memory_resize(struct anon_obj *o, uint64_t size);
+int64_t mmap_memory_seal(struct anon_obj *o, unsigned add);
+
+/* (43b-3) madvise: MADVISE_DONTNEED and _FREE take the pages of
+ * [addr, addr + length) out (anonymous memory zeroed at the next touch, a
+ * copy-on-write mapping's copies the file's again; shared memory keeps its
+ * content), MADVISE_WILLNEED does nothing: 0 or -ERR_INVAL. */
+int64_t mmap_advise(struct mmap_state *m, uint64_t space, uint64_t addr, uint64_t length,
+                    unsigned advice);
+
+/* (43b-3) A futex word in shared memory: the object and the byte's place
+ * in it, the same for every process that maps it (true); false for the
+ * program's own memory (its address is the key). */
+bool mmap_futex_key(struct mmap_state *m, uint64_t addr, const void **object, uint64_t *where);
+
+/* (43b-5) Is anything mapped at addr (also without access)? */
+bool mmap_mapped(struct mmap_state *m, uint64_t addr);
 
 /* Remove every mapping (the process ends): before its space is destroyed,
  * since shared pages are not the space's to free. */

@@ -23,6 +23,13 @@ major version (DRIVER_API_MAJOR): its functions and function-like macros,
 types and constants. Adding is compatible but must raise DRIVER_API_MINOR
 (a module built for the new minor version is refused by older kernels);
 removing or changing needs a new major version (a new record).
+
+(46e) The system libraries from upstream (user/upstream: zlib, OpenSSL,
+nghttp2, brotli, libpsl, curl) are recorded by the symbols they export
+(with their symbol versions), read from the built files of both
+architectures (which must agree): a symbol gone in a new upstream version
+is incompatible, as for RitterOS's own (upstream then gives the library a
+new soname, a library of its own). Not built yet: skipped.
 """
 import os
 import re
@@ -83,7 +90,8 @@ def interface(library):
         _, body = sdkapi.split_header('user/include/' + header)
         for name, decl in sdkapi.declarations(body):
             if name in exported and not decl.startswith('#define'):
-                items['function ' + name] = decl
+                kind = 'variable ' if decl.startswith('extern ') and '(' not in decl else 'function '
+                items[kind + name] = decl
     for path in ['user/include/' + h for h in libexports.LIBRARIES[library]] + EXTRA.get(library, []):
         _, body = sdkapi.split_header(path)
         for name, text in types_of(body).items():
@@ -155,6 +163,71 @@ AGREED = {
     ('driver-api.6', 'type struct net_card',
      'struct net_card { char name[8]; uint8_t mac[6]; const char *driver; char model[40]; char where[16]; uint32_t (*link_speed)(struct net_card *card); bool (*send)(struct net_card *card, const void *frame, size_t length); const struct pci_device *pci; void (*details)(struct net_card *card); void (*set_multicast)(struct net_card *card, const uint8_t (*macs)[6], int count); void *priv; struct wlan *wlan; volatile uint64_t rx_frames, rx_bytes, tx_frames, tx_bytes, tx_dropped; volatile bool gone; }',
      'struct net_card { char name[8]; uint8_t mac[6]; const char *driver; char model[40]; char where[16]; uint32_t (*link_speed)(struct net_card *card); bool (*send)(struct net_card *card, const void *frame, size_t length); const struct pci_device *pci; void (*details)(struct net_card *card); void (*set_multicast)(struct net_card *card, const uint8_t (*macs)[6], int count); void *priv; struct wlan *wlan; volatile uint64_t rx_frames, rx_bytes, tx_frames, tx_bytes, tx_dropped; volatile bool gone; void (*set_promiscuous)(struct net_card *card, bool on); }'),
+    # 43a (the user's, 2026-11-11: "keep .so.1, redirect"): struct stat and
+    # struct passwd became POSIX's whole ones. The calls that fill them are
+    # declared with __asm__ names (__ritteros_stat2 ...), so programs built
+    # from now on call new symbols with the new layouts, while the library
+    # keeps stat, fstat, lstat, getpwnam and getpwuid with the old layouts
+    # (syscalls.c's stat_v1, users.c's passwd_v1) for programs built before.
+    # strerror returns char * (C++ refuses const char * there): the same
+    # pointer either way.
+    ('libritteros.so.1', 'function stat', 'int stat(const char *path, struct stat *st)',
+     'int stat(const char *path, struct stat *st) __asm__("__ritteros_stat2")'),
+    ('libritteros.so.1', 'function fstat', 'int fstat(int fd, struct stat *st)',
+     'int fstat(int fd, struct stat *st) __asm__("__ritteros_fstat2")'),
+    ('libritteros.so.1', 'function lstat', 'int lstat(const char *path, struct stat *st)',
+     'int lstat(const char *path, struct stat *st) __asm__("__ritteros_lstat2")'),
+    ('libritteros.so.1', 'type struct stat',
+     'struct stat { uint32_t st_dev; uint64_t st_ino; unsigned int st_mode; uid_t st_uid; gid_t st_gid; unsigned int st_nlink; int64_t st_size; int64_t st_ctime, st_mtime; }',
+     'struct stat { dev_t st_dev; ino_t st_ino; mode_t st_mode; nlink_t st_nlink; uid_t st_uid; gid_t st_gid; dev_t st_rdev; off_t st_size; blksize_t st_blksize; blkcnt_t st_blocks; struct timespec st_atim, st_mtim, st_ctim; }'),
+    ('libritteros.so.1', 'function getpwnam', 'struct passwd *getpwnam(const char *name)',
+     'struct passwd *getpwnam(const char *name) __asm__("__ritteros_getpwnam2")'),
+    ('libritteros.so.1', 'function getpwuid', 'struct passwd *getpwuid(uid_t uid)',
+     'struct passwd *getpwuid(uid_t uid) __asm__("__ritteros_getpwuid2")'),
+    ('libritteros.so.1', 'type struct passwd',
+     'struct passwd { char *pw_name; uid_t pw_uid; gid_t pw_gid; char *pw_dir; }',
+     'struct passwd { char *pw_name; char *pw_passwd; uid_t pw_uid; gid_t pw_gid; char *pw_gecos; char *pw_dir; char *pw_shell; }'),
+    ('libritteros.so.1', 'function strerror', 'const char *strerror(int error)', 'char *strerror(int error)'),
+    # 43a-2 (the user's choice above): MB_CUR_MAX is the calling thread's
+    # locale's (4 in C.UTF-8). A program built before has 1 compiled in,
+    # right for the C locale, which is all it could set.
+    ('libritteros.so.1', 'constant MB_CUR_MAX', '1', '((size_t)__ritteros_mb_cur_max())'),
+    # 43a-4 (the same choice): pthread_attr_t grew (scheduling, a stack's
+    # address, guard size) behind its first two fields, which keep their
+    # places; pthread_attr_init and pthread_create, the calls that touch the
+    # rest, are new symbols, the old ones kept (pthread.c's _v1).
+    ('libritteros.so.1', 'function pthread_attr_init', 'int pthread_attr_init(pthread_attr_t *attr)',
+     'int pthread_attr_init(pthread_attr_t *attr) __asm__("__ritteros_pthread_attr_init2")'),
+    ('libritteros.so.1', 'function pthread_create',
+     'int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg)',
+     'int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg) __asm__("__ritteros_pthread_create2")'),
+    # 43b-5 (the same choice): struct sigaction's handler became a union with
+    # sa_sigaction (SA_SIGINFO), glibc's way; both are one pointer at the
+    # same place, sa_handler and sa_sigaction macros for its members: the
+    # layout and every name a program uses are as before.
+    ('libritteros.so.1', 'type struct sigaction',
+     'struct sigaction { sighandler_t sa_handler; sigset_t sa_mask; int sa_flags; }',
+     'struct sigaction { union { sighandler_t sa_handler; void (*sa_sigaction)(int, siginfo_t *, void *); } __handler; sigset_t sa_mask; int sa_flags; }'),
+}
+
+# Exports removed as the user agreed (each with its reason), recorded as
+# gone by --update.
+REMOVED_AGREED = {
+    # 46a (the user's, 2026-11-12: "rename ours ritteros_crc32"): RitterOS's
+    # crc32(data, size) clashed with zlib's crc32(crc, buf, len) in libz.so.1,
+    # by name in the headers and at run time (the loader binds every call to
+    # the first library defining it). Only the tree's own programs called it,
+    # and they are rebuilt.
+    ('libritteros.so.1', 'function crc32'),
+    # 46b (the user's, 2026-11-12: "real exported variables"): optarg,
+    # optind, opterr and optopt were macros onto calls (a macro broke
+    # OpenSSL's label `opterr:`); now the library's variables. Programs
+    # built before keep calling __ritteros_optarg() and the others, which
+    # stay and hand out the same variables.
+    ('libritteros.so.1', 'constant optarg'),
+    ('libritteros.so.1', 'constant optind'),
+    ('libritteros.so.1', 'constant opterr'),
+    ('libritteros.so.1', 'constant optopt'),
 }
 
 
@@ -162,7 +235,9 @@ def compare(library, recorded, current):
     """(incompatible, added): lists of messages."""
     incompatible, added = [], []
     for key in sorted(recorded):
-        if key not in current:
+        if key not in current and (library, key) in REMOVED_AGREED:
+            added.append('%s: %s removed as agreed' % (library, key))
+        elif key not in current:
             incompatible.append('%s: %s was removed' % (library, key))
         elif current[key] != recorded[key] and key.startswith('type ') and \
                 reserved_taken(recorded[key], current[key]):
@@ -265,8 +340,63 @@ def check_drivers(update):
     return False
 
 
+# (46e) The system libraries from upstream, by soname.
+UPSTREAM = ['libz.so.1', 'libcrypto.so.3', 'libssl.so.3', 'libnghttp2.so.14', 'libbrotlicommon.so.1',
+            'libbrotlidec.so.1', 'libbrotlienc.so.1', 'libpsl.so.5', 'libcurl.so.4']
+
+
+def upstream_interface(library):
+    """{'symbol NAME@@VERSION': 'exported'} from the built library (the same
+    on both architectures), or None when it is not built."""
+    import subprocess
+    found = {}
+    for arch in ('x86_64', 'aarch64'):
+        path = os.path.join(ROOT, 'build', 'system', arch, 'lib', library)
+        if not os.path.exists(path):
+            return None
+        out = subprocess.run(['nm', '-D', '--defined-only', path], capture_output=True, text=True, check=True).stdout
+        found[arch] = {'symbol ' + line.split()[-1]: 'exported' for line in out.splitlines() if line.strip()}
+    if found['x86_64'] != found['aarch64']:
+        sys.exit('abicheck: %s exports other symbols on x86_64 and aarch64' % library)
+    return found['x86_64']
+
+
+def check_upstream(update):
+    failed = False
+    for library in UPSTREAM:
+        current = upstream_interface(library)
+        if current is None:
+            print('abicheck: %s: not built (make sdk): skipped' % library)
+            continue
+        recorded = read_record(library)
+        if recorded is None:
+            if update:
+                write_record(library, current)
+                print('abicheck: %s: recorded (%d symbols)' % (library, len(current)))
+            else:
+                print('abicheck: %s: nothing recorded yet (python3 scripts/abicheck.py --update)' % library)
+                failed = True
+            continue
+        incompatible, added = compare(library, recorded, current)
+        for m in incompatible:
+            print('abicheck: %s -- incompatible: it needs %s (upstream\'s new soname)' % (m, major_hint(library)))
+        if incompatible:
+            failed = True
+        elif added and update:
+            write_record(library, current)
+            print('abicheck: %s: recorded %d new symbol(s)' % (library, len(added)))
+        elif added:
+            for m in added:
+                print('abicheck: %s (compatible: record it with --update)' % m)
+            failed = True
+        else:
+            print('abicheck: %s: compatible (%d symbols)' % (library, len(current)))
+    return failed
+
+
 def check(update):
     failed = check_drivers(update)
+    failed = check_upstream(update) or failed
     for library in sorted(libexports.LIBRARIES):
         current = interface(library)
         recorded = read_record(library)

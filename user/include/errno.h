@@ -2,7 +2,11 @@
 #ifndef RITTEROS_ERRNO_H
 #define RITTEROS_ERRNO_H
 
-#include "ritteros.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "../../common/syscalls.h"  /* (46b) not ritteros.h: POSIX names only */
 
 /* errno is the place __errno() returns: a function rather than a variable
  * since step 22c, because a shared library exports functions only (a
@@ -67,5 +71,52 @@ int *__errno(void);
 #define ENONAME         ERR_NONAME
 #define ERANGE          34              /* a number out of range (strtol, 22m; the library's own) */
 #define EILSEQ          84      /* (22p: a byte or character no character set has; Linux's number) */
+
+/* (43a) The other POSIX names (and Linux's common ones) for ported code,
+ * with Linux's numbers like the kernel's: the system does not give these
+ * yet; the library gives some (ENFILE, EOVERFLOW, ESPIPE, ...). */
+#define ENOTBLK         15
+#define ENFILE          23
+#define ETXTBSY         26
+#define EFBIG           27
+#define ESPIPE          29
+#define EMLINK          31
+#define EDOM            33
+#define ENOLCK          37
+#define ENOMSG          42
+#define EIDRM           43
+#define ENOSTR          60
+#define ETIME           62
+#define ENOSR           63
+#define ENONET          64
+#define EREMOTE         66
+#define ENOLINK         67
+#define EPROTO          71
+#define EMULTIHOP       72
+#define EBADMSG         74
+#define EOVERFLOW       75
+#define EBADFD          77
+#define EUSERS          87
+#define EPROTOTYPE      91
+#define EPFNOSUPPORT    96
+#define ENETDOWN        100
+#define ENETRESET       102
+#define ENOBUFS         105
+#define ESHUTDOWN       108
+#define ETOOMANYREFS    109
+#define EHOSTDOWN       112
+#define ESTALE          116
+#define EDQUOT          122
+#define ENOMEDIUM       123
+#define EMEDIUMTYPE     124
+#define ECANCELED       125
+#define EOWNERDEAD      130
+#define ENOTRECOVERABLE 131
+#define ELAST           131     /* (43c) the highest of them (the BSDs' name) */
+#define EDEADLOCK       EDEADLK
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

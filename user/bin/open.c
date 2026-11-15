@@ -86,24 +86,24 @@ static int open_one(char *file)
         r = ritteros_spawn(path, av, SPAWN_NEW_GROUP | SPAWN_NEW_SESSION, fds) < 0 ? -1 : 0;
         printf("open: %s started\n", file);
     } else if (S_ISDIR(st.st_mode)) {
-        char *av[] = { "owl", file, 0 };
-        r = start("owl", av);
-        printf("open: %s in owl\n", file);
+        char *av[] = { "Owl", file, 0 };
+        r = start("Owl", av);
+        printf("open: %s in Owl\n", file);
     } else if (how == 0) {                              /* its windowed app */
         char *av[] = { app, file, 0 };
         r = start(app, av);
         printf("open: %s in %s\n", file, app);
     } else if (how == 1) {                              /* its app, in a terminal */
-        char *av[] = { "term", app, file, 0 };
-        r = start("term", av);
+        char *av[] = { "Term", app, file, 0 };
+        r = start("Term", av);
         printf("open: %s in %s, in a terminal\n", file, app);
     } else if ((st.st_mode & 0111) && !app_file(file)) {   /* a program: run in a terminal */
-        char *av[] = { "term", file, 0 };
-        r = start("term", av);
+        char *av[] = { "Term", file, 0 };
+        r = start("Term", av);
         printf("open: %s run in a terminal\n", file);
     } else {                                            /* anything else: the editor */
-        char *av[] = { "term", "edit", file, 0 };
-        r = start("term", av);
+        char *av[] = { "Term", "edit", file, 0 };
+        r = start("Term", av);
         printf("open: %s in edit, in a terminal\n", file);
     }
     if (r < 0)

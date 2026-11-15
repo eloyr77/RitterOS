@@ -11,6 +11,10 @@
 #ifndef RITTEROS_CRYPTO_H
 #define RITTEROS_CRYPTO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -189,5 +193,9 @@ bool sae_check_confirm(const struct sae *s, uint16_t peer_send_confirm, const ui
 /* For tests (RFC 9380's vectors): SSWU of u (a number below p) and a sum. */
 void p256_sswu(const uint8_t u[32], uint8_t point[64]);
 bool p256_add(const uint8_t a[64], const uint8_t b[64], uint8_t sum[64]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

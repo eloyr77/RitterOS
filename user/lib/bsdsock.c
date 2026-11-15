@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -138,6 +139,8 @@ static void give_inet(struct sockaddr *to, socklen_t *length, const struct sys_i
 
 int socket(int family, int type, int protocol)
 {
+    int flags = (type & SOCK_CLOEXEC ? OPEN_CLOEXEC : 0) | (type & SOCK_NONBLOCK ? OPEN_NONBLOCK : 0);
+    type &= ~(SOCK_CLOEXEC | SOCK_NONBLOCK);    /* (43b-1) */
     int kind;
     bool inet = family == AF_INET || family == AF_INET6;
     if (inet && type == SOCK_STREAM && (!protocol || protocol == IPPROTO_TCP))
@@ -146,13 +149,15 @@ int socket(int family, int type, int protocol)
         kind = SOCKET_UDP;
     else if (family == AF_UNIX && type == SOCK_STREAM && !protocol)
         kind = SOCKET_LOCAL;
+    else if (family == AF_UNIX && type == SOCK_SEQPACKET && !protocol)
+        kind = SOCKET_LOCAL_SEQPACKET;          /* (45b) */
     else if (!inet && family != AF_UNIX)
         return fail(EAFNOSUPPORT);
-    else if (type != SOCK_STREAM && type != SOCK_DGRAM)
+    else if (type != SOCK_STREAM && type != SOCK_DGRAM && type != SOCK_SEQPACKET)
         return fail(ESOCKTNOSUPPORT);
     else
         return fail(EPROTONOSUPPORT);
-    return (int)check(syscall6(SYS_SOCKET, kind | (family == AF_INET6 ? SOCKET_INET6 : 0), 0, 0,
+    return (int)check(syscall6(SYS_SOCKET, kind | (family == AF_INET6 ? SOCKET_INET6 : 0) | flags, 0, 0,
                                0, 0, 0));
 }
 
@@ -249,6 +254,15 @@ int listen(int fd, int backlog)
 
 int accept(int fd, struct sockaddr *address, socklen_t *length)
 {
+    return accept4(fd, address, length, 0);
+}
+
+/* (43b-1) accept with SOCK_CLOEXEC, SOCK_NONBLOCK for the new descriptor */
+int accept4(int fd, struct sockaddr *address, socklen_t *length, int flags)
+{
+    if (flags & ~(SOCK_CLOEXEC | SOCK_NONBLOCK))
+        return fail(EINVAL);
+    int64_t open_flags = (flags & SOCK_CLOEXEC ? OPEN_CLOEXEC : 0) | (flags & SOCK_NONBLOCK ? OPEN_NONBLOCK : 0);
     int kind = address ? kind_of(fd) : 0;
     if (kind < 0)
         return -1;
@@ -257,7 +271,7 @@ int accept(int fd, struct sockaddr *address, socklen_t *length)
     memset(&from, 0, sizeof(from));
     cancel_point();                             /* (54c) */
     int r = (int)check(cancel_after(syscall6(kind == SOCKET_LOCAL ? SYS_ACCEPT : SYS_ACCEPT6, fd,
-                                             kind == SOCKET_LOCAL ? 0 : (int64_t)&from, 0, 0, 0, 0)));
+                                             kind == SOCKET_LOCAL ? 0 : (int64_t)&from, open_flags, 0, 0, 0)));
     if (r >= 0 && address) {
         if (kind == SOCKET_LOCAL)
             give_local(address, length, "");    /* (a local peer has no name) */
@@ -443,7 +457,7 @@ int getsockopt(int fd, int level, int option, void *value, socklen_t *length)
     }
     int i = (int)v;
     if (k == SOCKOPT_TYPE)
-        i = v == SOCKET_UDP ? SOCK_DGRAM : SOCK_STREAM;
+        i = v == SOCKET_UDP ? SOCK_DGRAM : v == SOCKET_LOCAL_SEQPACKET ? SOCK_SEQPACKET : SOCK_STREAM;
     give((struct sockaddr *)value, length, &i, sizeof(i));
     return 0;
 }
@@ -582,4 +596,121 @@ int gettimeofday(struct timeval *tv, void *zone)
     tv->tv_sec = (time_t)(ns / 1000000000);
     tv->tv_usec = (suseconds_t)(ns % 1000000000 / 1000);
     return 0;
+}
+
+/* (68l) */
+int settimeofday(const struct timeval *tv, const void *zone)
+{
+    (void)zone;
+    if (!tv || tv->tv_usec < 0 || tv->tv_usec >= 1000000) {
+        errno = EINVAL;
+        return -1;
+    }
+    struct timespec ts = { tv->tv_sec, (long)tv->tv_usec * 1000 };
+    return clock_settime(CLOCK_REALTIME, &ts);
+}
+
+/* --- (43b-2) sendmsg, recvmsg, socketpair --- */
+
+/* The parts' bytes in one buffer (send's), or room for them (receive's). */
+static char *one_buffer(const struct msghdr *m, size_t *total)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < m->msg_iovlen; i++)
+        n += m->msg_iov[i].iov_len;
+    *total = n;
+    char *b = malloc(n ? n : 1);
+    if (!b)
+        errno = ENOMEM;
+    return b;
+}
+
+ssize_t sendmsg(int fd, const struct msghdr *m, int flags)
+{
+    int fds[64], count = 0;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(m); c; c = CMSG_NXTHDR((struct msghdr *)m, c)) {
+        if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
+            return fail(EINVAL);
+        size_t n = (c->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+        if (count + n > 64)
+            return fail(ETOOMANYREFS);
+        memcpy(fds + count, CMSG_DATA(c), n * sizeof(int));
+        count += (int)n;
+    }
+    size_t total;
+    char *data = one_buffer(m, &total);
+    if (!data)
+        return -1;
+    for (size_t i = 0, k = 0; i < m->msg_iovlen; k += m->msg_iov[i].iov_len, i++)
+        memcpy(data + k, m->msg_iov[i].iov_base, m->msg_iov[i].iov_len);
+    ssize_t r;
+    if (count) {
+        struct sys_msghdr s = { (uint64_t)(uintptr_t)data, total, (uint64_t)(uintptr_t)fds, (uint32_t)count, 0 };
+        cancel_point();
+        r = check(cancel_after(syscall6(SYS_SENDMSG, fd, (int64_t)&s, 0, 0, 0, 0)));
+    } else {
+        r = sendto(fd, data, total, flags, m->msg_name, m->msg_namelen);
+    }
+    free(data);
+    return r;
+}
+
+ssize_t recvmsg(int fd, struct msghdr *m, int flags)
+{
+    int kind = kind_of(fd);
+    if (kind < 0)
+        return -1;
+    size_t total;
+    char *data = one_buffer(m, &total);
+    if (!data)
+        return -1;
+    ssize_t r;
+    m->msg_flags = 0;
+    if (kind == SOCKET_LOCAL) {
+        int fds[64];
+        size_t room = m->msg_controllen >= CMSG_LEN(0) ? (m->msg_controllen - CMSG_LEN(0)) / sizeof(int) : 0;
+        struct sys_msghdr s = { (uint64_t)(uintptr_t)data, total, (uint64_t)(uintptr_t)fds,
+                                (uint32_t)(room < 64 ? room : 64), flags & MSG_CMSG_CLOEXEC ? MSGHDR_CLOEXEC : 0 };
+        cancel_point();
+        r = check(cancel_after(syscall6(SYS_RECVMSG, fd, (int64_t)&s, 0, 0, 0, 0)));
+        size_t used = 0;
+        if (r >= 0 && s.fd_count) {
+            struct cmsghdr *c = (struct cmsghdr *)m->msg_control;
+            c->cmsg_len = CMSG_LEN(s.fd_count * sizeof(int));
+            c->cmsg_level = SOL_SOCKET;
+            c->cmsg_type = SCM_RIGHTS;
+            memcpy(CMSG_DATA(c), fds, s.fd_count * sizeof(int));
+            used = CMSG_SPACE(s.fd_count * sizeof(int));
+            if (used > m->msg_controllen)
+                used = m->msg_controllen;
+        }
+        if (r >= 0 && (s.flags & MSGHDR_CUT))
+            m->msg_flags |= MSG_CTRUNC;
+        if (r >= 0 && (s.flags & MSGHDR_TRUNC))
+            m->msg_flags |= MSG_TRUNC;              /* (45b) */
+        m->msg_controllen = used;
+        if (m->msg_name)
+            m->msg_namelen = 0;
+    } else {
+        r = recvfrom(fd, data, total, flags & ~MSG_CMSG_CLOEXEC, m->msg_name, &m->msg_namelen);
+        m->msg_controllen = 0;
+    }
+    for (size_t i = 0, k = 0; r > 0 && i < m->msg_iovlen && (ssize_t)k < r; k += m->msg_iov[i].iov_len, i++) {
+        size_t n = (size_t)r - k < m->msg_iov[i].iov_len ? (size_t)r - k : m->msg_iov[i].iov_len;
+        memcpy(m->msg_iov[i].iov_base, data + k, n);
+    }
+    free(data);
+    return r;
+}
+
+int socketpair(int domain, int type, int protocol, int fds[2])
+{
+    int flags = (type & SOCK_CLOEXEC ? OPEN_CLOEXEC : 0) | (type & SOCK_NONBLOCK ? OPEN_NONBLOCK : 0);
+    type &= ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
+    if (domain != AF_UNIX)
+        return fail(EAFNOSUPPORT);
+    if ((type != SOCK_STREAM && type != SOCK_SEQPACKET) || protocol)
+        return fail(EPROTONOSUPPORT);           /* (local stream sockets, 45b: and packet ones) */
+    int kind = type == SOCK_SEQPACKET ? SOCKET_LOCAL_SEQPACKET : SOCKET_LOCAL;
+    return (int)check(syscall6(SYS_SOCKETPAIR, kind | flags, (int64_t)fds, 0, 0, 0, 0));
 }

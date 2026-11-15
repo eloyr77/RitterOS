@@ -21,8 +21,9 @@ bool winput_captured(void);
 
 /* Add an event (interrupt context: no console, no heap). */
 void winput_pointer(int x, int y, uint8_t buttons);
-/* The mouse wheel turned (interrupt context): steps, negative up. */
-void winput_wheel(int x, int y, int steps);
+/* The mouse wheel turned (interrupt context): steps, negative up, and
+ * (68m-1) steps_x of the horizontal wheel, positive to the right. */
+void winput_wheel(int x, int y, int steps, int steps_x);
 
 /* A physical key (its USB HID usage ID) pressed or released (interrupt
  * context): games need both, and the modifiers alone (15p). */

@@ -75,6 +75,43 @@ void sound_drain(int dev)
         devices[dev]->drain(devices[dev]);
 }
 
+static bool taken[SOUND_DEVICES];
+
+bool sound_take(int dev)
+{
+    if (!sound_present(dev))
+        return false;
+    mutex_lock(&lock);
+    bool ok = !taken[dev];
+    taken[dev] = true;
+    mutex_unlock(&lock);
+    return ok;
+}
+
+void sound_give(int dev)
+{
+    if (!sound_present(dev))
+        return;
+    mutex_lock(&lock);
+    taken[dev] = false;
+    mutex_unlock(&lock);
+}
+
+long sound_delay(int dev)
+{
+    if (!sound_present(dev) || !devices[dev]->delay)
+        return -1;
+    return devices[dev]->delay(devices[dev]);
+}
+
+bool sound_reset(int dev)
+{
+    if (!sound_present(dev) || !devices[dev]->reset)
+        return false;
+    devices[dev]->reset(devices[dev]);
+    return true;
+}
+
 void sound_test_tone(void)
 {
     if (!sound_present(0))

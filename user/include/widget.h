@@ -13,6 +13,10 @@
 #ifndef RITTEROS_WIDGET_H
 #define RITTEROS_WIDGET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct widget;
 struct window;
 
@@ -31,6 +35,10 @@ struct widget *widget_grid(int columns);
  * page (0 the first), changed by a click on a title or by Left/Right
  * while it has the keyboard; it is as large as its largest page. */
 struct widget *widget_tabs(void);
+/* (69c) Pages: as tabs, one child shown at a time, but without the titles
+ * and the keyboard: the program chooses the page (widget_set_value, 0 the
+ * first), e.g. from a list beside it; as large as its largest page. */
+struct widget *widget_pages(void);
 void widget_add(struct widget *parent, struct widget *child);
 void widget_stretch(struct widget *w, int weight);
 
@@ -57,7 +65,8 @@ struct widget *widget_progress(int max, int value);
  * triangle, Right/Left or Space/Enter open and close it). widget_value is
  * the chosen row (a table's counted under its header, a tree's line
  * among all of them; -1: none) and widget_text its text (a table's with
- * its tabs); widget_set_text gives new rows (none chosen). A click or
+ * its tabs); widget_set_text gives new rows (none chosen); (69h) a row
+ * chosen by widget_set_value is scrolled into view. A click or
  * Up/Down, Page Up/Down, Home/End choose; the wheel and the scroll bar
  * scroll; the row under the pointer is highlighted. */
 struct widget *widget_list(const char *lines);
@@ -66,7 +75,8 @@ struct widget *widget_tree(const char *lines);
 
 /* (41e-4) An editor: text over `lines` lines (wrapped at its width,
  * scrolled with a scroll bar and the wheel), or with 1 a one-line entry
- * (scrolled sideways; newlines become spaces). Typing (WINDOW_TEXT) and
+ * (scrolled sideways, following the cursor and (68m-2) the sideways
+ * wheel; newlines become spaces). Typing (WINDOW_TEXT) and
  * the arrows, Home/End (Ctrl: the text's ends), Page Up/Down, Backspace,
  * Delete and Enter edit; Shift and a drag select, a double click selects
  * a word; Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V go through windowd's clipboard;
@@ -105,5 +115,9 @@ void widget_set_text(struct widget *w, const char *utf8);
 int widget_run(struct window *win, struct widget *root);
 void widget_quit(struct widget *root);
 void widget_free(struct widget *root);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

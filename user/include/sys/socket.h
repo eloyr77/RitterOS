@@ -1,16 +1,24 @@
 /* BSD sockets (53a): connections and datagrams by address. AF_INET is
  * IPv4 over TCP (SOCK_STREAM) and UDP (SOCK_DGRAM), AF_INET6 (64d) IPv6
  * and IPv4 (netinet/in.h); AF_UNIX the local stream sockets, named by
- * sun_path in a kernel registry (no file is made). Binding takes a port;
+ * sun_path in a kernel registry (no file is made), and (45b) SOCK_SEQPACKET
+ * ones: each send one message kept whole (at most 64 KiB, else EMSGSIZE),
+ * each receive one message (what does not fit is dropped, MSG_TRUNC in
+ * recvmsg's msg_flags); a packet socket connects only to a packet
+ * listener (EPROTOTYPE). Binding takes a port;
  * the socket answers on every address the machine has. Calls return -1
  * with errno set on errors. */
 #ifndef RITTEROS_SYS_SOCKET_H
 #define RITTEROS_SYS_SOCKET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
-#include "ritteros.h"
+#include "../../../common/syscalls.h"  /* (46b) not ritteros.h: POSIX names only */
 
 typedef uint32_t socklen_t;
 typedef uint16_t sa_family_t;
@@ -40,6 +48,7 @@ struct sockaddr_storage {
 
 #define SOCK_STREAM     1
 #define SOCK_DGRAM      2
+#define SOCK_SEQPACKET  5       /* (45b) AF_UNIX only */
 
 #define SOMAXCONN       128
 
@@ -94,5 +103,67 @@ int getsockname(int fd, struct sockaddr *address, socklen_t *length);
 int getpeername(int fd, struct sockaddr *address, socklen_t *length);
 int setsockopt(int fd, int level, int option, const void *value, socklen_t length);
 int getsockopt(int fd, int level, int option, void *value, socklen_t *length);
+
+/* (43b-1) socket's type may carry SOCK_CLOEXEC and SOCK_NONBLOCK;
+ * accept4 is accept with them. */
+#define SOCK_NONBLOCK   0x800
+#define SOCK_CLOEXEC    0x80000
+int accept4(int fd, struct sockaddr *address, socklen_t *length, int flags);
+
+/* (43b-2) sendmsg and recvmsg: bytes in several parts (msg_iov) and,
+ * on a local socket, open descriptors passed along (a control message of
+ * SOL_SOCKET, SCM_RIGHTS: an int array; at most 64 a message): the
+ * receiver gets new descriptors for the same open files, as dup would
+ * give (MSG_CMSG_CLOEXEC: marked FD_CLOEXEC; MSG_CTRUNC in msg_flags when
+ * msg_control had too little room, the rest closed). A recvmsg stops
+ * before the next message that carries descriptors, so they always come
+ * with the first byte of a read. On a UDP socket msg_name is the address.
+ * socketpair(AF_UNIX, SOCK_STREAM [| SOCK_CLOEXEC | SOCK_NONBLOCK], 0,
+ * fds): two local sockets connected to each other. */
+#include <sys/uio.h>
+struct msghdr {
+    void *msg_name;
+    socklen_t msg_namelen;
+    struct iovec *msg_iov;
+    size_t msg_iovlen;
+    void *msg_control;
+    size_t msg_controllen;
+    int msg_flags;
+};
+struct cmsghdr {
+    size_t cmsg_len;
+    int cmsg_level;
+    int cmsg_type;
+};
+#define SCM_RIGHTS      1
+#define MSG_OOB         0x1
+#define MSG_CTRUNC      0x8
+#define MSG_TRUNC       0x20
+#define MSG_EOR         0x80
+#define MSG_CMSG_CLOEXEC 0x40000000
+#define CMSG_ALIGN(n)   (((n) + sizeof(size_t) - 1) & ~(sizeof(size_t) - 1))
+#define CMSG_DATA(c)    ((unsigned char *)((struct cmsghdr *)(c) + 1))
+#define CMSG_SPACE(n)   (CMSG_ALIGN(n) + CMSG_ALIGN(sizeof(struct cmsghdr)))
+#define CMSG_LEN(n)     (CMSG_ALIGN(sizeof(struct cmsghdr)) + (n))
+#define CMSG_FIRSTHDR(m) ((m)->msg_controllen >= sizeof(struct cmsghdr) ? \
+                          (struct cmsghdr *)(m)->msg_control : (struct cmsghdr *)0)
+#define CMSG_NXTHDR(m, c) __ritteros_cmsg_next((m), (c))
+static inline struct cmsghdr *__ritteros_cmsg_next(struct msghdr *m, struct cmsghdr *c)
+{
+    if (c->cmsg_len < sizeof(struct cmsghdr))
+        return (struct cmsghdr *)0;
+    unsigned char *next = (unsigned char *)c + CMSG_ALIGN(c->cmsg_len);
+    unsigned char *end = (unsigned char *)m->msg_control + m->msg_controllen;
+    if (next + sizeof(struct cmsghdr) > end || next + CMSG_ALIGN(((struct cmsghdr *)(void *)next)->cmsg_len) > end)
+        return (struct cmsghdr *)0;
+    return (struct cmsghdr *)(void *)next;
+}
+ssize_t sendmsg(int fd, const struct msghdr *message, int flags);
+ssize_t recvmsg(int fd, struct msghdr *message, int flags);
+int socketpair(int domain, int type, int protocol, int fds[2]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

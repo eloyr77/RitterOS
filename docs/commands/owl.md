@@ -1,11 +1,11 @@
-# owl: a graphical file browser (needs windowd)
+# Owl: a graphical file browser (needs windowd)
 
 ```
-owl [DIR]
+Owl [DIR]
 ```
 
 A file browser in a window of the window system (it needs `windowd`
-running: `windowd &`, which starts `owl` by default when it starts). It
+running: `windowd &`, which starts `Owl` by default when it starts). It
 lists a folder: directories first, marked with a `/` and in green, then
 files with their sizes in bytes, each group sorted by name; a `..` row
 leads up (except at `/`). The current path is at the top of the window in
@@ -14,13 +14,13 @@ holds. It starts in your home directory, or in DIR if one is given (a DIR
 that is no folder gives `/`). The window is 720x420 pixels at first (80
 columns, the path line and 27 rows); it can be resized, and a scroll bar
 at its right edge shows where the view is when the folder has more rows
-(at most 512 entries are listed). `owl` lives in `/system/<arch>/apps`,
+(at most 512 entries are listed). `Owl` lives in `/system/<arch>/apps`,
 the folder of windowed apps. It came in step 17b, its menus in 19c-21.
 
 Names starting with a dot are not listed (41g-6: hidden files, such as
 `~/.config`; `ls` shows them). An app is a bundle (42b), a folder
 `NAME.program` holding its program `NAME`, its `info` and `icon.png`:
-`owl` shows it, in any folder, as one item, its icon left of `NAME`,
+`Owl` shows it, in any folder, as one item, its icon left of `NAME`,
 among the files. **Show contents** (in the Edit menu and a row's menu)
 goes into a bundle instead of running it.
 
@@ -31,14 +31,14 @@ item, by where the file lives:
 - an app (a bundle, `NAME.program`) runs its program on its own;
 - a file opens in the program its ending has in your file types,
   `~/.config/filetypes` (42a; the same as [`open`](open.md)): a picture
-  (`.ppm`, `.bmp`, `.png`, `.jpg`, `.jpeg`) in `imageview`, a video
-  (`.rvid`) in `reel`, a web page (`.html`, `.htm`) in `ibrowser`, a sound
+  (`.ppm`, `.bmp`, `.png`, `.jpg`, `.jpeg`) in `Imageview`, a video
+  (`.rvid`) in `Reel`, a web page (`.html`, `.htm`) in `compass`, a sound
   (`.wav`) in `tune` in a terminal window, text (`.txt`, `.md`, `.c`, `.h`)
   in `edit` in a terminal window, until you change them (the endings in
   small or capital letters; a program in `bin` runs in a terminal);
 - any other program (a file with an `x` bit) runs in a terminal window
-  (`term PATH`) that stays open so its output can be read;
-- anything else opens in the editor in a terminal window (`term edit
+  (`Term PATH`) that stays open so its output can be read;
+- anything else opens in the editor in a terminal window (`Term edit
   PATH`).
 
 **Open with...** (42c, in the File menu and a file's right-click menu)
@@ -83,7 +83,7 @@ go over another program's window gives that program the entry's full path
 | Enter, Escape, Backspace (in a name prompt) | take the name, cancel, erase a character |
 | `y` (when Delete asks) | delete; any other key cancels |
 
-Closing the window (its `X`, or File > Quit) ends `owl`.
+Closing the window (its `X`, or File > Quit) ends `Owl`.
 
 ## Exit status and messages
 
@@ -102,7 +102,7 @@ bottom of the window shows an error by its text (`Permission denied`,
 
 ```
 ritteros:/$ windowd &
-ritteros:/$ owl /test &
+ritteros:/$ Owl /test &
 owl: started
 owl: at /test/docs
 owl: new folder /test/docs/old
@@ -110,6 +110,6 @@ owl: new folder /test/docs/old
 
 ## See also
 
-[`windowd`](windowd.md), [`term`](term.md), [`edit`](edit.md),
-[`imageview`](imageview.md), [`reel`](reel.md), [`tune`](tune.md),
+[`windowd`](windowd.md), [`Term`](Term.md), [`edit`](edit.md),
+[`Imageview`](Imageview.md), [`Reel`](Reel.md), [`tune`](tune.md),
 [`ls`](ls.md), [`cp`](cp.md)

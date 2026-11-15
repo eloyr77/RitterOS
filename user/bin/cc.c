@@ -270,6 +270,8 @@ int main(int argc, char **argv)
             ld_opts[nld++] = format("-L%s", arg);
         } else if (strncmp(a, "-l", 2) == 0 && a[2]) {
             inputs[ninputs++] = (char *)a;      /* (in order with the files) */
+        } else if (strncmp(a, "-Wl,", 4) == 0) {
+            inputs[ninputs++] = (char *)a;      /* (43e) for ld, in order with the files too */
         } else if (strcmp(a, "-O0") == 0) {
             opt_level = 0;                      /* (every value on the stack, as before 61) */
             cpp_opts[ncpp++] = (char *)a;
@@ -352,20 +354,33 @@ int main(int argc, char **argv)
     {
         int sources = 0;
         for (int i = 0; i < ninputs; i++)
-            if (inputs[i][0] != '-' || inputs[i][1] != 'l')
+            if (inputs[i][0] != '-' || (inputs[i][1] != 'l' && inputs[i][1] != 'W'))
                 sources++;
         several = sources > 1;
     }
     if (output && several && mode != LINK)
         fatal("-o with -c, -S or -E takes one input file");
     char *me = strchr(self, '/') ? (char *)self : tool("cc");
-    char **objects = calloc((size_t)ninputs + 1, sizeof(char *));
+    size_t room = (size_t)ninputs + 1;          /* (a -Wl, word: a piece for each comma) */
+    for (int i = 0; i < ninputs; i++)
+        for (const char *c = inputs[i]; inputs[i][0] == '-' && inputs[i][1] == 'W' && *c; c++)
+            room += *c == ',';
+    char **objects = calloc(room, sizeof(char *));
     int nobjects = 0;
     for (int i = 0; i < ninputs; i++) {
         char *in = inputs[i];
         const char *sfx = suffix(in);
         if (in[0] == '-' && in[1] == 'l') {
             objects[nobjects++] = in;
+            continue;
+        }
+        if (in[0] == '-' && in[1] == 'W') {     /* (43e) -Wl,A,B: A and B for ld, as GCC's */
+            for (char *piece = strdup(in + 4), *next; piece; piece = next) {
+                if ((next = strchr(piece, ',')))
+                    *next++ = 0;
+                if (*piece)
+                    objects[nobjects++] = piece;
+            }
             continue;
         }
         bool c = strcmp(sfx, ".c") == 0, s = strcmp(sfx, ".s") == 0, S = strcmp(sfx, ".S") == 0;

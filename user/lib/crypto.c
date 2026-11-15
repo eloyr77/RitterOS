@@ -1,11 +1,20 @@
 /*
  * SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 2104) and PBKDF2-HMAC-SHA256
  * (RFC 8018), for storing passwords as salted, slow hashes. Our own code;
- * the test compares it with Python's hashlib.
+ * the test compares it with Python's hashlib. (46a) Also programs' name for
+ * the IEEE CRC-32, ritteros_crc32.
  */
 #include <stdint.h>
 #include <string.h>
 #include "ritteros.h"
+#include "../../common/crc32.h"
+
+/* (46a) common/crc32.c's crc32_ieee: exported under RitterOS's own name,
+ * never as `crc32`, zlib's (libz.so.1) with other arguments. */
+uint32_t ritteros_crc32(const void *data, size_t size)
+{
+    return crc32_ieee(data, size);
+}
 
 static const uint32_t K[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,

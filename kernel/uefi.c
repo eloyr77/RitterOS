@@ -2,8 +2,10 @@
 #include "efi.h"
 #include "arch.h"
 #include "kprintf.h"
+#include "memory.h"
 #include "arch_api.h"
 #include "paging.h"
+#include "pmm.h"
 #include "sched.h"
 #include "string.h"
 #include "sync.h"
@@ -172,15 +174,90 @@ uint64_t uefi_time_ns(void)
  * programs and RitterFS commits ask for the time from system calls, where
  * a firmware call could use the program's FP registers. */
 static uint64_t clock_base_ns, clock_base_counter, clock_hz;
+/* (68u) Odd while clock_base_counter and clock_hz change together (a
+ * better rate, uefi_clock_rate): since_base reads both inside it. */
+static uint32_t clock_seq;
+
+/* (68p) The clock page programs read (struct sys_clock), at clock_page
+ * physical; changed under clock_page_lock, `sequence` odd meanwhile. */
+static uint64_t clock_page;
+static struct spinlock clock_page_lock = SPINLOCK_INIT("clock page");
+
+/* The page made as the clock is now; clock_page_lock held. */
+static void publish_locked(void)
+{
+    struct sys_clock *c = phys_to_virt(clock_page);
+    __atomic_store_n(&c->sequence, c->sequence + 1, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_RELEASE);        /* (odd before the fields change) */
+    uint64_t offset;
+    c->counter = clock_hz ? arch_counter_user(&offset) : 0;
+    c->offset = c->counter ? offset : 0;
+    c->hz = clock_hz;
+    c->base_counter = clock_base_counter;
+    c->base_ns = __atomic_load_n(&clock_base_ns, __ATOMIC_ACQUIRE);
+    __atomic_store_n(&c->sequence, c->sequence + 1, __ATOMIC_RELEASE);
+}
+
+void uefi_clock_publish(void)
+{
+    if (!clock_page)
+        return;
+    uint64_t state = spin_lock(&clock_page_lock);
+    publish_locked();
+    spin_unlock(&clock_page_lock, state);
+}
+
+/* Nanoseconds from delta counts at hz: seconds and the rest apart (delta *
+ * 10^9 would overflow in seconds). */
+static uint64_t counts_ns(uint64_t delta, uint64_t hz)
+{
+    return delta / hz * 1000000000ULL + delta % hz * 1000000000ULL / hz;
+}
+
+/* (68u) The counter's rate measured better (x86: against the ACPI PM
+ * timer, after the boot's 50 ms against the PIT): the clock goes on at
+ * the new rate from now without a jump. The base moves so that now is
+ * the same time under the new rate (a count earlier: rounding never takes
+ * it back), so the page's layout and the programs' reading stay as they
+ * are; the kernel's readers and the page change in one hold. */
+void uefi_clock_rate(uint64_t hz)
+{
+    if (!clock_hz || !hz)
+        return;
+    uint64_t state = spin_lock(&clock_page_lock);
+    __atomic_store_n(&clock_seq, clock_seq + 1, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    uint64_t now = arch_counter();
+    uint64_t since = counts_ns(now - clock_base_counter, clock_hz);
+    uint64_t back = since / 1000000000ULL * hz + since % 1000000000ULL * hz / 1000000000ULL + 1;
+    if (back <= now) {                      /* (the counter ran before the clock started) */
+        __atomic_store_n(&clock_base_counter, now - back, __ATOMIC_RELAXED);
+        __atomic_store_n(&clock_hz, hz, __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&clock_seq, clock_seq + 1, __ATOMIC_RELEASE);
+    if (clock_page)
+        publish_locked();
+    spin_unlock(&clock_page_lock, state);
+}
+
+uint64_t uefi_clock_page(void)
+{
+    return clock_page;
+}
 
 void uefi_clock_start(void)
 {
     uint64_t hz = arch_counter_hz();
-    if (!hz)
-        return;
-    clock_base_ns = uefi_time_ns();
-    clock_base_counter = arch_counter();
-    clock_hz = hz;
+    if (hz) {
+        clock_base_ns = uefi_time_ns();
+        clock_base_counter = arch_counter();
+        clock_hz = hz;
+    }
+    if ((clock_page = pmm_alloc_page())) {
+        memset(phys_to_virt(clock_page), 0, PAGE_SIZE);
+        paging_kept_page = clock_page;              /* (no address space frees it) */
+        uefi_clock_publish();
+    }
 }
 
 uint64_t uefi_clock_ns_running(void)
@@ -188,14 +265,103 @@ uint64_t uefi_clock_ns_running(void)
     return clock_hz ? uefi_clock_ns() : 0;
 }
 
+/* Nanoseconds the counter has gone since clock_base_counter (base and
+ * rate read together: 68u's clock_seq). */
+static uint64_t since_base(void)
+{
+    for (;;) {
+        uint32_t seq = __atomic_load_n(&clock_seq, __ATOMIC_ACQUIRE);
+        if (seq & 1) {
+            arch_cpu_relax();
+            continue;
+        }
+        uint64_t base = __atomic_load_n(&clock_base_counter, __ATOMIC_RELAXED);
+        uint64_t hz = __atomic_load_n(&clock_hz, __ATOMIC_RELAXED);
+        uint64_t delta = arch_counter() - base;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&clock_seq, __ATOMIC_RELAXED) == seq)
+            return counts_ns(delta, hz);
+    }
+}
+
+/* (68p) Nanoseconds since the clock started (CLOCK_MONOTONIC: date -s does
+ * not move it); without a counter, the date's clock. */
+uint64_t uefi_clock_monotonic_ns(void)
+{
+    return clock_hz ? since_base() : uefi_clock_ns();
+}
+
 uint64_t uefi_clock_ns(void)
 {
     if (!clock_hz)
         return uefi_time_ns();
-    if (!clock_base_ns)
+    /* (68l) the base is one word, moved at once by uefi_clock_set */
+    uint64_t base = __atomic_load_n(&clock_base_ns, __ATOMIC_ACQUIRE);
+    if (!base)
         return 0;
-    uint64_t delta = arch_counter() - clock_base_counter;
-    /* Seconds and the rest apart: delta * 10^9 would overflow in seconds. */
-    return clock_base_ns + delta / clock_hz * 1000000000ULL +
-           delta % clock_hz * 1000000000ULL / clock_hz;
+    return base + since_base();
+}
+
+/* A civil date for days since 1970-01-01 (Howard Hinnant's algorithm). */
+static void civil_from_days(int64_t z, int64_t *y, unsigned *m, unsigned *d)
+{
+    z += 719468;
+    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    int64_t doe = z - era * 146097;
+    int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64_t mp = (5 * doy + 2) / 153;
+    *d = (unsigned)(doy - (153 * mp + 2) / 5 + 1);
+    *m = (unsigned)(mp < 10 ? mp + 3 : mp - 9);
+    *y = yoe + era * 400 + (*m <= 2);
+}
+
+/* EFI_TIME's fields for secs since 1970 (the zone's offset already added). */
+static void efi_fields(int64_t secs, EFI_TIME *t)
+{
+    int64_t days = secs / 86400, rest = secs % 86400, y;
+    unsigned m, d;
+    civil_from_days(days, &y, &m, &d);
+    t->Year = (UINT16)y;
+    t->Month = (UINT8)m;
+    t->Day = (UINT8)d;
+    t->Hour = (UINT8)(rest / 3600);
+    t->Minute = (UINT8)(rest / 60 % 60);
+    t->Second = (UINT8)(rest % 60);
+}
+
+void uefi_ns_text(uint64_t ns, char *buf, size_t size)
+{
+    EFI_TIME t;
+    efi_fields((int64_t)(ns / 1000000000ULL), &t);
+    ksnprintf(buf, size, "%04u-%02u-%02u %02u:%02u:%02u", t.Year, t.Month, t.Day, t.Hour, t.Minute,
+              t.Second);
+}
+
+bool uefi_clock_set(uint64_t ns)
+{
+    if (clock_hz) {                         /* the running clock: its base moved, the counter kept */
+        __atomic_store_n(&clock_base_ns, ns - since_base(), __ATOMIC_RELEASE);
+        uefi_clock_publish();               /* (68p) and the programs' page */
+    }
+    EFI_TIME now;
+    if (!runtime || !runtime->SetTime || !get_time(&now))
+        return false;
+    /* In the firmware's own zone (uefi_time_ns's reading of it), with its
+     * daylight flags; a clock on UTC (the zone unspecified) gets UTC. */
+    int64_t secs = (int64_t)(ns / 1000000000ULL);
+    if (now.TimeZone != 0x07FF)
+        secs += now.TimeZone * 60;
+    EFI_TIME t = now;
+    efi_fields(secs, &t);
+    t.Nanosecond = 0;
+    uint64_t irq = firmware_begin();
+    uint64_t previous = paging_firmware_enter();
+    EFI_STATUS status = runtime->SetTime(&t);
+    paging_firmware_leave(previous);
+    firmware_end(irq);
+    if (EFI_ERROR(status))
+        return false;
+    uint64_t back = uefi_time_ns(), want = ns - ns % 1000000000ULL;
+    return back + 3000000000ULL >= want && back <= want + 3000000000ULL;
 }

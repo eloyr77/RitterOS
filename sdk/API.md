@@ -10,10 +10,11 @@ Since step 22c RitterOS's own programs use **shared libraries**, each one a
 file in `/system/<arch>/lib` that `ld.so` (the dynamic loader, in the same
 place) maps into a program when it starts: one copy of a library's code in
 memory serves every program, and a library can be updated on its own. There
-are eight: `libritteros.so.1` (the C library, the system calls, the network
+are nine: `libritteros.so.1` (the C library, the system calls, the network
 and DNS helpers, hashes, users and settings), `libwindow.so.1`,
 `libimage.so.1`, `libaudio.so.1`, `libvideo.so.1`, `libdraw.so.1` (2D
-drawing, since 41b), `libwidget.so.1` (controls, since 41e) and `libtls.so.1` (TLS 1.3 connections, since 23d); the Library column
+drawing, since 41b), `libwidget.so.1` (controls, since 41e), `libtls.so.1` (TLS 1.3 connections, since 23d) and
+`libkeyring.so.1` (the user's keyring, since 70b); the Library column
 below says which holds a header's functions. The number after `.so` is the
 major version: it changes only with a change that would break programs
 built before (a new function does not), and such a library would be
@@ -58,9 +59,9 @@ kernel's interface; programs use the library's calls rather than raw
 | [`complex.h`](#complex-h) | complex numbers: C99's functions and the compiler's * and / helpers | apps | `libritteros.so.1` |
 | [`threads.h`](#threads-h) | C11's threads, mutexes, condition variables, call_once, thread-specific storage | apps | `libritteros.so.1` |
 | [`setjmp.h`](#setjmp-h) | setjmp and longjmp: jumping back out of deep calls | apps | `libritteros.so.1` |
-| [`locale.h`](#locale-h) | the C locale (the only one) | apps | `libritteros.so.1` |
+| [`locale.h`](#locale-h) | locales: C and C.UTF-8, a thread's own (uselocale) | apps | `libritteros.so.1` |
 | [`time.h`](#time-h) | the clock, CPU time, dates and their text | apps | `libritteros.so.1` |
-| [`inttypes.h`](#inttypes-h) | printf conversions for stdint.h's types | apps | - |
+| [`inttypes.h`](#inttypes-h) | printf conversions for stdint.h's types | apps | `libritteros.so.1` |
 | [`unistd.h`](#unistd-h) | files, processes, sleeping | apps | `libritteros.so.1` |
 | [`fcntl.h`](#fcntl-h) | opening files | apps | `libritteros.so.1` |
 | [`errno.h`](#errno-h) | error numbers | apps | `libritteros.so.1` |
@@ -88,6 +89,46 @@ kernel's interface; programs use the library's calls rather than raw
 | [`dirent.h`](#dirent-h) | reading directories | apps | `libritteros.so.1` |
 | [`signal.h`](#signal-h) | signals | apps | `libritteros.so.1` |
 | [`pwd.h`](#pwd-h) | users | apps | `libritteros.so.1` |
+| [`iconv.h`](#iconv-h) | converting text between encodings (UTF-8, UTF-16, UTF-32, Latin-1, Windows-1252) | apps | `libritteros.so.1` |
+| [`langinfo.h`](#langinfo-h) | the locale's words and formats (nl_langinfo) | apps | `libritteros.so.1` |
+| [`libintl.h`](#libintl-h) | gettext's calls (no translations: English only) | apps | `libritteros.so.1` |
+| [`sys/resource.h`](#sys-resource-h) | limits (getrlimit) and use (getrusage) | apps | `libritteros.so.1` |
+| [`sys/times.h`](#sys-times-h) | times: CPU time in clock ticks | apps | `libritteros.so.1` |
+| [`sys/sysinfo.h`](#sys-sysinfo-h) | sysinfo, get_nprocs: memory and cores | apps | `libritteros.so.1` |
+| [`sys/random.h`](#sys-random-h) | getrandom: random bytes | apps | `libritteros.so.1` |
+| [`sys/ioctl.h`](#sys-ioctl-h) | ioctl: a socket non-blocking, close-on-exec | apps | `libritteros.so.1` |
+| [`sys/soundcard.h`](#sys-soundcard-h) | OSS's sound requests: where playing is, dropping what is buffered | apps | - |
+| [`sys/auxv.h`](#sys-auxv-h) | getauxval: the kernel's vector for a new program | apps | `libritteros.so.1` |
+| [`syslog.h`](#syslog-h) | syslog: lines for the system's logs | apps | `libritteros.so.1` |
+| [`semaphore.h`](#semaphore-h) | counting semaphores between a program's threads | apps | `libritteros.so.1` |
+| [`link.h`](#link-h) | dl_iterate_phdr: the loaded objects and their program headers | apps | `libritteros.so.1` |
+| [`elf.h`](#elf-h) | the ELF format's types and constants | apps | - |
+| [`sys/uio.h`](#sys-uio-h) | readv, writev: several buffers in one call | apps | `libritteros.so.1` |
+| [`sys/statvfs.h`](#sys-statvfs-h) | a file system's sizes | apps | `libritteros.so.1` |
+| [`sys/eventfd.h`](#sys-eventfd-h) | event counters as descriptors | apps | `libritteros.so.1` |
+| [`sys/timerfd.h`](#sys-timerfd-h) | timers as descriptors | apps | `libritteros.so.1` |
+| [`sys/file.h`](#sys-file-h) | flock: whole-file locks | apps | `libritteros.so.1` |
+| [`sys/ucontext.h`](#sys-ucontext-h) | a signal handler's context: the registers | apps | `libritteros.so.1` |
+| [`ucontext.h`](#ucontext-h) | ucontext_t (sys/ucontext.h) | apps | `libritteros.so.1` |
+| [`net/if.h`](#net-if-h) | network interfaces by name and number | apps | `libritteros.so.1` |
+| [`ifaddrs.h`](#ifaddrs-h) | getifaddrs: every interface's addresses | apps | `libritteros.so.1` |
+| [`grp.h`](#grp-h) | groups (each user's own: no groups file) | apps | `libritteros.so.1` |
+| [`limits.h`](#limits-h) | POSIX's limits (PATH_MAX, OPEN_MAX, PIPE_BUF...) beside the compiler's | apps | - |
+| [`malloc.h`](#malloc-h) | memalign, valloc, malloc_usable_size | apps | `libritteros.so.1` |
+| [`alloca.h`](#alloca-h) | alloca: memory on the stack | apps | - |
+| [`libgen.h`](#libgen-h) | basename and dirname | apps | `libritteros.so.1` |
+| [`search.h`](#search-h) | linear search, binary trees (tsearch), a hash table (hsearch) | apps | `libritteros.so.1` |
+| [`err.h`](#err-h) | err, warn: messages with the program's name | apps | `libritteros.so.1` |
+| [`getopt.h`](#getopt-h) | getopt_long: long options | apps | `libritteros.so.1` |
+| [`fnmatch.h`](#fnmatch-h) | shell patterns against names | apps | `libritteros.so.1` |
+| [`glob.h`](#glob-h) | the paths that match a pattern | apps | `libritteros.so.1` |
+| [`endian.h`](#endian-h) | the byte order, conversions to big and little endian | apps | - |
+| [`byteswap.h`](#byteswap-h) | bswap_16, bswap_32, bswap_64 | apps | - |
+| [`memory.h`](#memory-h) | string.h's older name | apps | - |
+| [`features.h`](#features-h) | for code written for glibc | apps | - |
+| [`sys/cdefs.h`](#sys-cdefs-h) | BSD's and glibc's declaration macros | apps | - |
+| [`sys/param.h`](#sys-param-h) | MIN, MAX, howmany, MAXPATHLEN | apps | - |
+| [`sys/sysmacros.h`](#sys-sysmacros-h) | a device number's parts | apps | - |
 | [`thread.h`](#thread-h) | threads | apps | `libritteros.so.1` |
 | [`ritteros.h`](#ritteros-h) | RitterOS's own calls | apps; parts are the system's own | `libritteros.so.1` |
 | [`window.h`](#window-h) | windowed apps (libwindow) | apps | `libwindow.so.1` |
@@ -98,6 +139,7 @@ kernel's interface; programs use the library's calls rather than raw
 | [`draw.h`](#draw-h) | 2D drawing, anti-aliased, on any pixel buffer (libdraw) | apps | `libdraw.so.1` |
 | [`widget.h`](#widget-h) | controls for windowed programs: buttons, check boxes, layouts (libwidget) | apps | `libwidget.so.1` |
 | [`wfont.h`](#wfont-h) | the windows' font (cell sizes for laying out text) | apps | `libwindow.so.1` |
+| [`keyring.h`](#keyring-h) | secrets kept for the user, encrypted, through keyringd (libkeyring) | apps | `libkeyring.so.1` |
 | [`tls.h`](#tls-h) | TLS 1.3 connections, OpenBSD's libtls interface (libtls) | apps | `libtls.so.1` |
 | [`crypto.h`](#crypto-h) | SHA-512, X25519, Ed25519, ChaCha20-Poly1305 (written for SSH); AES-GCM, SHA-384, HKDF, RSA and ECDSA checks (for TLS) | apps | `libritteros.a` only |
 | [`x509.h`](#x509-h) | X.509 certificates: reading, chains to trusted roots, host names (libtls uses it) | the system's own | `libritteros.a` only |
@@ -107,14 +149,32 @@ kernel's interface; programs use the library's calls rather than raw
 | [`windowproto.h`](#windowproto-h) | the window server's protocol (window.h speaks it) | the system's own | - |
 | [`common/syscalls.h`](#common-syscalls-h) | system call numbers, flags and structures, shared with the kernel | apps | - |
 
+## System libraries from upstream
+
+(46) Built unchanged from their projects' sources (`user/upstream/`), in `/system/<arch>/lib` and their headers in `/system/include` on the machine; for builds on this computer the headers are `build/upstream/include` and the link names `build/sdk/<arch>/lib` (`make sdk`), which `sdk/ritteros.cmake`, `sdk/ritteros.meson`, `sdk/ritteros-ld` and `ritteros.mk` (`LDLIBS`) use. Their interfaces are their projects' (the documentation named); `sdk/abi/` records the symbols each exports.
+
+| Library | Version | Files | Headers | pkg-config | CMake find_package | Documentation |
+|---|---|---|---|---|---|---|
+| zlib | 1.4 | libz.so.1 | `zlib.h` | zlib | ZLIB (ZLIB::ZLIB) | https://zlib.net/manual.html |
+| OpenSSL | 3.5.9 | libcrypto.so.3, libssl.so.3 | `openssl/*.h` | openssl, libssl, libcrypto | OpenSSL (OpenSSL::SSL, OpenSSL::Crypto) | https://docs.openssl.org/3.5/man3/ |
+| nghttp2 | 1.71.0 | libnghttp2.so.14 | `nghttp2/nghttp2.h` | libnghttp2 | - | https://nghttp2.org/documentation/ |
+| brotli | 1.2.1 | libbrotlicommon.so.1, libbrotlidec.so.1, libbrotlienc.so.1 | `brotli/*.h` | libbrotlicommon, libbrotlidec, libbrotlienc | - | https://github.com/google/brotli |
+| libpsl | 0.23.3 | libpsl.so.5 | `libpsl.h` | libpsl | LibPSL (LibPSL::LibPSL) | https://rockdaboot.github.io/libpsl/ |
+| curl | 8.23.0 | libcurl.so.4 | `curl/*.h` | libcurl | CURL (CURL::libcurl) | https://curl.se/libcurl/c/ |
+
 ## Every function and macro
 
-1183 of them, by name. Each links to its header, where its comment says what it does. "system": the system's own (see above); do not use it outside RitterOS's tree.
+1678 of them, by name. Each links to its header, where its comment says what it does. "system": the system's own (see above); do not use it outside RitterOS's tree.
 
 | Name | For | Header | Declaration |
 |---|---|---|---|
 | `__addtf3` | apps | [`math.h`](#math-h) | `long double __addtf3(long double a, long double b)` |
+| `__clear_cache` | apps | [`stdlib.h`](#stdlib-h) | `void __clear_cache(void *start, void *end)` |
 | `__cmptf2` | apps | [`math.h`](#math-h) | `int __cmptf2(long double a, long double b)` |
+| `__cxa_atexit` | apps | [`stdlib.h`](#stdlib-h) | `int __cxa_atexit(void (*fn)(void *), void *arg, void *dso)` |
+| `__cxa_finalize` | apps | [`stdlib.h`](#stdlib-h) | `void __cxa_finalize(void *dso)` |
+| `__cxa_thread_atexit` | apps | [`stdlib.h`](#stdlib-h) | `int __cxa_thread_atexit(void (*fn)(void *), void *obj, void *dso)` |
+| `__cxa_thread_atexit_impl` | apps | [`stdlib.h`](#stdlib-h) | `int __cxa_thread_atexit_impl(void (*fn)(void *), void *obj, void *dso)` |
 | `__divdc3` | apps | [`complex.h`](#complex-h) | `double _Complex __divdc3(double a, double b, double c, double d)` |
 | `__divsc3` | apps | [`complex.h`](#complex-h) | `float _Complex __divsc3(float a, float b, float c, float d)` |
 | `__divtc3` | apps | [`complex.h`](#complex-h) | `long double _Complex __divtc3(long double a, long double b, long double c, long double d)` |
@@ -144,13 +204,22 @@ kernel's interface; programs use the library's calls rather than raw
 | `__mulxc3` | apps | [`complex.h`](#complex-h) | `long double _Complex __mulxc3(long double a, long double b, long double c, long double d)` |
 | `__negtf2` | apps | [`math.h`](#math-h) | `long double __negtf2(long double a)` |
 | `__netf2` | apps | [`math.h`](#math-h) | `int __netf2(long double a, long double b)` |
+| `__P` | apps | [`sys/cdefs.h`](#sys-cdefs-h) | `#define __P(params)` |
 | `__powitf2` | apps | [`math.h`](#math-h) | `long double __powitf2(long double a, int b)` |
+| `__printflike` | apps | [`sys/cdefs.h`](#sys-cdefs-h) | `#define __printflike(f, a)` |
 | `__pthread_cleanup_pop` | apps | [`pthread.h`](#pthread-h) | `void __pthread_cleanup_pop(struct __pthread_cleanup *c, int execute)` |
 | `__pthread_cleanup_push` | apps | [`pthread.h`](#pthread-h) | `void __pthread_cleanup_push(struct __pthread_cleanup *c, void (*fn)(void *), void *arg)` |
+| `__ritteros_cpu_count` | apps | [`sched.h`](#sched-h) | `int __ritteros_cpu_count(size_t size, const cpu_set_t *set)` |
 | `__ritteros_dl_setup` | apps | [`ritteros.h`](#ritteros-h) | `int __ritteros_dl_setup(const struct ritteros_dl_loader *loader)` |
+| `__ritteros_dl_setup2` | apps | [`ritteros.h`](#ritteros-h) | `int __ritteros_dl_setup2(const struct ritteros_dl_query *query)` |
 | `__ritteros_environ` | apps | [`unistd.h`](#unistd-h) | `char ***__ritteros_environ(void)` |
 | `__ritteros_in6addr_any` | apps | [`netinet/in.h`](#netinet-in-h) | `const struct in6_addr *__ritteros_in6addr_any(void)` |
 | `__ritteros_in6addr_loopback` | apps | [`netinet/in.h`](#netinet-in-h) | `const struct in6_addr *__ritteros_in6addr_loopback(void)` |
+| `__ritteros_mb_cur_max` | apps | [`stdlib.h`](#stdlib-h) | `int __ritteros_mb_cur_max(void)` |
+| `__ritteros_optarg` | apps | [`unistd.h`](#unistd-h) | `char **__ritteros_optarg(void)` |
+| `__ritteros_opterr` | apps | [`unistd.h`](#unistd-h) | `int *__ritteros_opterr(void)` |
+| `__ritteros_optind` | apps | [`unistd.h`](#unistd-h) | `int *__ritteros_optind(void)` |
+| `__ritteros_optopt` | apps | [`unistd.h`](#unistd-h) | `int *__ritteros_optopt(void)` |
 | `__ritteros_start` | apps | [`ritteros.h`](#ritteros-h) | `void __ritteros_start(long *sp)` |
 | `__ritteros_tls_add` | apps | [`ritteros.h`](#ritteros-h) | `int __ritteros_tls_add(const struct ritteros_tls_module *module)` |
 | `__ritteros_tls_setup` | apps | [`ritteros.h`](#ritteros-h) | `int __ritteros_tls_setup(const struct ritteros_tls_module *modules, int count)` |
@@ -161,9 +230,13 @@ kernel's interface; programs use the library's calls rather than raw
 | `__unordtf2` | apps | [`math.h`](#math-h) | `int __unordtf2(long double a, long double b)` |
 | `_Exit` | apps | [`stdlib.h`](#stdlib-h) | `void _Exit(int code)` |
 | `_exit` | apps | [`unistd.h`](#unistd-h) | `void _exit(int code)` |
+| `_longjmp` | apps | [`setjmp.h`](#setjmp-h) | `void _longjmp(jmp_buf env, int value)` |
+| `_setjmp` | apps | [`setjmp.h`](#setjmp-h) | `int _setjmp(jmp_buf env)` |
 | `abort` | apps | [`stdlib.h`](#stdlib-h) | `void abort(void)` |
 | `abs` | apps | [`stdlib.h`](#stdlib-h) | `int abs(int v)` |
 | `accept` | apps | [`sys/socket.h`](#sys-socket-h) | `int accept(int fd, struct sockaddr *address, socklen_t *length)` |
+| `accept4` | apps | [`sys/socket.h`](#sys-socket-h) | `int accept4(int fd, struct sockaddr *address, socklen_t *length, int flags)` |
+| `access` | apps | [`unistd.h`](#unistd-h) | `int access(const char *path, int mode)` |
 | `acos` | apps | [`math.h`](#math-h) | `double acos(double x)` |
 | `acosf` | apps | [`math.h`](#math-h) | `float acosf(float x)` |
 | `acosh` | apps | [`math.h`](#math-h) | `double acosh(double x)` |
@@ -182,14 +255,19 @@ kernel's interface; programs use the library's calls rather than raw
 | `aes_init` | apps | [`crypto.h`](#crypto-h) | `void aes_init(struct aes *a, const uint8_t *key, size_t length)` |
 | `aes_key_unwrap` | apps | [`crypto.h`](#crypto-h) | `bool aes_key_unwrap(const struct aes *kek, const uint8_t *in, size_t n, uint8_t *out)` |
 | `aes_key_wrap` | apps | [`crypto.h`](#crypto-h) | `void aes_key_wrap(const struct aes *kek, const uint8_t *in, size_t n, uint8_t *out)` |
+| `alarm` | apps | [`unistd.h`](#unistd-h) | `unsigned int alarm(unsigned int seconds)` |
 | `aligned_alloc` | apps | [`stdlib.h`](#stdlib-h) | `void *aligned_alloc(size_t alignment, size_t size)` |
+| `alloca` | apps | [`alloca.h`](#alloca-h) | `#define alloca(size)` |
+| `alphasort` | apps | [`dirent.h`](#dirent-h) | `int alphasort(const struct dirent **a, const struct dirent **b)` |
 | `asctime` | apps | [`time.h`](#time-h) | `char *asctime(const struct tm *tm)` |
+| `asctime_r` | apps | [`time.h`](#time-h) | `char *asctime_r(const struct tm *tm, char *buf)` |
 | `asin` | apps | [`math.h`](#math-h) | `double asin(double x)` |
 | `asinf` | apps | [`math.h`](#math-h) | `float asinf(float x)` |
 | `asinh` | apps | [`math.h`](#math-h) | `double asinh(double x)` |
 | `asinhf` | apps | [`math.h`](#math-h) | `float asinhf(float x)` |
 | `asinhl` | apps | [`math.h`](#math-h) | `long double asinhl(long double x)` |
 | `asinl` | apps | [`math.h`](#math-h) | `long double asinl(long double x)` |
+| `asprintf` | apps | [`stdio.h`](#stdio-h) | `int asprintf(char **out, const char *format, ...)` |
 | `assert` | apps | [`assert.h`](#assert-h) | `#define assert(expression)` |
 | `assert` | apps | [`assert.h`](#assert-h) | `#define assert(expression)` |
 | `at_quick_exit` | apps | [`stdlib.h`](#stdlib-h) | `int at_quick_exit(void (*fn)(void))` |
@@ -216,9 +294,21 @@ kernel's interface; programs use the library's calls rather than raw
 | `audio_save` | apps | [`audio.h`](#audio-h) | `int audio_save(const char *path, const struct audio_buffer *buf)` |
 | `base64_decode` | system | [`ssh.h`](#ssh-h) | `long base64_decode(const char *in, size_t n, uint8_t *out, size_t size)` |
 | `base64_encode` | system | [`ssh.h`](#ssh-h) | `size_t base64_encode(const uint8_t *in, size_t n, char *out, bool padding)` |
+| `basename` | apps | [`libgen.h`](#libgen-h) | `char *basename(char *path)` |
+| `bcmp` | apps | [`strings.h`](#strings-h) | `int bcmp(const void *a, const void *b, size_t n)` |
+| `bcopy` | apps | [`strings.h`](#strings-h) | `void bcopy(const void *src, void *dst, size_t n)` |
+| `be16toh` | apps | [`endian.h`](#endian-h) | `#define be16toh(x)` |
+| `be32toh` | apps | [`endian.h`](#endian-h) | `#define be32toh(x)` |
+| `be64toh` | apps | [`endian.h`](#endian-h) | `#define be64toh(x)` |
 | `bind` | apps | [`sys/socket.h`](#sys-socket-h) | `int bind(int fd, const struct sockaddr *address, socklen_t length)` |
+| `bind_textdomain_codeset` | apps | [`libintl.h`](#libintl-h) | `char *bind_textdomain_codeset(const char *domain, const char *codeset)` |
+| `bindtextdomain` | apps | [`libintl.h`](#libintl-h) | `char *bindtextdomain(const char *domain, const char *folder)` |
 | `bsearch` | apps | [`stdlib.h`](#stdlib-h) | `void *bsearch(const void *key, const void *base, size_t count, size_t size, int (*compare)(const void *key, const void *element))` |
+| `bswap_16` | apps | [`byteswap.h`](#byteswap-h) | `#define bswap_16(x)` |
+| `bswap_32` | apps | [`byteswap.h`](#byteswap-h) | `#define bswap_32(x)` |
+| `bswap_64` | apps | [`byteswap.h`](#byteswap-h) | `#define bswap_64(x)` |
 | `btowc` | apps | [`wchar.h`](#wchar-h) | `wint_t btowc(int c)` |
+| `bzero` | apps | [`strings.h`](#strings-h) | `void bzero(void *s, size_t n)` |
 | `c16rtomb` | apps | [`uchar.h`](#uchar-h) | `size_t c16rtomb(char *s, char16_t c, mbstate_t *state)` |
 | `c32rtomb` | apps | [`uchar.h`](#uchar-h) | `size_t c32rtomb(char *s, char32_t c, mbstate_t *state)` |
 | `c8rtomb` | apps | [`uchar.h`](#uchar-h) | `size_t c8rtomb(char *s, char8_t c, mbstate_t *state)` |
@@ -275,17 +365,29 @@ kernel's interface; programs use the library's calls rather than raw
 | `cimag` | apps | [`complex.h`](#complex-h) | `double cimag(double _Complex z)` |
 | `cimagf` | apps | [`complex.h`](#complex-h) | `float cimagf(float _Complex z)` |
 | `cimagl` | apps | [`complex.h`](#complex-h) | `long double cimagl(long double _Complex z)` |
+| `clearenv` | apps | [`stdlib.h`](#stdlib-h) | `int clearenv(void)` |
 | `clearerr` | apps | [`stdio.h`](#stdio-h) | `void clearerr(FILE *f)` |
+| `clearerr_unlocked` | apps | [`stdio.h`](#stdio-h) | `void clearerr_unlocked(FILE *f)` |
 | `clock` | apps | [`time.h`](#time-h) | `clock_t clock(void)` |
+| `clock_getres` | apps | [`time.h`](#time-h) | `int clock_getres(clockid_t clock, struct timespec *resolution)` |
 | `clock_gettime` | apps | [`time.h`](#time-h) | `int clock_gettime(clockid_t clock, struct timespec *ts)` |
+| `clock_nanosleep` | apps | [`time.h`](#time-h) | `int clock_nanosleep(clockid_t clock, int flags, const struct timespec *request, struct timespec *remain)` |
+| `clock_settime` | apps | [`time.h`](#time-h) | `int clock_settime(clockid_t clock, const struct timespec *ts)` |
 | `clog` | apps | [`complex.h`](#complex-h) | `double _Complex clog(double _Complex z)` |
 | `clogf` | apps | [`complex.h`](#complex-h) | `float _Complex clogf(float _Complex z)` |
 | `clogl` | apps | [`complex.h`](#complex-h) | `long double _Complex clogl(long double _Complex z)` |
 | `close` | apps | [`unistd.h`](#unistd-h) | `int close(int fd)` |
 | `closedir` | apps | [`dirent.h`](#dirent-h) | `int closedir(DIR *dir)` |
+| `closelog` | apps | [`syslog.h`](#syslog-h) | `void closelog(void)` |
 | `CMPLX` | apps | [`complex.h`](#complex-h) | `#define CMPLX(x, y)` |
 | `CMPLXF` | apps | [`complex.h`](#complex-h) | `#define CMPLXF(x, y)` |
 | `CMPLXL` | apps | [`complex.h`](#complex-h) | `#define CMPLXL(x, y)` |
+| `CMSG_ALIGN` | apps | [`sys/socket.h`](#sys-socket-h) | `#define CMSG_ALIGN(n)` |
+| `CMSG_DATA` | apps | [`sys/socket.h`](#sys-socket-h) | `#define CMSG_DATA(c)` |
+| `CMSG_FIRSTHDR` | apps | [`sys/socket.h`](#sys-socket-h) | `#define CMSG_FIRSTHDR(m)` |
+| `CMSG_LEN` | apps | [`sys/socket.h`](#sys-socket-h) | `#define CMSG_LEN(n)` |
+| `CMSG_NXTHDR` | apps | [`sys/socket.h`](#sys-socket-h) | `#define CMSG_NXTHDR(m, c)` |
+| `CMSG_SPACE` | apps | [`sys/socket.h`](#sys-socket-h) | `#define CMSG_SPACE(n)` |
 | `cnd_broadcast` | apps | [`threads.h`](#threads-h) | `int cnd_broadcast(cnd_t *c)` |
 | `cnd_destroy` | apps | [`threads.h`](#threads-h) | `void cnd_destroy(cnd_t *c)` |
 | `cnd_init` | apps | [`threads.h`](#threads-h) | `int cnd_init(cnd_t *c)` |
@@ -293,6 +395,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `cnd_timedwait` | apps | [`threads.h`](#threads-h) | `int cnd_timedwait(cnd_t *c, mtx_t *m, const struct timespec *until)` |
 | `cnd_wait` | apps | [`threads.h`](#threads-h) | `int cnd_wait(cnd_t *c, mtx_t *m)` |
 | `config_get` | apps | [`ritteros.h`](#ritteros-h) | `int config_get(const char *path, const char *key, char *value, size_t size)` |
+| `confstr` | apps | [`unistd.h`](#unistd-h) | `size_t confstr(int name, char *buf, size_t size)` |
 | `conj` | apps | [`complex.h`](#complex-h) | `double _Complex conj(double _Complex z)` |
 | `conjf` | apps | [`complex.h`](#complex-h) | `float _Complex conjf(float _Complex z)` |
 | `conjl` | apps | [`complex.h`](#complex-h) | `long double _Complex conjl(long double _Complex z)` |
@@ -312,7 +415,12 @@ kernel's interface; programs use the library's calls rather than raw
 | `cproj` | apps | [`complex.h`](#complex-h) | `double _Complex cproj(double _Complex z)` |
 | `cprojf` | apps | [`complex.h`](#complex-h) | `float _Complex cprojf(float _Complex z)` |
 | `cprojl` | apps | [`complex.h`](#complex-h) | `long double _Complex cprojl(long double _Complex z)` |
-| `crc32` | apps | [`ritteros.h`](#ritteros-h) | `uint32_t crc32(const void *data, size_t size)` |
+| `CPU_CLR` | apps | [`sched.h`](#sched-h) | `#define CPU_CLR(n, set)` |
+| `CPU_COUNT` | apps | [`sched.h`](#sched-h) | `#define CPU_COUNT(set)` |
+| `CPU_EQUAL` | apps | [`sched.h`](#sched-h) | `#define CPU_EQUAL(a, b)` |
+| `CPU_ISSET` | apps | [`sched.h`](#sched-h) | `#define CPU_ISSET(n, set)` |
+| `CPU_SET` | apps | [`sched.h`](#sched-h) | `#define CPU_SET(n, set)` |
+| `CPU_ZERO` | apps | [`sched.h`](#sched-h) | `#define CPU_ZERO(set)` |
 | `crc32c` | apps | [`ritteros.h`](#ritteros-h) | `uint32_t crc32c(const void *data, size_t size)` |
 | `creal` | apps | [`complex.h`](#complex-h) | `double creal(double _Complex z)` |
 | `crealf` | apps | [`complex.h`](#complex-h) | `float crealf(float _Complex z)` |
@@ -334,13 +442,24 @@ kernel's interface; programs use the library's calls rather than raw
 | `ctanhf` | apps | [`complex.h`](#complex-h) | `float _Complex ctanhf(float _Complex z)` |
 | `ctanhl` | apps | [`complex.h`](#complex-h) | `long double _Complex ctanhl(long double _Complex z)` |
 | `ctanl` | apps | [`complex.h`](#complex-h) | `long double _Complex ctanl(long double _Complex z)` |
+| `ctermid` | apps | [`stdio.h`](#stdio-h) | `char *ctermid(char *s)` |
 | `ctime` | apps | [`time.h`](#time-h) | `char *ctime(const time_t *t)` |
+| `ctime_r` | apps | [`time.h`](#time-h) | `char *ctime_r(const time_t *t, char *buf)` |
+| `daemon` | apps | [`unistd.h`](#unistd-h) | `int daemon(int nochdir, int noclose)` |
+| `dcgettext` | apps | [`libintl.h`](#libintl-h) | `char *dcgettext(const char *domain, const char *text, int category)` |
+| `dcngettext` | apps | [`libintl.h`](#libintl-h) | `char *dcngettext(const char *domain, const char *singular, const char *plural, unsigned long n, int category)` |
+| `dgettext` | apps | [`libintl.h`](#libintl-h) | `char *dgettext(const char *domain, const char *text)` |
 | `difftime` | apps | [`time.h`](#time-h) | `double difftime(time_t end, time_t start)` |
+| `dirfd` | apps | [`dirent.h`](#dirent-h) | `int dirfd(DIR *dir)` |
+| `dirname` | apps | [`libgen.h`](#libgen-h) | `char *dirname(char *path)` |
 | `div` | apps | [`stdlib.h`](#stdlib-h) | `div_t div(int numerator, int denominator)` |
+| `dl_iterate_phdr` | apps | [`link.h`](#link-h) | `int dl_iterate_phdr(int (*callback)(struct dl_phdr_info *info, size_t size, void *data), void *data)` |
+| `dladdr` | apps | [`dlfcn.h`](#dlfcn-h) | `int dladdr(const void *address, Dl_info *info)` |
 | `dlclose` | apps | [`dlfcn.h`](#dlfcn-h) | `int dlclose(void *handle)` |
 | `dlerror` | apps | [`dlfcn.h`](#dlfcn-h) | `char *dlerror(void)` |
 | `dlopen` | apps | [`dlfcn.h`](#dlfcn-h) | `void *dlopen(const char *file, int mode)` |
 | `dlsym` | apps | [`dlfcn.h`](#dlfcn-h) | `void *dlsym(void *handle, const char *name)` |
+| `dngettext` | apps | [`libintl.h`](#libintl-h) | `char *dngettext(const char *domain, const char *singular, const char *plural, unsigned long n)` |
 | `dns_answer` | system | [`ritteros.h`](#ritteros-h) | `int dns_answer(const uint8_t *m, size_t length, uint32_t *address, uint32_t *ttl)` |
 | `dns_answer_aaaa` | apps | [`ritteros.h`](#ritteros-h) | `int dns_answer_aaaa(const uint8_t *m, size_t length, uint8_t address[16], uint32_t *ttl)` |
 | `dns_failure` | system | [`ritteros.h`](#ritteros-h) | `size_t dns_failure(const uint8_t *query, size_t length, int rcode, uint8_t *out, size_t size)` |
@@ -351,6 +470,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `dns_reply` | system | [`ritteros.h`](#ritteros-h) | `size_t dns_reply(const uint8_t *query, size_t length, uint32_t address, uint32_t ttl, uint8_t *out, size_t size)` |
 | `dns_reply_aaaa` | apps | [`ritteros.h`](#ritteros-h) | `size_t dns_reply_aaaa(const uint8_t *query, size_t length, const uint8_t address[16], uint32_t ttl, uint8_t *out, size_t size)` |
 | `dprintf` | apps | [`stdio.h`](#stdio-h) | `int dprintf(int fd, const char *format, ...)` |
+| `drand48` | apps | [`stdlib.h`](#stdlib-h) | `double drand48(void)` |
 | `draw_circle` | apps | [`draw.h`](#draw-h) | `void draw_circle(struct draw_canvas *c, float cx, float cy, float r, float line, uint32_t color)` |
 | `draw_clip` | apps | [`draw.h`](#draw-h) | `void draw_clip(struct draw_canvas *c, int x, int y, int w, int h)` |
 | `draw_ellipse` | apps | [`draw.h`](#draw-h) | `void draw_ellipse(struct draw_canvas *c, float cx, float cy, float rx, float ry, float line, uint32_t color)` |
@@ -363,24 +483,50 @@ kernel's interface; programs use the library's calls rather than raw
 | `draw_round_rect` | apps | [`draw.h`](#draw-h) | `void draw_round_rect(struct draw_canvas *c, float x, float y, float w, float h, float radius, float line, uint32_t color)` |
 | `dup` | apps | [`unistd.h`](#unistd-h) | `int dup(int fd)` |
 | `dup2` | apps | [`unistd.h`](#unistd-h) | `int dup2(int fd, int newfd)` |
+| `dup3` | apps | [`unistd.h`](#unistd-h) | `int dup3(int fd, int newfd, int flags)` |
+| `duplocale` | apps | [`locale.h`](#locale-h) | `locale_t duplocale(locale_t locale)` |
 | `ecdsa_verify` | apps | [`crypto.h`](#crypto-h) | `bool ecdsa_verify(int bits, const uint8_t *pub, size_t pub_len, const uint8_t *digest, size_t dlen, const uint8_t *r, size_t rlen, const uint8_t *s, size_t slen)` |
 | `ed25519_public` | apps | [`crypto.h`](#crypto-h) | `void ed25519_public(uint8_t public_key[32], const uint8_t seed[32])` |
 | `ed25519_sign` | apps | [`crypto.h`](#crypto-h) | `void ed25519_sign(uint8_t signature[64], const uint8_t seed[32], const uint8_t public_key[32], const void *message, size_t n)` |
 | `ed25519_verify` | apps | [`crypto.h`](#crypto-h) | `bool ed25519_verify(const uint8_t signature[64], const uint8_t public_key[32], const void *message, size_t n)` |
+| `ELF32_R_INFO` | apps | [`elf.h`](#elf-h) | `#define ELF32_R_INFO(s, t)` |
+| `ELF32_R_SYM` | apps | [`elf.h`](#elf-h) | `#define ELF32_R_SYM(i)` |
+| `ELF32_R_TYPE` | apps | [`elf.h`](#elf-h) | `#define ELF32_R_TYPE(i)` |
+| `ELF32_ST_BIND` | apps | [`elf.h`](#elf-h) | `#define ELF32_ST_BIND(i)` |
+| `ELF32_ST_INFO` | apps | [`elf.h`](#elf-h) | `#define ELF32_ST_INFO(b, t)` |
+| `ELF32_ST_TYPE` | apps | [`elf.h`](#elf-h) | `#define ELF32_ST_TYPE(i)` |
+| `ELF32_ST_VISIBILITY` | apps | [`elf.h`](#elf-h) | `#define ELF32_ST_VISIBILITY(o)` |
+| `ELF64_R_INFO` | apps | [`elf.h`](#elf-h) | `#define ELF64_R_INFO(s, t)` |
+| `ELF64_R_SYM` | apps | [`elf.h`](#elf-h) | `#define ELF64_R_SYM(i)` |
+| `ELF64_R_TYPE` | apps | [`elf.h`](#elf-h) | `#define ELF64_R_TYPE(i)` |
+| `ELF64_ST_BIND` | apps | [`elf.h`](#elf-h) | `#define ELF64_ST_BIND(i)` |
+| `ELF64_ST_INFO` | apps | [`elf.h`](#elf-h) | `#define ELF64_ST_INFO(b, t)` |
+| `ELF64_ST_TYPE` | apps | [`elf.h`](#elf-h) | `#define ELF64_ST_TYPE(i)` |
+| `ELF64_ST_VISIBILITY` | apps | [`elf.h`](#elf-h) | `#define ELF64_ST_VISIBILITY(o)` |
+| `ElfW` | apps | [`link.h`](#link-h) | `#define ElfW(type)` |
 | `elvesd_pid` | system | [`ritteros.h`](#ritteros-h) | `int elvesd_pid(void)` |
 | `elvesd_start` | system | [`ritteros.h`](#ritteros-h) | `int elvesd_start(const char *bin_dir)` |
+| `endgrent` | apps | [`grp.h`](#grp-h) | `void endgrent(void)` |
+| `endpwent` | apps | [`pwd.h`](#pwd-h) | `void endpwent(void)` |
+| `erand48` | apps | [`stdlib.h`](#stdlib-h) | `double erand48(unsigned short x[3])` |
 | `erf` | apps | [`math.h`](#math-h) | `double erf(double x)` |
 | `erfc` | apps | [`math.h`](#math-h) | `double erfc(double x)` |
 | `erfcf` | apps | [`math.h`](#math-h) | `float erfcf(float x)` |
 | `erfcl` | apps | [`math.h`](#math-h) | `long double erfcl(long double x)` |
 | `erff` | apps | [`math.h`](#math-h) | `float erff(float x)` |
 | `erfl` | apps | [`math.h`](#math-h) | `long double erfl(long double x)` |
+| `err` | apps | [`err.h`](#err-h) | `void err(int status, const char *format, ...)` |
+| `errx` | apps | [`err.h`](#err-h) | `void errx(int status, const char *format, ...)` |
+| `eventfd` | apps | [`sys/eventfd.h`](#sys-eventfd-h) | `int eventfd(unsigned int initial, int flags)` |
+| `eventfd_read` | apps | [`sys/eventfd.h`](#sys-eventfd-h) | `int eventfd_read(int fd, eventfd_t *value)` |
+| `eventfd_write` | apps | [`sys/eventfd.h`](#sys-eventfd-h) | `int eventfd_write(int fd, eventfd_t value)` |
 | `execl` | apps | [`unistd.h`](#unistd-h) | `int execl(const char *path, const char *arg, ...)` |
 | `execle` | apps | [`unistd.h`](#unistd-h) | `int execle(const char *path, const char *arg, ...)` |
 | `execlp` | apps | [`unistd.h`](#unistd-h) | `int execlp(const char *name, const char *arg, ...)` |
 | `execv` | apps | [`unistd.h`](#unistd-h) | `int execv(const char *path, char *const argv[])` |
 | `execve` | apps | [`unistd.h`](#unistd-h) | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | `execvp` | apps | [`unistd.h`](#unistd-h) | `int execvp(const char *name, char *const argv[])` |
+| `execvpe` | apps | [`unistd.h`](#unistd-h) | `int execvpe(const char *name, char *const argv[], char *const envp[])` |
 | `exit` | apps | [`stdlib.h`](#stdlib-h) | `void exit(int code)` |
 | `exp` | apps | [`math.h`](#math-h) | `double exp(double x)` |
 | `exp2` | apps | [`math.h`](#math-h) | `double exp2(double x)` |
@@ -388,42 +534,61 @@ kernel's interface; programs use the library's calls rather than raw
 | `exp2l` | apps | [`math.h`](#math-h) | `long double exp2l(long double x)` |
 | `expf` | apps | [`math.h`](#math-h) | `float expf(float x)` |
 | `expl` | apps | [`math.h`](#math-h) | `long double expl(long double x)` |
+| `explicit_bzero` | apps | [`string.h`](#string-h) | `void explicit_bzero(void *s, size_t n)` |
 | `expm1` | apps | [`math.h`](#math-h) | `double expm1(double x)` |
 | `expm1f` | apps | [`math.h`](#math-h) | `float expm1f(float x)` |
 | `expm1l` | apps | [`math.h`](#math-h) | `long double expm1l(long double x)` |
 | `fabs` | apps | [`math.h`](#math-h) | `double fabs(double x)` |
 | `fabsf` | apps | [`math.h`](#math-h) | `float fabsf(float x)` |
 | `fabsl` | apps | [`math.h`](#math-h) | `long double fabsl(long double x)` |
+| `faccessat` | apps | [`unistd.h`](#unistd-h) | `int faccessat(int dirfd, const char *path, int mode, int flags)` |
+| `fchdir` | apps | [`unistd.h`](#unistd-h) | `int fchdir(int fd)` |
+| `fchmod` | apps | [`sys/stat.h`](#sys-stat-h) | `int fchmod(int fd, mode_t mode)` |
+| `fchmodat` | apps | [`sys/stat.h`](#sys-stat-h) | `int fchmodat(int dirfd, const char *path, mode_t mode, int flags)` |
+| `fchown` | apps | [`unistd.h`](#unistd-h) | `int fchown(int fd, uid_t uid, gid_t gid)` |
+| `fchownat` | apps | [`unistd.h`](#unistd-h) | `int fchownat(int dirfd, const char *path, uid_t uid, gid_t gid, int flags)` |
 | `fclose` | apps | [`stdio.h`](#stdio-h) | `int fclose(FILE *f)` |
 | `fcntl` | apps | [`fcntl.h`](#fcntl-h) | `int fcntl(int fd, int command, ...)` |
 | `FD_CLR` | apps | [`sys/select.h`](#sys-select-h) | `#define FD_CLR(fd, set)` |
 | `FD_ISSET` | apps | [`sys/select.h`](#sys-select-h) | `#define FD_ISSET(fd, set)` |
 | `FD_SET` | apps | [`sys/select.h`](#sys-select-h) | `#define FD_SET(fd, set)` |
 | `FD_ZERO` | apps | [`sys/select.h`](#sys-select-h) | `#define FD_ZERO(set)` |
+| `fdatasync` | apps | [`unistd.h`](#unistd-h) | `int fdatasync(int fd)` |
 | `fdim` | apps | [`math.h`](#math-h) | `double fdim(double x, double y)` |
 | `fdimf` | apps | [`math.h`](#math-h) | `float fdimf(float x, float y)` |
 | `fdiml` | apps | [`math.h`](#math-h) | `long double fdiml(long double x, long double y)` |
 | `fdopen` | apps | [`stdio.h`](#stdio-h) | `FILE *fdopen(int fd, const char *mode)` |
+| `fdopendir` | apps | [`dirent.h`](#dirent-h) | `DIR *fdopendir(int fd)` |
 | `feclearexcept` | apps | [`fenv.h`](#fenv-h) | `int feclearexcept(int excepts)` |
 | `fegetenv` | apps | [`fenv.h`](#fenv-h) | `int fegetenv(fenv_t *env)` |
 | `fegetexceptflag` | apps | [`fenv.h`](#fenv-h) | `int fegetexceptflag(fexcept_t *flags, int excepts)` |
 | `fegetround` | apps | [`fenv.h`](#fenv-h) | `int fegetround(void)` |
 | `feholdexcept` | apps | [`fenv.h`](#fenv-h) | `int feholdexcept(fenv_t *env)` |
 | `feof` | apps | [`stdio.h`](#stdio-h) | `int feof(FILE *f)` |
+| `feof_unlocked` | apps | [`stdio.h`](#stdio-h) | `int feof_unlocked(FILE *f)` |
 | `feraiseexcept` | apps | [`fenv.h`](#fenv-h) | `int feraiseexcept(int excepts)` |
 | `ferror` | apps | [`stdio.h`](#stdio-h) | `int ferror(FILE *f)` |
+| `ferror_unlocked` | apps | [`stdio.h`](#stdio-h) | `int ferror_unlocked(FILE *f)` |
 | `fesetenv` | apps | [`fenv.h`](#fenv-h) | `int fesetenv(const fenv_t *env)` |
 | `fesetexceptflag` | apps | [`fenv.h`](#fenv-h) | `int fesetexceptflag(const fexcept_t *flags, int excepts)` |
 | `fesetround` | apps | [`fenv.h`](#fenv-h) | `int fesetround(int round)` |
 | `fetestexcept` | apps | [`fenv.h`](#fenv-h) | `int fetestexcept(int excepts)` |
 | `feupdateenv` | apps | [`fenv.h`](#fenv-h) | `int feupdateenv(const fenv_t *env)` |
 | `fflush` | apps | [`stdio.h`](#stdio-h) | `int fflush(FILE *f)` |
+| `fflush_unlocked` | apps | [`stdio.h`](#stdio-h) | `int fflush_unlocked(FILE *f)` |
+| `ffs` | apps | [`strings.h`](#strings-h) | `int ffs(int v)` |
+| `ffsl` | apps | [`strings.h`](#strings-h) | `int ffsl(long v)` |
+| `ffsll` | apps | [`strings.h`](#strings-h) | `int ffsll(long long v)` |
 | `fgetc` | apps | [`stdio.h`](#stdio-h) | `int fgetc(FILE *f)` |
+| `fgetc_unlocked` | apps | [`stdio.h`](#stdio-h) | `int fgetc_unlocked(FILE *f)` |
 | `fgetpos` | apps | [`stdio.h`](#stdio-h) | `int fgetpos(FILE *f, fpos_t *pos)` |
 | `fgets` | apps | [`stdio.h`](#stdio-h) | `char *fgets(char *s, int size, FILE *f)` |
+| `fgets_unlocked` | apps | [`stdio.h`](#stdio-h) | `char *fgets_unlocked(char *s, int size, FILE *f)` |
 | `fgetwc` | apps | [`wchar.h`](#wchar-h) | `wint_t fgetwc(FILE *f)` |
 | `fgetws` | apps | [`wchar.h`](#wchar-h) | `wchar_t *fgetws(wchar_t *s, int size, FILE *f)` |
 | `fileno` | apps | [`stdio.h`](#stdio-h) | `int fileno(FILE *f)` |
+| `fileno_unlocked` | apps | [`stdio.h`](#stdio-h) | `int fileno_unlocked(FILE *f)` |
+| `flock` | apps | [`sys/file.h`](#sys-file-h) | `int flock(int fd, int op)` |
 | `flockfile` | apps | [`stdio.h`](#stdio-h) | `void flockfile(FILE *f)` |
 | `floor` | apps | [`math.h`](#math-h) | `double floor(double x)` |
 | `floorf` | apps | [`math.h`](#math-h) | `float floorf(float x)` |
@@ -434,67 +599,123 @@ kernel's interface; programs use the library's calls rather than raw
 | `fmax` | apps | [`math.h`](#math-h) | `double fmax(double x, double y)` |
 | `fmaxf` | apps | [`math.h`](#math-h) | `float fmaxf(float x, float y)` |
 | `fmaxl` | apps | [`math.h`](#math-h) | `long double fmaxl(long double x, long double y)` |
+| `fmemopen` | apps | [`stdio.h`](#stdio-h) | `FILE *fmemopen(void *buf, size_t size, const char *mode)` |
 | `fmin` | apps | [`math.h`](#math-h) | `double fmin(double x, double y)` |
 | `fminf` | apps | [`math.h`](#math-h) | `float fminf(float x, float y)` |
 | `fminl` | apps | [`math.h`](#math-h) | `long double fminl(long double x, long double y)` |
 | `fmod` | apps | [`math.h`](#math-h) | `double fmod(double x, double y)` |
 | `fmodf` | apps | [`math.h`](#math-h) | `float fmodf(float x, float y)` |
 | `fmodl` | apps | [`math.h`](#math-h) | `long double fmodl(long double x, long double y)` |
+| `fnmatch` | apps | [`fnmatch.h`](#fnmatch-h) | `int fnmatch(const char *pattern, const char *name, int flags)` |
 | `fopen` | apps | [`stdio.h`](#stdio-h) | `FILE *fopen(const char *path, const char *mode)` |
+| `fopencookie` | apps | [`stdio.h`](#stdio-h) | `FILE *fopencookie(void *cookie, const char *mode, cookie_io_functions_t functions)` |
 | `fork` | apps | [`unistd.h`](#unistd-h) | `pid_t fork(void)` |
+| `fpathconf` | apps | [`unistd.h`](#unistd-h) | `long fpathconf(int fd, int name)` |
 | `fpclassify` | apps | [`math.h`](#math-h) | `#define fpclassify(x)` |
 | `fprintf` | apps | [`stdio.h`](#stdio-h) | `int fprintf(FILE *f, const char *format, ...)` |
 | `fputc` | apps | [`stdio.h`](#stdio-h) | `int fputc(int c, FILE *f)` |
+| `fputc_unlocked` | apps | [`stdio.h`](#stdio-h) | `int fputc_unlocked(int c, FILE *f)` |
 | `fputs` | apps | [`stdio.h`](#stdio-h) | `int fputs(const char *s, FILE *f)` |
+| `fputs_unlocked` | apps | [`stdio.h`](#stdio-h) | `int fputs_unlocked(const char *s, FILE *f)` |
 | `fputwc` | apps | [`wchar.h`](#wchar-h) | `wint_t fputwc(wchar_t wc, FILE *f)` |
 | `fputws` | apps | [`wchar.h`](#wchar-h) | `int fputws(const wchar_t *s, FILE *f)` |
 | `fread` | apps | [`stdio.h`](#stdio-h) | `size_t fread(void *buf, size_t size, size_t count, FILE *f)` |
+| `fread_unlocked` | apps | [`stdio.h`](#stdio-h) | `size_t fread_unlocked(void *buf, size_t size, size_t count, FILE *f)` |
 | `free` | apps | [`stdlib.h`](#stdlib-h) | `void free(void *ptr)` |
 | `freeaddrinfo` | apps | [`netdb.h`](#netdb-h) | `void freeaddrinfo(struct addrinfo *list)` |
+| `freeifaddrs` | apps | [`ifaddrs.h`](#ifaddrs-h) | `void freeifaddrs(struct ifaddrs *list)` |
+| `freelocale` | apps | [`locale.h`](#locale-h) | `void freelocale(locale_t locale)` |
 | `freopen` | apps | [`stdio.h`](#stdio-h) | `FILE *freopen(const char *path, const char *mode, FILE *f)` |
 | `frexp` | apps | [`math.h`](#math-h) | `double frexp(double x, int *e)` |
 | `frexpf` | apps | [`math.h`](#math-h) | `float frexpf(float x, int *e)` |
 | `frexpl` | apps | [`math.h`](#math-h) | `long double frexpl(long double x, int *e)` |
 | `fscanf` | apps | [`stdio.h`](#stdio-h) | `int fscanf(FILE *f, const char *format, ...)` |
 | `fseek` | apps | [`stdio.h`](#stdio-h) | `int fseek(FILE *f, long offset, int whence)` |
+| `fseeko` | apps | [`stdio.h`](#stdio-h) | `int fseeko(FILE *f, off_t offset, int whence)` |
 | `fsetpos` | apps | [`stdio.h`](#stdio-h) | `int fsetpos(FILE *f, const fpos_t *pos)` |
-| `fstat` | apps | [`sys/stat.h`](#sys-stat-h) | `int fstat(int fd, struct stat *st)` |
+| `fstat` | apps | [`sys/stat.h`](#sys-stat-h) | `int fstat(int fd, struct stat *st) __asm__("__ritteros_fstat2")` |
+| `fstatat` | apps | [`sys/stat.h`](#sys-stat-h) | `int fstatat(int dirfd, const char *path, struct stat *st, int flags)` |
+| `fstatvfs` | apps | [`sys/statvfs.h`](#sys-statvfs-h) | `int fstatvfs(int fd, struct statvfs *out)` |
+| `fsync` | apps | [`unistd.h`](#unistd-h) | `int fsync(int fd)` |
 | `ftell` | apps | [`stdio.h`](#stdio-h) | `long ftell(FILE *f)` |
+| `ftello` | apps | [`stdio.h`](#stdio-h) | `off_t ftello(FILE *f)` |
+| `ftruncate` | apps | [`unistd.h`](#unistd-h) | `int ftruncate(int fd, off_t length)` |
 | `ftrylockfile` | apps | [`stdio.h`](#stdio-h) | `int ftrylockfile(FILE *f)` |
 | `funlockfile` | apps | [`stdio.h`](#stdio-h) | `void funlockfile(FILE *f)` |
 | `futimens` | apps | [`sys/stat.h`](#sys-stat-h) | `int futimens(int fd, const struct timespec times[2])` |
 | `fwide` | apps | [`wchar.h`](#wchar-h) | `int fwide(FILE *f, int mode)` |
 | `fwprintf` | apps | [`wchar.h`](#wchar-h) | `int fwprintf(FILE *f, const wchar_t *format, ...)` |
 | `fwrite` | apps | [`stdio.h`](#stdio-h) | `size_t fwrite(const void *buf, size_t size, size_t count, FILE *f)` |
+| `fwrite_unlocked` | apps | [`stdio.h`](#stdio-h) | `size_t fwrite_unlocked(const void *buf, size_t size, size_t count, FILE *f)` |
 | `fwscanf` | apps | [`wchar.h`](#wchar-h) | `int fwscanf(FILE *f, const wchar_t *format, ...)` |
 | `gai_strerror` | apps | [`netdb.h`](#netdb-h) | `const char *gai_strerror(int error)` |
+| `get_avphys_pages` | apps | [`sys/sysinfo.h`](#sys-sysinfo-h) | `long get_avphys_pages(void)` |
+| `get_nprocs` | apps | [`sys/sysinfo.h`](#sys-sysinfo-h) | `int get_nprocs(void)` |
+| `get_nprocs_conf` | apps | [`sys/sysinfo.h`](#sys-sysinfo-h) | `int get_nprocs_conf(void)` |
+| `get_phys_pages` | apps | [`sys/sysinfo.h`](#sys-sysinfo-h) | `long get_phys_pages(void)` |
 | `getaddrinfo` | apps | [`netdb.h`](#netdb-h) | `int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result)` |
+| `getauxval` | apps | [`sys/auxv.h`](#sys-auxv-h) | `unsigned long getauxval(unsigned long type)` |
 | `getc` | apps | [`stdio.h`](#stdio-h) | `int getc(FILE *f)` |
 | `getc_unlocked` | apps | [`stdio.h`](#stdio-h) | `int getc_unlocked(FILE *f)` |
 | `getchar` | apps | [`stdio.h`](#stdio-h) | `int getchar(void)` |
 | `getchar_unlocked` | apps | [`stdio.h`](#stdio-h) | `int getchar_unlocked(void)` |
 | `getcwd` | apps | [`unistd.h`](#unistd-h) | `char *getcwd(char *buffer, size_t size)` |
+| `getdelim` | apps | [`stdio.h`](#stdio-h) | `ssize_t getdelim(char **line, size_t *size, int delimiter, FILE *f)` |
+| `getdtablesize` | apps | [`unistd.h`](#unistd-h) | `int getdtablesize(void)` |
+| `getegid` | apps | [`unistd.h`](#unistd-h) | `gid_t getegid(void)` |
+| `getentropy` | apps | [`sys/random.h`](#sys-random-h) | `int getentropy(void *buf, size_t size)` |
+| `getentropy` | apps | [`unistd.h`](#unistd-h) | `int getentropy(void *buf, size_t size)` |
 | `getenv` | apps | [`stdlib.h`](#stdlib-h) | `char *getenv(const char *name)` |
 | `geteuid` | apps | [`unistd.h`](#unistd-h) | `uid_t geteuid(void)` |
 | `getgid` | apps | [`unistd.h`](#unistd-h) | `gid_t getgid(void)` |
+| `getgrent` | apps | [`grp.h`](#grp-h) | `struct group *getgrent(void)` |
+| `getgrgid` | apps | [`grp.h`](#grp-h) | `struct group *getgrgid(gid_t gid)` |
+| `getgrgid_r` | apps | [`grp.h`](#grp-h) | `int getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t size, struct group **result)` |
+| `getgrnam` | apps | [`grp.h`](#grp-h) | `struct group *getgrnam(const char *name)` |
+| `getgrnam_r` | apps | [`grp.h`](#grp-h) | `int getgrnam_r(const char *name, struct group *grp, char *buf, size_t size, struct group **result)` |
+| `getgrouplist` | apps | [`grp.h`](#grp-h) | `int getgrouplist(const char *user, gid_t group, gid_t *groups, int *count)` |
+| `getgroups` | apps | [`unistd.h`](#unistd-h) | `int getgroups(int size, gid_t list[])` |
 | `gethostbyname` | apps | [`netdb.h`](#netdb-h) | `struct hostent *gethostbyname(const char *name)` |
+| `gethostname` | apps | [`unistd.h`](#unistd-h) | `int gethostname(char *name, size_t size)` |
+| `getifaddrs` | apps | [`ifaddrs.h`](#ifaddrs-h) | `int getifaddrs(struct ifaddrs **list)` |
+| `getline` | apps | [`stdio.h`](#stdio-h) | `ssize_t getline(char **line, size_t *size, FILE *f)` |
+| `getloadavg` | apps | [`stdlib.h`](#stdlib-h) | `int getloadavg(double loads[], int count)` |
+| `getlogin` | apps | [`unistd.h`](#unistd-h) | `char *getlogin(void)` |
+| `getlogin_r` | apps | [`unistd.h`](#unistd-h) | `int getlogin_r(char *name, size_t size)` |
 | `getnameinfo` | apps | [`netdb.h`](#netdb-h) | `int getnameinfo(const struct sockaddr *address, socklen_t length, char *host, socklen_t host_size, char *service, socklen_t service_size, int flags)` |
+| `getopt` | apps | [`unistd.h`](#unistd-h) | `int getopt(int argc, char *const argv[], const char *options)` |
+| `getopt_long` | apps | [`getopt.h`](#getopt-h) | `int getopt_long(int argc, char *const argv[], const char *options, const struct option *longopts, int *longindex)` |
+| `getopt_long_only` | apps | [`getopt.h`](#getopt-h) | `int getopt_long_only(int argc, char *const argv[], const char *options, const struct option *longopts, int *longindex)` |
+| `getpagesize` | apps | [`unistd.h`](#unistd-h) | `int getpagesize(void)` |
 | `getpeername` | apps | [`sys/socket.h`](#sys-socket-h) | `int getpeername(int fd, struct sockaddr *address, socklen_t *length)` |
 | `getpgid` | apps | [`unistd.h`](#unistd-h) | `pid_t getpgid(pid_t pid)` |
 | `getpgrp` | apps | [`unistd.h`](#unistd-h) | `pid_t getpgrp(void)` |
 | `getpid` | apps | [`unistd.h`](#unistd-h) | `pid_t getpid(void)` |
 | `getppid` | apps | [`unistd.h`](#unistd-h) | `pid_t getppid(void)` |
+| `getpriority` | apps | [`sys/resource.h`](#sys-resource-h) | `int getpriority(int which, id_t who)` |
 | `getprogname` | apps | [`stdlib.h`](#stdlib-h) | `const char *getprogname(void)` |
-| `getpwnam` | apps | [`pwd.h`](#pwd-h) | `struct passwd *getpwnam(const char *name)` |
-| `getpwuid` | apps | [`pwd.h`](#pwd-h) | `struct passwd *getpwuid(uid_t uid)` |
+| `getpwent` | apps | [`pwd.h`](#pwd-h) | `struct passwd *getpwent(void)` |
+| `getpwnam` | apps | [`pwd.h`](#pwd-h) | `struct passwd *getpwnam(const char *name) __asm__("__ritteros_getpwnam2")` |
+| `getpwnam_r` | apps | [`pwd.h`](#pwd-h) | `int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t size, struct passwd **result)` |
+| `getpwuid` | apps | [`pwd.h`](#pwd-h) | `struct passwd *getpwuid(uid_t uid) __asm__("__ritteros_getpwuid2")` |
+| `getpwuid_r` | apps | [`pwd.h`](#pwd-h) | `int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t size, struct passwd **result)` |
+| `getrandom` | apps | [`sys/random.h`](#sys-random-h) | `ssize_t getrandom(void *buf, size_t size, unsigned flags)` |
+| `getresgid` | apps | [`unistd.h`](#unistd-h) | `int getresgid(gid_t *real, gid_t *effective, gid_t *saved)` |
+| `getresuid` | apps | [`unistd.h`](#unistd-h) | `int getresuid(uid_t *real, uid_t *effective, uid_t *saved)` |
+| `getrlimit` | apps | [`sys/resource.h`](#sys-resource-h) | `int getrlimit(int resource, struct rlimit *limit)` |
+| `getrusage` | apps | [`sys/resource.h`](#sys-resource-h) | `int getrusage(int who, struct rusage *usage)` |
 | `getservbyname` | apps | [`netdb.h`](#netdb-h) | `struct servent *getservbyname(const char *name, const char *protocol)` |
 | `getservbyport` | apps | [`netdb.h`](#netdb-h) | `struct servent *getservbyport(int port, const char *protocol)` |
+| `getsid` | apps | [`unistd.h`](#unistd-h) | `pid_t getsid(pid_t pid)` |
 | `getsockname` | apps | [`sys/socket.h`](#sys-socket-h) | `int getsockname(int fd, struct sockaddr *address, socklen_t *length)` |
 | `getsockopt` | apps | [`sys/socket.h`](#sys-socket-h) | `int getsockopt(int fd, int level, int option, void *value, socklen_t *length)` |
+| `gettext` | apps | [`libintl.h`](#libintl-h) | `char *gettext(const char *text)` |
 | `gettimeofday` | apps | [`sys/time.h`](#sys-time-h) | `int gettimeofday(struct timeval *tv, void *zone)` |
 | `getuid` | apps | [`unistd.h`](#unistd-h) | `uid_t getuid(void)` |
 | `getwc` | apps | [`wchar.h`](#wchar-h) | `wint_t getwc(FILE *f)` |
 | `getwchar` | apps | [`wchar.h`](#wchar-h) | `wint_t getwchar(void)` |
+| `glob` | apps | [`glob.h`](#glob-h) | `int glob(const char *pattern, int flags, int (*errfunc)(const char *path, int error), glob_t *pglob)` |
+| `globfree` | apps | [`glob.h`](#glob-h) | `void globfree(glob_t *pglob)` |
 | `gmtime` | apps | [`time.h`](#time-h) | `struct tm *gmtime(const time_t *t)` |
 | `gmtime_r` | apps | [`time.h`](#time-h) | `struct tm *gmtime_r(const time_t *t, struct tm *result)` |
 | `gpt_empty` | system | [`gpt.h`](#gpt-h) | `void gpt_empty(const struct sys_device *disk, struct gpt_table *t)` |
@@ -512,18 +733,38 @@ kernel's interface; programs use the library's calls rather than raw
 | `guard_parse` | system | [`ritteros.h`](#ritteros-h) | `int guard_parse(const char *line, struct sys_guard *g, char *why, size_t size)` |
 | `guard_read` | system | [`ritteros.h`](#ritteros-h) | `int guard_read(const char *path, struct sys_guard *g, char *why, size_t size)` |
 | `guard_read6` | apps | [`ritteros.h`](#ritteros-h) | `int guard_read6(const char *path, struct sys_guard *g, struct sys_guard6 *g6, char *why, size_t size)` |
+| `hcreate` | apps | [`search.h`](#search-h) | `int hcreate(size_t count)` |
+| `hcreate_r` | apps | [`search.h`](#search-h) | `int hcreate_r(size_t count, struct hsearch_data *table)` |
+| `hdestroy` | apps | [`search.h`](#search-h) | `void hdestroy(void)` |
+| `hdestroy_r` | apps | [`search.h`](#search-h) | `void hdestroy_r(struct hsearch_data *table)` |
 | `hkdf_expand` | apps | [`crypto.h`](#crypto-h) | `int hkdf_expand(size_t size, const uint8_t *prk, const void *info, size_t info_length, uint8_t *out, size_t length)` |
 | `hkdf_extract` | apps | [`crypto.h`](#crypto-h) | `void hkdf_extract(size_t size, const void *salt, size_t salt_length, const void *ikm, size_t ikm_length, uint8_t *prk)` |
 | `hmac_sha1` | apps | [`crypto.h`](#crypto-h) | `void hmac_sha1(const void *key, size_t key_length, const void *data, size_t n, uint8_t out[SHA1_SIZE])` |
 | `hmac_sha256` | apps | [`ritteros.h`](#ritteros-h) | `void hmac_sha256(const void *key, size_t key_length, const void *data, size_t n, uint8_t out[SHA256_SIZE])` |
 | `hmac_sha384` | apps | [`crypto.h`](#crypto-h) | `void hmac_sha384(const void *key, size_t key_length, const void *data, size_t n, uint8_t out[SHA384_SIZE])` |
+| `howmany` | apps | [`sys/param.h`](#sys-param-h) | `#define howmany(x, y)` |
+| `hsearch` | apps | [`search.h`](#search-h) | `ENTRY *hsearch(ENTRY item, ACTION action)` |
+| `hsearch_r` | apps | [`search.h`](#search-h) | `int hsearch_r(ENTRY item, ACTION action, ENTRY **found, struct hsearch_data *table)` |
+| `htobe16` | apps | [`endian.h`](#endian-h) | `#define htobe16(x)` |
+| `htobe32` | apps | [`endian.h`](#endian-h) | `#define htobe32(x)` |
+| `htobe64` | apps | [`endian.h`](#endian-h) | `#define htobe64(x)` |
+| `htole16` | apps | [`endian.h`](#endian-h) | `#define htole16(x)` |
+| `htole32` | apps | [`endian.h`](#endian-h) | `#define htole32(x)` |
+| `htole64` | apps | [`endian.h`](#endian-h) | `#define htole64(x)` |
 | `htonl` | apps | [`netinet/in.h`](#netinet-in-h) | `uint32_t htonl(uint32_t v)` |
 | `htons` | apps | [`netinet/in.h`](#netinet-in-h) | `uint16_t htons(uint16_t v)` |
 | `hypot` | apps | [`math.h`](#math-h) | `double hypot(double x, double y)` |
 | `hypotf` | apps | [`math.h`](#math-h) | `float hypotf(float x, float y)` |
 | `hypotl` | apps | [`math.h`](#math-h) | `long double hypotl(long double x, long double y)` |
+| `iconv` | apps | [`iconv.h`](#iconv-h) | `size_t iconv(iconv_t cd, char **in, size_t *in_left, char **out, size_t *out_left)` |
+| `iconv_close` | apps | [`iconv.h`](#iconv-h) | `int iconv_close(iconv_t cd)` |
+| `iconv_open` | apps | [`iconv.h`](#iconv-h) | `iconv_t iconv_open(const char *to, const char *from)` |
 | `ieee80211_kdf_sha256` | apps | [`crypto.h`](#crypto-h) | `void ieee80211_kdf_sha256(const void *key, size_t key_length, const char *label, const void *context, size_t n, uint8_t *out, size_t out_length)` |
 | `ieee80211_prf` | apps | [`crypto.h`](#crypto-h) | `void ieee80211_prf(const void *key, size_t key_length, const char *label, const void *data, size_t n, uint8_t *out, size_t out_length)` |
+| `if_freenameindex` | apps | [`net/if.h`](#net-if-h) | `void if_freenameindex(struct if_nameindex *list)` |
+| `if_indextoname` | apps | [`net/if.h`](#net-if-h) | `char *if_indextoname(unsigned int index, char *name)` |
+| `if_nameindex` | apps | [`net/if.h`](#net-if-h) | `struct if_nameindex *if_nameindex(void)` |
+| `if_nametoindex` | apps | [`net/if.h`](#net-if-h) | `unsigned int if_nametoindex(const char *name)` |
 | `ilogb` | apps | [`math.h`](#math-h) | `int ilogb(double x)` |
 | `ilogbf` | apps | [`math.h`](#math-h) | `int ilogbf(float x)` |
 | `ilogbl` | apps | [`math.h`](#math-h) | `int ilogbl(long double x)` |
@@ -533,27 +774,41 @@ kernel's interface; programs use the library's calls rather than raw
 | `image_load_memory` | apps | [`image.h`](#image-h) | `int image_load_memory(const void *data, long n, struct image *out)` |
 | `image_save` | apps | [`image.h`](#image-h) | `int image_save(const char *path, const struct image *img)` |
 | `image_scale` | apps | [`image.h`](#image-h) | `int image_scale(const struct image *src, int w, int h, struct image *out)` |
+| `imaxabs` | apps | [`inttypes.h`](#inttypes-h) | `intmax_t imaxabs(intmax_t v)` |
+| `imaxdiv` | apps | [`inttypes.h`](#inttypes-h) | `imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator)` |
 | `IN6_IS_ADDR_LINKLOCAL` | apps | [`netinet/in.h`](#netinet-in-h) | `#define IN6_IS_ADDR_LINKLOCAL(a)` |
 | `IN6_IS_ADDR_LOOPBACK` | apps | [`netinet/in.h`](#netinet-in-h) | `#define IN6_IS_ADDR_LOOPBACK(a)` |
 | `IN6_IS_ADDR_MULTICAST` | apps | [`netinet/in.h`](#netinet-in-h) | `#define IN6_IS_ADDR_MULTICAST(a)` |
 | `IN6_IS_ADDR_SITELOCAL` | apps | [`netinet/in.h`](#netinet-in-h) | `#define IN6_IS_ADDR_SITELOCAL(a)` |
 | `IN6_IS_ADDR_UNSPECIFIED` | apps | [`netinet/in.h`](#netinet-in-h) | `#define IN6_IS_ADDR_UNSPECIFIED(a)` |
 | `IN6_IS_ADDR_V4MAPPED` | apps | [`netinet/in.h`](#netinet-in-h) | `#define IN6_IS_ADDR_V4MAPPED(a)` |
+| `index` | apps | [`strings.h`](#strings-h) | `char *index(const char *s, int c)` |
 | `inet_addr` | apps | [`arpa/inet.h`](#arpa-inet-h) | `in_addr_t inet_addr(const char *text)` |
 | `inet_aton` | apps | [`arpa/inet.h`](#arpa-inet-h) | `int inet_aton(const char *text, struct in_addr *out)` |
 | `inet_ntoa` | apps | [`arpa/inet.h`](#arpa-inet-h) | `char *inet_ntoa(struct in_addr address)` |
 | `inet_ntop` | apps | [`arpa/inet.h`](#arpa-inet-h) | `const char *inet_ntop(int family, const void *address, char *out, socklen_t size)` |
 | `inet_pton` | apps | [`arpa/inet.h`](#arpa-inet-h) | `int inet_pton(int family, const char *text, void *out)` |
+| `initgroups` | apps | [`grp.h`](#grp-h) | `int initgroups(const char *user, gid_t group)` |
+| `initstate` | apps | [`stdlib.h`](#stdlib-h) | `char *initstate(unsigned int seed, char *state, size_t size)` |
+| `insque` | apps | [`search.h`](#search-h) | `void insque(void *element, void *previous)` |
+| `ioctl` | apps | [`sys/ioctl.h`](#sys-ioctl-h) | `int ioctl(int fd, unsigned long request, ...)` |
 | `ip_format` | apps | [`ritteros.h`](#ritteros-h) | `void ip_format(uint32_t ip, char *out, size_t size)` |
 | `ip_parse` | apps | [`ritteros.h`](#ritteros-h) | `bool ip_parse(const char *text, uint32_t *ip, uint32_t *prefix)` |
 | `isalnum` | apps | [`ctype.h`](#ctype-h) | `int isalnum(int c)` |
+| `isalnum_l` | apps | [`ctype.h`](#ctype-h) | `int isalnum_l(int c, locale_t l)` |
 | `isalpha` | apps | [`ctype.h`](#ctype-h) | `int isalpha(int c)` |
+| `isalpha_l` | apps | [`ctype.h`](#ctype-h) | `int isalpha_l(int c, locale_t l)` |
+| `isascii` | apps | [`ctype.h`](#ctype-h) | `int isascii(int c)` |
 | `isatty` | apps | [`unistd.h`](#unistd-h) | `int isatty(int fd)` |
 | `isblank` | apps | [`ctype.h`](#ctype-h) | `int isblank(int c)` |
+| `isblank_l` | apps | [`ctype.h`](#ctype-h) | `int isblank_l(int c, locale_t l)` |
 | `iscntrl` | apps | [`ctype.h`](#ctype-h) | `int iscntrl(int c)` |
+| `iscntrl_l` | apps | [`ctype.h`](#ctype-h) | `int iscntrl_l(int c, locale_t l)` |
 | `isdigit` | apps | [`ctype.h`](#ctype-h) | `int isdigit(int c)` |
+| `isdigit_l` | apps | [`ctype.h`](#ctype-h) | `int isdigit_l(int c, locale_t l)` |
 | `isfinite` | apps | [`math.h`](#math-h) | `#define isfinite(x)` |
 | `isgraph` | apps | [`ctype.h`](#ctype-h) | `int isgraph(int c)` |
+| `isgraph_l` | apps | [`ctype.h`](#ctype-h) | `int isgraph_l(int c, locale_t l)` |
 | `isgreater` | apps | [`math.h`](#math-h) | `#define isgreater(x, y)` |
 | `isgreaterequal` | apps | [`math.h`](#math-h) | `#define isgreaterequal(x, y)` |
 | `isinf` | apps | [`math.h`](#math-h) | `#define isinf(x)` |
@@ -561,37 +816,71 @@ kernel's interface; programs use the library's calls rather than raw
 | `islessequal` | apps | [`math.h`](#math-h) | `#define islessequal(x, y)` |
 | `islessgreater` | apps | [`math.h`](#math-h) | `#define islessgreater(x, y)` |
 | `islower` | apps | [`ctype.h`](#ctype-h) | `int islower(int c)` |
+| `islower_l` | apps | [`ctype.h`](#ctype-h) | `int islower_l(int c, locale_t l)` |
 | `isnan` | apps | [`math.h`](#math-h) | `#define isnan(x)` |
 | `isnormal` | apps | [`math.h`](#math-h) | `#define isnormal(x)` |
 | `isprint` | apps | [`ctype.h`](#ctype-h) | `int isprint(int c)` |
+| `isprint_l` | apps | [`ctype.h`](#ctype-h) | `int isprint_l(int c, locale_t l)` |
 | `ispunct` | apps | [`ctype.h`](#ctype-h) | `int ispunct(int c)` |
+| `ispunct_l` | apps | [`ctype.h`](#ctype-h) | `int ispunct_l(int c, locale_t l)` |
+| `issetugid` | apps | [`unistd.h`](#unistd-h) | `int issetugid(void)` |
 | `isspace` | apps | [`ctype.h`](#ctype-h) | `int isspace(int c)` |
+| `isspace_l` | apps | [`ctype.h`](#ctype-h) | `int isspace_l(int c, locale_t l)` |
 | `isunordered` | apps | [`math.h`](#math-h) | `#define isunordered(x, y)` |
 | `isupper` | apps | [`ctype.h`](#ctype-h) | `int isupper(int c)` |
+| `isupper_l` | apps | [`ctype.h`](#ctype-h) | `int isupper_l(int c, locale_t l)` |
 | `iswalnum` | apps | [`wctype.h`](#wctype-h) | `int iswalnum(wint_t wc)` |
+| `iswalnum_l` | apps | [`wctype.h`](#wctype-h) | `int iswalnum_l(wint_t c, locale_t l)` |
 | `iswalpha` | apps | [`wctype.h`](#wctype-h) | `int iswalpha(wint_t wc)` |
+| `iswalpha_l` | apps | [`wctype.h`](#wctype-h) | `int iswalpha_l(wint_t c, locale_t l)` |
 | `iswblank` | apps | [`wctype.h`](#wctype-h) | `int iswblank(wint_t wc)` |
+| `iswblank_l` | apps | [`wctype.h`](#wctype-h) | `int iswblank_l(wint_t c, locale_t l)` |
 | `iswcntrl` | apps | [`wctype.h`](#wctype-h) | `int iswcntrl(wint_t wc)` |
+| `iswcntrl_l` | apps | [`wctype.h`](#wctype-h) | `int iswcntrl_l(wint_t c, locale_t l)` |
 | `iswctype` | apps | [`wctype.h`](#wctype-h) | `int iswctype(wint_t wc, wctype_t type)` |
+| `iswctype_l` | apps | [`wctype.h`](#wctype-h) | `int iswctype_l(wint_t c, wctype_t type, locale_t l)` |
 | `iswdigit` | apps | [`wctype.h`](#wctype-h) | `int iswdigit(wint_t wc)` |
+| `iswdigit_l` | apps | [`wctype.h`](#wctype-h) | `int iswdigit_l(wint_t c, locale_t l)` |
 | `iswgraph` | apps | [`wctype.h`](#wctype-h) | `int iswgraph(wint_t wc)` |
+| `iswgraph_l` | apps | [`wctype.h`](#wctype-h) | `int iswgraph_l(wint_t c, locale_t l)` |
 | `iswlower` | apps | [`wctype.h`](#wctype-h) | `int iswlower(wint_t wc)` |
+| `iswlower_l` | apps | [`wctype.h`](#wctype-h) | `int iswlower_l(wint_t c, locale_t l)` |
 | `iswprint` | apps | [`wctype.h`](#wctype-h) | `int iswprint(wint_t wc)` |
+| `iswprint_l` | apps | [`wctype.h`](#wctype-h) | `int iswprint_l(wint_t c, locale_t l)` |
 | `iswpunct` | apps | [`wctype.h`](#wctype-h) | `int iswpunct(wint_t wc)` |
+| `iswpunct_l` | apps | [`wctype.h`](#wctype-h) | `int iswpunct_l(wint_t c, locale_t l)` |
 | `iswspace` | apps | [`wctype.h`](#wctype-h) | `int iswspace(wint_t wc)` |
+| `iswspace_l` | apps | [`wctype.h`](#wctype-h) | `int iswspace_l(wint_t c, locale_t l)` |
 | `iswupper` | apps | [`wctype.h`](#wctype-h) | `int iswupper(wint_t wc)` |
+| `iswupper_l` | apps | [`wctype.h`](#wctype-h) | `int iswupper_l(wint_t c, locale_t l)` |
 | `iswxdigit` | apps | [`wctype.h`](#wctype-h) | `int iswxdigit(wint_t wc)` |
+| `iswxdigit_l` | apps | [`wctype.h`](#wctype-h) | `int iswxdigit_l(wint_t c, locale_t l)` |
 | `isxdigit` | apps | [`ctype.h`](#ctype-h) | `int isxdigit(int c)` |
+| `isxdigit_l` | apps | [`ctype.h`](#ctype-h) | `int isxdigit_l(int c, locale_t l)` |
+| `jrand48` | apps | [`stdlib.h`](#stdlib-h) | `long jrand48(unsigned short x[3])` |
+| `keyring_get` | apps | [`keyring.h`](#keyring-h) | `ssize_t keyring_get(const char *service, const char *account, void *secret, size_t size)` |
+| `keyring_list` | apps | [`keyring.h`](#keyring-h) | `int keyring_list(void (*each)(const char *service, const char *account, void *arg), void *arg)` |
+| `keyring_remove` | apps | [`keyring.h`](#keyring-h) | `int keyring_remove(const char *service, const char *account)` |
+| `keyring_set` | apps | [`keyring.h`](#keyring-h) | `int keyring_set(const char *service, const char *account, const void *secret, size_t length)` |
+| `keyring_system` | apps | [`keyring.h`](#keyring-h) | `void keyring_system(void)` |
 | `kill` | apps | [`signal.h`](#signal-h) | `int kill(pid_t pid, int signal)` |
+| `killpg` | apps | [`signal.h`](#signal-h) | `int killpg(pid_t group, int signal)` |
 | `labs` | apps | [`stdlib.h`](#stdlib-h) | `long labs(long v)` |
+| `lchown` | apps | [`unistd.h`](#unistd-h) | `int lchown(const char *path, uid_t uid, gid_t gid)` |
+| `lcong48` | apps | [`stdlib.h`](#stdlib-h) | `void lcong48(unsigned short parameters[7])` |
 | `ldexp` | apps | [`math.h`](#math-h) | `double ldexp(double x, int n)` |
 | `ldexpf` | apps | [`math.h`](#math-h) | `float ldexpf(float x, int n)` |
 | `ldexpl` | apps | [`math.h`](#math-h) | `long double ldexpl(long double x, int n)` |
 | `ldiv` | apps | [`stdlib.h`](#stdlib-h) | `ldiv_t ldiv(long numerator, long denominator)` |
+| `le16toh` | apps | [`endian.h`](#endian-h) | `#define le16toh(x)` |
+| `le32toh` | apps | [`endian.h`](#endian-h) | `#define le32toh(x)` |
+| `le64toh` | apps | [`endian.h`](#endian-h) | `#define le64toh(x)` |
+| `lfind` | apps | [`search.h`](#search-h) | `void *lfind(const void *key, const void *base, size_t *count, size_t size, int (*compare)(const void *a, const void *b))` |
 | `lgamma` | apps | [`math.h`](#math-h) | `double lgamma(double x)` |
 | `lgammaf` | apps | [`math.h`](#math-h) | `float lgammaf(float x)` |
 | `lgammal` | apps | [`math.h`](#math-h) | `long double lgammal(long double x)` |
 | `link` | apps | [`unistd.h`](#unistd-h) | `int link(const char *from, const char *to)` |
+| `linkat` | apps | [`unistd.h`](#unistd-h) | `int linkat(int fromfd, const char *from, int tofd, const char *to, int flags)` |
 | `listen` | apps | [`sys/socket.h`](#sys-socket-h) | `int listen(int fd, int backlog)` |
 | `llabs` | apps | [`stdlib.h`](#stdlib-h) | `long long llabs(long long v)` |
 | `lldiv` | apps | [`stdlib.h`](#stdlib-h) | `lldiv_t lldiv(long long numerator, long long denominator)` |
@@ -604,6 +893,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `localeconv` | apps | [`locale.h`](#locale-h) | `struct lconv *localeconv(void)` |
 | `localtime` | apps | [`time.h`](#time-h) | `struct tm *localtime(const time_t *t)` |
 | `localtime_r` | apps | [`time.h`](#time-h) | `struct tm *localtime_r(const time_t *t, struct tm *result)` |
+| `lockf` | apps | [`unistd.h`](#unistd-h) | `int lockf(int fd, int command, off_t length)` |
 | `log` | apps | [`math.h`](#math-h) | `double log(double x)` |
 | `log10` | apps | [`math.h`](#math-h) | `double log10(double x)` |
 | `log10f` | apps | [`math.h`](#math-h) | `float log10f(float x)` |
@@ -614,6 +904,10 @@ kernel's interface; programs use the library's calls rather than raw
 | `log2` | apps | [`math.h`](#math-h) | `double log2(double x)` |
 | `log2f` | apps | [`math.h`](#math-h) | `float log2f(float x)` |
 | `log2l` | apps | [`math.h`](#math-h) | `long double log2l(long double x)` |
+| `LOG_MAKEPRI` | apps | [`syslog.h`](#syslog-h) | `#define LOG_MAKEPRI(f, p)` |
+| `LOG_MASK` | apps | [`syslog.h`](#syslog-h) | `#define LOG_MASK(p)` |
+| `LOG_PRI` | apps | [`syslog.h`](#syslog-h) | `#define LOG_PRI(p)` |
+| `LOG_UPTO` | apps | [`syslog.h`](#syslog-h) | `#define LOG_UPTO(p)` |
 | `logb` | apps | [`math.h`](#math-h) | `double logb(double x)` |
 | `logbf` | apps | [`math.h`](#math-h) | `float logbf(float x)` |
 | `logbl` | apps | [`math.h`](#math-h) | `long double logbl(long double x)` |
@@ -621,15 +915,22 @@ kernel's interface; programs use the library's calls rather than raw
 | `logl` | apps | [`math.h`](#math-h) | `long double logl(long double x)` |
 | `logs_flush` | system | [`ritteros.h`](#ritteros-h) | `void logs_flush(void)` |
 | `longjmp` | apps | [`setjmp.h`](#setjmp-h) | `void longjmp(jmp_buf env, int value)` |
+| `lrand48` | apps | [`stdlib.h`](#stdlib-h) | `long lrand48(void)` |
 | `lrint` | apps | [`math.h`](#math-h) | `long lrint(double x)` |
 | `lrintf` | apps | [`math.h`](#math-h) | `long lrintf(float x)` |
 | `lrintl` | apps | [`math.h`](#math-h) | `long lrintl(long double x)` |
 | `lround` | apps | [`math.h`](#math-h) | `long lround(double x)` |
 | `lroundf` | apps | [`math.h`](#math-h) | `long lroundf(float x)` |
 | `lroundl` | apps | [`math.h`](#math-h) | `long lroundl(long double x)` |
+| `lsearch` | apps | [`search.h`](#search-h) | `void *lsearch(const void *key, void *base, size_t *count, size_t size, int (*compare)(const void *a, const void *b))` |
 | `lseek` | apps | [`unistd.h`](#unistd-h) | `off_t lseek(int fd, off_t offset, int whence)` |
-| `lstat` | apps | [`sys/stat.h`](#sys-stat-h) | `int lstat(const char *path, struct stat *st)` |
+| `lstat` | apps | [`sys/stat.h`](#sys-stat-h) | `int lstat(const char *path, struct stat *st) __asm__("__ritteros_lstat2")` |
+| `madvise` | apps | [`sys/mman.h`](#sys-mman-h) | `int madvise(void *addr, size_t length, int advice)` |
+| `major` | apps | [`sys/sysmacros.h`](#sys-sysmacros-h) | `#define major(dev)` |
+| `makedev` | apps | [`sys/sysmacros.h`](#sys-sysmacros-h) | `#define makedev(ma, mi)` |
 | `malloc` | apps | [`stdlib.h`](#stdlib-h) | `void *malloc(size_t size)` |
+| `malloc_usable_size` | apps | [`malloc.h`](#malloc-h) | `size_t malloc_usable_size(void *ptr)` |
+| `MAX` | apps | [`sys/param.h`](#sys-param-h) | `#define MAX(a, b)` |
 | `mblen` | apps | [`stdlib.h`](#stdlib-h) | `int mblen(const char *s, size_t n)` |
 | `mbrlen` | apps | [`wchar.h`](#wchar-h) | `size_t mbrlen(const char *s, size_t n, mbstate_t *state)` |
 | `mbrtoc16` | apps | [`uchar.h`](#uchar-h) | `size_t mbrtoc16(char16_t *c, const char *s, size_t n, mbstate_t *state)` |
@@ -637,17 +938,27 @@ kernel's interface; programs use the library's calls rather than raw
 | `mbrtoc8` | apps | [`uchar.h`](#uchar-h) | `size_t mbrtoc8(char8_t *c, const char *s, size_t n, mbstate_t *state)` |
 | `mbrtowc` | apps | [`wchar.h`](#wchar-h) | `size_t mbrtowc(wchar_t *wc, const char *s, size_t n, mbstate_t *state)` |
 | `mbsinit` | apps | [`wchar.h`](#wchar-h) | `int mbsinit(const mbstate_t *state)` |
+| `mbsnrtowcs` | apps | [`wchar.h`](#wchar-h) | `size_t mbsnrtowcs(wchar_t *dst, const char **src, size_t nms, size_t n, mbstate_t *state)` |
 | `mbsrtowcs` | apps | [`wchar.h`](#wchar-h) | `size_t mbsrtowcs(wchar_t *dst, const char **src, size_t n, mbstate_t *state)` |
 | `mbstowcs` | apps | [`stdlib.h`](#stdlib-h) | `size_t mbstowcs(wchar_t *dst, const char *src, size_t n)` |
 | `mbtowc` | apps | [`stdlib.h`](#stdlib-h) | `int mbtowc(wchar_t *wc, const char *s, size_t n)` |
+| `memalign` | apps | [`malloc.h`](#malloc-h) | `void *memalign(size_t alignment, size_t size)` |
 | `memccpy` | apps | [`string.h`](#string-h) | `void *memccpy(void *dst, const void *src, int c, size_t n)` |
 | `memchr` | apps | [`string.h`](#string-h) | `void *memchr(const void *s, int c, size_t n)` |
 | `memcmp` | apps | [`string.h`](#string-h) | `int memcmp(const void *a, const void *b, size_t n)` |
 | `memcpy` | apps | [`string.h`](#string-h) | `void *memcpy(void *dst, const void *src, size_t n)` |
+| `memfd_create` | apps | [`sys/mman.h`](#sys-mman-h) | `int memfd_create(const char *name, unsigned int flags)` |
+| `memmem` | apps | [`string.h`](#string-h) | `void *memmem(const void *haystack, size_t n, const void *needle, size_t m)` |
 | `memmove` | apps | [`string.h`](#string-h) | `void *memmove(void *dst, const void *src, size_t n)` |
+| `mempcpy` | apps | [`string.h`](#string-h) | `void *mempcpy(void *dst, const void *src, size_t n)` |
 | `memrchr` | apps | [`string.h`](#string-h) | `void *memrchr(const void *s, int c, size_t n)` |
 | `memset` | apps | [`string.h`](#string-h) | `void *memset(void *dst, int value, size_t n)` |
+| `MIN` | apps | [`sys/param.h`](#sys-param-h) | `#define MIN(a, b)` |
+| `minor` | apps | [`sys/sysmacros.h`](#sys-sysmacros-h) | `#define minor(dev)` |
 | `mkdir` | apps | [`sys/stat.h`](#sys-stat-h) | `int mkdir(const char *path, unsigned int mode)` |
+| `mkdirat` | apps | [`sys/stat.h`](#sys-stat-h) | `int mkdirat(int dirfd, const char *path, mode_t mode)` |
+| `mkdtemp` | apps | [`stdlib.h`](#stdlib-h) | `char *mkdtemp(char *name)` |
+| `mkfifo` | apps | [`sys/stat.h`](#sys-stat-h) | `int mkfifo(const char *path, mode_t mode)` |
 | `mkfs_exfat` | system | [`mkfs.h`](#mkfs-h) | `bool mkfs_exfat(int fd, const struct exfat_layout *l, const uint16_t *label, int label_units, uint64_t hidden, bool whole_disk, uint64_t device_bytes)` |
 | `mkfs_exfat_label` | system | [`mkfs.h`](#mkfs-h) | `int mkfs_exfat_label(const char *label, uint16_t *out)` |
 | `mkfs_exfat_plan` | system | [`mkfs.h`](#mkfs-h) | `bool mkfs_exfat_plan(uint64_t bytes, uint32_t sector, struct exfat_layout *l)` |
@@ -661,13 +972,20 @@ kernel's interface; programs use the library's calls rather than raw
 | `mkfs_ritterfs_check` | system | [`mkfs.h`](#mkfs-h) | `const char *mkfs_ritterfs_check(uint64_t bytes)` |
 | `mkfs_write` | system | [`mkfs.h`](#mkfs-h) | `bool mkfs_write(int fd, uint64_t offset, const void *data, size_t n)` |
 | `mkfs_zero` | system | [`mkfs.h`](#mkfs-h) | `bool mkfs_zero(int fd, uint64_t offset, uint64_t n)` |
+| `mkostemp` | apps | [`stdlib.h`](#stdlib-h) | `int mkostemp(char *name, int flags)` |
+| `mkostemps` | apps | [`stdlib.h`](#stdlib-h) | `int mkostemps(char *name, int suffix_length, int flags)` |
 | `mkstemp` | apps | [`stdlib.h`](#stdlib-h) | `int mkstemp(char *name)` |
+| `mkstemps` | apps | [`stdlib.h`](#stdlib-h) | `int mkstemps(char *name, int suffix_length)` |
+| `mktemp` | apps | [`stdlib.h`](#stdlib-h) | `char *mktemp(char *name)` |
 | `mktime` | apps | [`time.h`](#time-h) | `time_t mktime(struct tm *tm)` |
+| `mlock` | apps | [`sys/mman.h`](#sys-mman-h) | `int mlock(const void *addr, size_t length)` |
+| `mlockall` | apps | [`sys/mman.h`](#sys-mman-h) | `int mlockall(int flags)` |
 | `mmap` | apps | [`sys/mman.h`](#sys-mman-h) | `void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)` |
 | `modf` | apps | [`math.h`](#math-h) | `double modf(double x, double *whole)` |
 | `modff` | apps | [`math.h`](#math-h) | `float modff(float x, float *whole)` |
 | `modfl` | apps | [`math.h`](#math-h) | `long double modfl(long double x, long double *whole)` |
 | `mprotect` | apps | [`sys/mman.h`](#sys-mman-h) | `int mprotect(void *addr, size_t length, int prot)` |
+| `mrand48` | apps | [`stdlib.h`](#stdlib-h) | `long mrand48(void)` |
 | `msync` | apps | [`sys/mman.h`](#sys-mman-h) | `int msync(void *addr, size_t length, int flags)` |
 | `mtx_destroy` | apps | [`threads.h`](#threads-h) | `void mtx_destroy(mtx_t *m)` |
 | `mtx_init` | apps | [`threads.h`](#threads-h) | `int mtx_init(mtx_t *m, int type)` |
@@ -675,6 +993,8 @@ kernel's interface; programs use the library's calls rather than raw
 | `mtx_timedlock` | apps | [`threads.h`](#threads-h) | `int mtx_timedlock(mtx_t *m, const struct timespec *until)` |
 | `mtx_trylock` | apps | [`threads.h`](#threads-h) | `int mtx_trylock(mtx_t *m)` |
 | `mtx_unlock` | apps | [`threads.h`](#threads-h) | `int mtx_unlock(mtx_t *m)` |
+| `munlock` | apps | [`sys/mman.h`](#sys-mman-h) | `int munlock(const void *addr, size_t length)` |
+| `munlockall` | apps | [`sys/mman.h`](#sys-mman-h) | `int munlockall(void)` |
 | `munmap` | apps | [`sys/mman.h`](#sys-mman-h) | `int munmap(void *addr, size_t length)` |
 | `nan` | apps | [`math.h`](#math-h) | `double nan(const char *tag)` |
 | `nanf` | apps | [`math.h`](#math-h) | `float nanf(const char *tag)` |
@@ -683,33 +1003,57 @@ kernel's interface; programs use the library's calls rather than raw
 | `nearbyint` | apps | [`math.h`](#math-h) | `double nearbyint(double x)` |
 | `nearbyintf` | apps | [`math.h`](#math-h) | `float nearbyintf(float x)` |
 | `nearbyintl` | apps | [`math.h`](#math-h) | `long double nearbyintl(long double x)` |
+| `newlocale` | apps | [`locale.h`](#locale-h) | `locale_t newlocale(int mask, const char *name, locale_t base)` |
 | `nextafter` | apps | [`math.h`](#math-h) | `double nextafter(double x, double y)` |
 | `nextafterf` | apps | [`math.h`](#math-h) | `float nextafterf(float x, float y)` |
 | `nextafterl` | apps | [`math.h`](#math-h) | `long double nextafterl(long double x, long double y)` |
 | `nexttoward` | apps | [`math.h`](#math-h) | `double nexttoward(double x, long double y)` |
 | `nexttowardf` | apps | [`math.h`](#math-h) | `float nexttowardf(float x, long double y)` |
 | `nexttowardl` | apps | [`math.h`](#math-h) | `long double nexttowardl(long double x, long double y)` |
+| `ngettext` | apps | [`libintl.h`](#libintl-h) | `char *ngettext(const char *singular, const char *plural, unsigned long n)` |
+| `nice` | apps | [`unistd.h`](#unistd-h) | `int nice(int increment)` |
+| `nl_langinfo` | apps | [`langinfo.h`](#langinfo-h) | `char *nl_langinfo(nl_item item)` |
+| `nl_langinfo_l` | apps | [`langinfo.h`](#langinfo-h) | `char *nl_langinfo_l(nl_item item, locale_t locale)` |
+| `nrand48` | apps | [`stdlib.h`](#stdlib-h) | `long nrand48(unsigned short x[3])` |
 | `ntohl` | apps | [`netinet/in.h`](#netinet-in-h) | `uint32_t ntohl(uint32_t v)` |
 | `ntohs` | apps | [`netinet/in.h`](#netinet-in-h) | `uint16_t ntohs(uint16_t v)` |
 | `open` | apps | [`fcntl.h`](#fcntl-h) | `int open(const char *path, int flags, ...)` |
+| `open_memstream` | apps | [`stdio.h`](#stdio-h) | `FILE *open_memstream(char **buffer, size_t *size)` |
+| `openat` | apps | [`fcntl.h`](#fcntl-h) | `int openat(int dirfd, const char *path, int flags, ...)` |
 | `opendir` | apps | [`dirent.h`](#dirent-h) | `DIR *opendir(const char *path)` |
+| `openlog` | apps | [`syslog.h`](#syslog-h) | `void openlog(const char *ident, int options, int facility)` |
+| `optarg` | apps | [`unistd.h`](#unistd-h) | `extern char *optarg` |
+| `opterr` | apps | [`unistd.h`](#unistd-h) | `extern int opterr` |
+| `optind` | apps | [`unistd.h`](#unistd-h) | `extern int optind` |
+| `optopt` | apps | [`unistd.h`](#unistd-h) | `extern int optopt` |
 | `p256_add` | apps | [`crypto.h`](#crypto-h) | `bool p256_add(const uint8_t a[64], const uint8_t b[64], uint8_t sum[64])` |
 | `p256_sswu` | apps | [`crypto.h`](#crypto-h) | `void p256_sswu(const uint8_t u[32], uint8_t point[64])` |
 | `password_check` | system | [`ritteros.h`](#ritteros-h) | `int password_check(const char *user, const char *password)` |
 | `password_exists` | system | [`ritteros.h`](#ritteros-h) | `bool password_exists(const char *user)` |
 | `password_set` | system | [`ritteros.h`](#ritteros-h) | `int password_set(const char *user, const char *password)` |
+| `pathconf` | apps | [`unistd.h`](#unistd-h) | `long pathconf(const char *path, int name)` |
+| `pause` | apps | [`unistd.h`](#unistd-h) | `int pause(void)` |
 | `pbkdf2_sha1` | apps | [`crypto.h`](#crypto-h) | `void pbkdf2_sha1(const void *password, size_t password_length, const uint8_t *salt, size_t salt_length, uint32_t iterations, uint8_t *out, size_t out_length)` |
 | `pbkdf2_sha256` | apps | [`ritteros.h`](#ritteros-h) | `void pbkdf2_sha256(const void *password, size_t password_length, const uint8_t *salt, size_t salt_length, uint32_t iterations, uint8_t *out, size_t out_length)` |
 | `pclose` | apps | [`stdio.h`](#stdio-h) | `int pclose(FILE *stream)` |
 | `pem_next` | system | [`x509.h`](#x509-h) | `size_t pem_next(const char **text, const char *end, uint8_t *out, size_t size)` |
 | `perror` | apps | [`stdio.h`](#stdio-h) | `void perror(const char *s)` |
 | `pipe` | apps | [`unistd.h`](#unistd-h) | `int pipe(int fds[2])` |
+| `pipe2` | apps | [`unistd.h`](#unistd-h) | `int pipe2(int fds[2], int flags)` |
 | `poll` | apps | [`poll.h`](#poll-h) | `int poll(struct pollfd *fds, nfds_t count, int timeout)` |
 | `poly1305` | apps | [`crypto.h`](#crypto-h) | `void poly1305(const uint8_t key[32], const void *message, size_t n, uint8_t tag[16])` |
 | `popen` | apps | [`stdio.h`](#stdio-h) | `FILE *popen(const char *command, const char *mode)` |
+| `posix_fadvise` | apps | [`fcntl.h`](#fcntl-h) | `int posix_fadvise(int fd, off_t offset, off_t length, int advice)` |
+| `posix_fallocate` | apps | [`fcntl.h`](#fcntl-h) | `int posix_fallocate(int fd, off_t offset, off_t length)` |
+| `posix_madvise` | apps | [`sys/mman.h`](#sys-mman-h) | `int posix_madvise(void *addr, size_t length, int advice)` |
+| `posix_memalign` | apps | [`stdlib.h`](#stdlib-h) | `int posix_memalign(void **out, size_t alignment, size_t size)` |
 | `posix_spawn` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *actions, const posix_spawnattr_t *attr, char *const argv[], char *const envp[])` |
+| `posix_spawn_file_actions_addchdir` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path)` |
+| `posix_spawn_file_actions_addchdir_np` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t *actions, const char *path)` |
 | `posix_spawn_file_actions_addclose` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *actions, int fd)` |
 | `posix_spawn_file_actions_adddup2` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *actions, int fd, int newfd)` |
+| `posix_spawn_file_actions_addfchdir` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_addfchdir(posix_spawn_file_actions_t *actions, int fd)` |
+| `posix_spawn_file_actions_addfchdir_np` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *actions, int fd)` |
 | `posix_spawn_file_actions_addopen` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *actions, int fd, const char *path, int oflag, mode_t mode)` |
 | `posix_spawn_file_actions_destroy` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *actions)` |
 | `posix_spawn_file_actions_init` | apps | [`spawn.h`](#spawn-h) | `int posix_spawn_file_actions_init(posix_spawn_file_actions_t *actions)` |
@@ -725,17 +1069,35 @@ kernel's interface; programs use the library's calls rather than raw
 | `posix_spawnattr_setsigmask` | apps | [`spawn.h`](#spawn-h) | `int posix_spawnattr_setsigmask(posix_spawnattr_t *attr, const sigset_t *mask)` |
 | `posix_spawnp` | apps | [`spawn.h`](#spawn-h) | `int posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *actions, const posix_spawnattr_t *attr, char *const argv[], char *const envp[])` |
 | `pow` | apps | [`math.h`](#math-h) | `double pow(double x, double y)` |
+| `powerof2` | apps | [`sys/param.h`](#sys-param-h) | `#define powerof2(x)` |
 | `powf` | apps | [`math.h`](#math-h) | `float powf(float x, float y)` |
 | `powl` | apps | [`math.h`](#math-h) | `long double powl(long double x, long double y)` |
+| `ppoll` | apps | [`poll.h`](#poll-h) | `int ppoll(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *mask)` |
+| `pread` | apps | [`unistd.h`](#unistd-h) | `ssize_t pread(int fd, void *buffer, size_t size, off_t offset)` |
+| `preadv` | apps | [`sys/uio.h`](#sys-uio-h) | `ssize_t preadv(int fd, const struct iovec *parts, int count, off_t offset)` |
 | `printf` | apps | [`stdio.h`](#stdio-h) | `int printf(const char *format, ...)` |
 | `process_named` | apps | [`ritteros.h`](#ritteros-h) | `int process_named(const char *name)` |
 | `PROGRAM_HELP` | apps | [`ritteros.h`](#ritteros-h) | `#define PROGRAM_HELP(usage, description)` |
+| `pselect` | apps | [`sys/select.h`](#sys-select-h) | `int pselect(int count, fd_set *read, fd_set *write, fd_set *except, const struct timespec *timeout, const sigset_t *mask)` |
+| `psignal` | apps | [`signal.h`](#signal-h) | `void psignal(int signal, const char *s)` |
 | `pthread_atfork` | apps | [`pthread.h`](#pthread-h) | `int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void))` |
 | `pthread_attr_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_destroy(pthread_attr_t *attr)` |
 | `pthread_attr_getdetachstate` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *state)` |
+| `pthread_attr_getguardsize` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getguardsize(const pthread_attr_t *attr, size_t *size)` |
+| `pthread_attr_getinheritsched` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getinheritsched(const pthread_attr_t *attr, int *inherit)` |
+| `pthread_attr_getschedparam` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getschedparam(const pthread_attr_t *attr, struct sched_param *param)` |
+| `pthread_attr_getschedpolicy` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getschedpolicy(const pthread_attr_t *attr, int *policy)` |
+| `pthread_attr_getscope` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getscope(const pthread_attr_t *attr, int *scope)` |
+| `pthread_attr_getstack` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getstack(const pthread_attr_t *attr, void **addr, size_t *size)` |
 | `pthread_attr_getstacksize` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *size)` |
-| `pthread_attr_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_init(pthread_attr_t *attr)` |
+| `pthread_attr_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_init(pthread_attr_t *attr) __asm__("__ritteros_pthread_attr_init2")` |
 | `pthread_attr_setdetachstate` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setdetachstate(pthread_attr_t *attr, int state)` |
+| `pthread_attr_setguardsize` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setguardsize(pthread_attr_t *attr, size_t size)` |
+| `pthread_attr_setinheritsched` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit)` |
+| `pthread_attr_setschedparam` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setschedparam(pthread_attr_t *attr, const struct sched_param *param)` |
+| `pthread_attr_setschedpolicy` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setschedpolicy(pthread_attr_t *attr, int policy)` |
+| `pthread_attr_setscope` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setscope(pthread_attr_t *attr, int scope)` |
+| `pthread_attr_setstack` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setstack(pthread_attr_t *attr, void *addr, size_t size)` |
 | `pthread_attr_setstacksize` | apps | [`pthread.h`](#pthread-h) | `int pthread_attr_setstacksize(pthread_attr_t *attr, size_t size)` |
 | `pthread_barrier_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_barrier_destroy(pthread_barrier_t *b)` |
 | `pthread_barrier_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_barrier_init(pthread_barrier_t *b, const pthread_barrierattr_t *attr, unsigned count)` |
@@ -753,16 +1115,26 @@ kernel's interface; programs use the library's calls rather than raw
 | `pthread_cond_wait` | apps | [`pthread.h`](#pthread-h) | `int pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m)` |
 | `pthread_condattr_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_condattr_destroy(pthread_condattr_t *attr)` |
 | `pthread_condattr_getclock` | apps | [`pthread.h`](#pthread-h) | `int pthread_condattr_getclock(const pthread_condattr_t *attr, clockid_t *clock)` |
+| `pthread_condattr_getpshared` | apps | [`pthread.h`](#pthread-h) | `int pthread_condattr_getpshared(const pthread_condattr_t *attr, int *shared)` |
 | `pthread_condattr_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_condattr_init(pthread_condattr_t *attr)` |
 | `pthread_condattr_setclock` | apps | [`pthread.h`](#pthread-h) | `int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock)` |
-| `pthread_create` | apps | [`pthread.h`](#pthread-h) | `int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg)` |
+| `pthread_condattr_setpshared` | apps | [`pthread.h`](#pthread-h) | `int pthread_condattr_setpshared(pthread_condattr_t *attr, int shared)` |
+| `pthread_create` | apps | [`pthread.h`](#pthread-h) | `int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg) __asm__("__ritteros_pthread_create2")` |
 | `pthread_detach` | apps | [`pthread.h`](#pthread-h) | `int pthread_detach(pthread_t thread)` |
 | `pthread_equal` | apps | [`pthread.h`](#pthread-h) | `int pthread_equal(pthread_t a, pthread_t b)` |
 | `pthread_exit` | apps | [`pthread.h`](#pthread-h) | `void pthread_exit(void *value)` |
+| `pthread_getaffinity_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_getaffinity_np(pthread_t thread, size_t size, cpu_set_t *set)` |
+| `pthread_getattr_default_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_getattr_default_np(pthread_attr_t *attr)` |
+| `pthread_getattr_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_getattr_np(pthread_t thread, pthread_attr_t *attr)` |
+| `pthread_getconcurrency` | apps | [`pthread.h`](#pthread-h) | `int pthread_getconcurrency(void)` |
+| `pthread_getcpuclockid` | apps | [`pthread.h`](#pthread-h) | `int pthread_getcpuclockid(pthread_t thread, clockid_t *clock)` |
+| `pthread_getname_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_getname_np(pthread_t thread, char *name, size_t size)` |
+| `pthread_getschedparam` | apps | [`pthread.h`](#pthread-h) | `int pthread_getschedparam(pthread_t thread, int *policy, struct sched_param *param)` |
 | `pthread_getspecific` | apps | [`pthread.h`](#pthread-h) | `void *pthread_getspecific(pthread_key_t key)` |
 | `pthread_join` | apps | [`pthread.h`](#pthread-h) | `int pthread_join(pthread_t thread, void **value)` |
 | `pthread_key_create` | apps | [`pthread.h`](#pthread-h) | `int pthread_key_create(pthread_key_t *key, void (*destructor)(void *value))` |
 | `pthread_key_delete` | apps | [`pthread.h`](#pthread-h) | `int pthread_key_delete(pthread_key_t key)` |
+| `pthread_kill` | apps | [`pthread.h`](#pthread-h) | `int pthread_kill(pthread_t thread, int signal)` |
 | `pthread_mutex_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutex_destroy(pthread_mutex_t *m)` |
 | `pthread_mutex_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutex_init(pthread_mutex_t *m, const pthread_mutexattr_t *attr)` |
 | `pthread_mutex_lock` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutex_lock(pthread_mutex_t *m)` |
@@ -770,9 +1142,16 @@ kernel's interface; programs use the library's calls rather than raw
 | `pthread_mutex_trylock` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutex_trylock(pthread_mutex_t *m)` |
 | `pthread_mutex_unlock` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutex_unlock(pthread_mutex_t *m)` |
 | `pthread_mutexattr_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_destroy(pthread_mutexattr_t *attr)` |
+| `pthread_mutexattr_getprioceiling` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_getprioceiling(const pthread_mutexattr_t *attr, int *ceiling)` |
+| `pthread_mutexattr_getprotocol` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr, int *protocol)` |
+| `pthread_mutexattr_getpshared` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr, int *shared)` |
+| `pthread_mutexattr_getrobust` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_getrobust(const pthread_mutexattr_t *attr, int *robust)` |
 | `pthread_mutexattr_gettype` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_gettype(const pthread_mutexattr_t *attr, int *kind)` |
 | `pthread_mutexattr_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_init(pthread_mutexattr_t *attr)` |
+| `pthread_mutexattr_setprioceiling` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_setprioceiling(pthread_mutexattr_t *attr, int ceiling)` |
+| `pthread_mutexattr_setprotocol` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr, int protocol)` |
 | `pthread_mutexattr_setpshared` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int shared)` |
+| `pthread_mutexattr_setrobust` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust)` |
 | `pthread_mutexattr_settype` | apps | [`pthread.h`](#pthread-h) | `int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int kind)` |
 | `pthread_once` | apps | [`pthread.h`](#pthread-h) | `int pthread_once(pthread_once_t *once, void (*init)(void))` |
 | `pthread_rwlock_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlock_destroy(pthread_rwlock_t *l)` |
@@ -785,10 +1164,18 @@ kernel's interface; programs use the library's calls rather than raw
 | `pthread_rwlock_unlock` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlock_unlock(pthread_rwlock_t *l)` |
 | `pthread_rwlock_wrlock` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlock_wrlock(pthread_rwlock_t *l)` |
 | `pthread_rwlockattr_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlockattr_destroy(pthread_rwlockattr_t *attr)` |
+| `pthread_rwlockattr_getpshared` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlockattr_getpshared(const pthread_rwlockattr_t *attr, int *shared)` |
 | `pthread_rwlockattr_init` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlockattr_init(pthread_rwlockattr_t *attr)` |
+| `pthread_rwlockattr_setpshared` | apps | [`pthread.h`](#pthread-h) | `int pthread_rwlockattr_setpshared(pthread_rwlockattr_t *attr, int shared)` |
 | `pthread_self` | apps | [`pthread.h`](#pthread-h) | `pthread_t pthread_self(void)` |
+| `pthread_setaffinity_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_setaffinity_np(pthread_t thread, size_t size, const cpu_set_t *set)` |
+| `pthread_setattr_default_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_setattr_default_np(const pthread_attr_t *attr)` |
 | `pthread_setcancelstate` | apps | [`pthread.h`](#pthread-h) | `int pthread_setcancelstate(int state, int *old)` |
 | `pthread_setcanceltype` | apps | [`pthread.h`](#pthread-h) | `int pthread_setcanceltype(int type, int *old)` |
+| `pthread_setconcurrency` | apps | [`pthread.h`](#pthread-h) | `int pthread_setconcurrency(int level)` |
+| `pthread_setname_np` | apps | [`pthread.h`](#pthread-h) | `int pthread_setname_np(pthread_t thread, const char *name)` |
+| `pthread_setschedparam` | apps | [`pthread.h`](#pthread-h) | `int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param *param)` |
+| `pthread_setschedprio` | apps | [`pthread.h`](#pthread-h) | `int pthread_setschedprio(pthread_t thread, int priority)` |
 | `pthread_setspecific` | apps | [`pthread.h`](#pthread-h) | `int pthread_setspecific(pthread_key_t key, const void *value)` |
 | `pthread_sigmask` | apps | [`pthread.h`](#pthread-h) | `int pthread_sigmask(int how, const sigset_t *set, sigset_t *old)` |
 | `pthread_spin_destroy` | apps | [`pthread.h`](#pthread-h) | `int pthread_spin_destroy(pthread_spinlock_t *s)` |
@@ -805,16 +1192,28 @@ kernel's interface; programs use the library's calls rather than raw
 | `puts` | apps | [`stdio.h`](#stdio-h) | `int puts(const char *s)` |
 | `putwc` | apps | [`wchar.h`](#wchar-h) | `wint_t putwc(wchar_t wc, FILE *f)` |
 | `putwchar` | apps | [`wchar.h`](#wchar-h) | `wint_t putwchar(wchar_t wc)` |
+| `pvalloc` | apps | [`malloc.h`](#malloc-h) | `void *pvalloc(size_t size)` |
+| `pwrite` | apps | [`unistd.h`](#unistd-h) | `ssize_t pwrite(int fd, const void *buffer, size_t size, off_t offset)` |
+| `pwritev` | apps | [`sys/uio.h`](#sys-uio-h) | `ssize_t pwritev(int fd, const struct iovec *parts, int count, off_t offset)` |
 | `qsort` | apps | [`stdlib.h`](#stdlib-h) | `void qsort(void *base, size_t count, size_t size, int (*compare)(const void *a, const void *b))` |
+| `qsort_r` | apps | [`stdlib.h`](#stdlib-h) | `void qsort_r(void *base, size_t count, size_t size, int (*compare)(const void *a, const void *b, void *arg), void *arg)` |
 | `quick_exit` | apps | [`stdlib.h`](#stdlib-h) | `void quick_exit(int code)` |
 | `raise` | apps | [`signal.h`](#signal-h) | `int raise(int signal)` |
 | `rand` | apps | [`stdlib.h`](#stdlib-h) | `int rand(void)` |
+| `rand_r` | apps | [`stdlib.h`](#stdlib-h) | `int rand_r(unsigned int *seed)` |
+| `random` | apps | [`stdlib.h`](#stdlib-h) | `long random(void)` |
 | `read` | apps | [`unistd.h`](#unistd-h) | `ssize_t read(int fd, void *buffer, size_t size)` |
 | `readdir` | apps | [`dirent.h`](#dirent-h) | `struct dirent *readdir(DIR *dir)` |
+| `readdir_r` | apps | [`dirent.h`](#dirent-h) | `int readdir_r(DIR *dir, struct dirent *entry, struct dirent **result)` |
 | `readlink` | apps | [`unistd.h`](#unistd-h) | `ssize_t readlink(const char *path, char *buffer, size_t size)` |
+| `readlinkat` | apps | [`unistd.h`](#unistd-h) | `ssize_t readlinkat(int dirfd, const char *path, char *buffer, size_t size)` |
+| `readv` | apps | [`sys/uio.h`](#sys-uio-h) | `ssize_t readv(int fd, const struct iovec *parts, int count)` |
 | `realloc` | apps | [`stdlib.h`](#stdlib-h) | `void *realloc(void *ptr, size_t size)` |
+| `reallocarray` | apps | [`stdlib.h`](#stdlib-h) | `void *reallocarray(void *ptr, size_t count, size_t size)` |
+| `realpath` | apps | [`stdlib.h`](#stdlib-h) | `char *realpath(const char *path, char *resolved)` |
 | `recv` | apps | [`sys/socket.h`](#sys-socket-h) | `ssize_t recv(int fd, void *data, size_t size, int flags)` |
 | `recvfrom` | apps | [`sys/socket.h`](#sys-socket-h) | `ssize_t recvfrom(int fd, void *data, size_t size, int flags, struct sockaddr *from, socklen_t *length)` |
+| `recvmsg` | apps | [`sys/socket.h`](#sys-socket-h) | `ssize_t recvmsg(int fd, struct msghdr *message, int flags)` |
 | `regcomp` | apps | [`regex.h`](#regex-h) | `int regcomp(regex_t *re, const char *pattern, int flags)` |
 | `regerror` | apps | [`regex.h`](#regex-h) | `size_t regerror(int error, const regex_t *re, char *buffer, size_t size)` |
 | `regexec` | apps | [`regex.h`](#regex-h) | `int regexec(const regex_t *re, const char *string, size_t nmatch, regmatch_t pmatch[], int flags)` |
@@ -823,11 +1222,15 @@ kernel's interface; programs use the library's calls rather than raw
 | `remainderf` | apps | [`math.h`](#math-h) | `float remainderf(float x, float y)` |
 | `remainderl` | apps | [`math.h`](#math-h) | `long double remainderl(long double x, long double y)` |
 | `remove` | apps | [`stdio.h`](#stdio-h) | `int remove(const char *path)` |
+| `remque` | apps | [`search.h`](#search-h) | `void remque(void *element)` |
 | `remquo` | apps | [`math.h`](#math-h) | `double remquo(double x, double y, int *quo)` |
 | `remquof` | apps | [`math.h`](#math-h) | `float remquof(float x, float y, int *quo)` |
 | `remquol` | apps | [`math.h`](#math-h) | `long double remquol(long double x, long double y, int *quo)` |
 | `rename` | apps | [`stdio.h`](#stdio-h) | `int rename(const char *from, const char *to)` |
+| `renameat` | apps | [`stdio.h`](#stdio-h) | `int renameat(int fromfd, const char *from, int tofd, const char *to)` |
 | `rewind` | apps | [`stdio.h`](#stdio-h) | `void rewind(FILE *f)` |
+| `rewinddir` | apps | [`dirent.h`](#dirent-h) | `void rewinddir(DIR *dir)` |
+| `rindex` | apps | [`strings.h`](#strings-h) | `char *rindex(const char *s, int c)` |
 | `rint` | apps | [`math.h`](#math-h) | `double rint(double x)` |
 | `rintf` | apps | [`math.h`](#math-h) | `float rintf(float x)` |
 | `rintl` | apps | [`math.h`](#math-h) | `long double rintl(long double x)` |
@@ -842,6 +1245,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `ritteros_connect_local` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_connect_local(int fd, const char *path)` |
 | `ritteros_copy` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_copy(const char *from, const char *to)` |
 | `ritteros_copy_bytes` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_copy_bytes(const char *from, const char *to, char *failed, size_t size)` |
+| `ritteros_crc32` | apps | [`ritteros.h`](#ritteros-h) | `uint32_t ritteros_crc32(const void *data, size_t size)` |
 | `ritteros_default_route` | system | [`ritteros.h`](#ritteros-h) | `int ritteros_default_route(int op, const char *card)` |
 | `ritteros_device` | system | [`ritteros.h`](#ritteros-h) | `int ritteros_device(int index, struct sys_device *out)` |
 | `ritteros_display_acquire` | system | [`ritteros.h`](#ritteros-h) | `int ritteros_display_acquire(void)` |
@@ -875,6 +1279,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `ritteros_netlease6` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_netlease6(const struct sys_netlease6 *lease)` |
 | `ritteros_netset` | system | [`ritteros.h`](#ritteros-h) | `int ritteros_netset(const struct sys_netset *settings)` |
 | `ritteros_netset6` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_netset6(const struct sys_netset6 *settings)` |
+| `ritteros_peer_program` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_peer_program(int fd, char *path, size_t size)` |
 | `ritteros_peer_uid` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_peer_uid(int fd)` |
 | `ritteros_ping` | apps | [`ritteros.h`](#ritteros-h) | `int64_t ritteros_ping(uint32_t ip, uint16_t id, uint16_t seq, size_t size, uint32_t timeout_ms)` |
 | `ritteros_ping6` | apps | [`ritteros.h`](#ritteros-h) | `int64_t ritteros_ping6(const struct sys_inaddr *to, uint16_t id, uint16_t seq, size_t size, uint32_t timeout_ms)` |
@@ -902,6 +1307,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `ritteros_share_size` | apps | [`ritteros.h`](#ritteros-h) | `long ritteros_share_size(int fd)` |
 | `ritteros_snapshot` | system | [`ritteros.h`](#ritteros-h) | `int64_t ritteros_snapshot(int op, const char *name, struct sys_snapshot *buffer, size_t size)` |
 | `ritteros_socket` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_socket(int type)` |
+| `ritteros_sound_may_play` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_sound_may_play(int fd)` |
 | `ritteros_spawn` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_spawn(const char *path, char *const argv[], int flags, const int fds[3])` |
 | `ritteros_spawn_as` | system | [`ritteros.h`](#ritteros-h) | `int ritteros_spawn_as(const char *path, char *const argv[], int flags, const int fds[3], uid_t uid, gid_t gid)` |
 | `ritteros_spawn_env` | apps | [`ritteros.h`](#ritteros-h) | `int ritteros_spawn_env(const char *path, char *const argv[], char *const envp[], int flags, const int fds[3])` |
@@ -921,6 +1327,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `round` | apps | [`math.h`](#math-h) | `double round(double x)` |
 | `roundf` | apps | [`math.h`](#math-h) | `float roundf(float x)` |
 | `roundl` | apps | [`math.h`](#math-h) | `long double roundl(long double x)` |
+| `roundup` | apps | [`sys/param.h`](#sys-param-h) | `#define roundup(x, y)` |
 | `rsa_verify_pkcs1` | apps | [`crypto.h`](#crypto-h) | `bool rsa_verify_pkcs1(const uint8_t *n, size_t nlen, const uint8_t *e, size_t elen, const uint8_t *digest, size_t dlen, const uint8_t *sig, size_t slen)` |
 | `rsa_verify_pss` | apps | [`crypto.h`](#crypto-h) | `bool rsa_verify_pss(const uint8_t *n, size_t nlen, const uint8_t *e, size_t elen, const uint8_t *digest, size_t dlen, const uint8_t *sig, size_t slen)` |
 | `S_ISBLK` | apps | [`sys/stat.h`](#sys-stat-h) | `#define S_ISBLK(mode)` |
@@ -943,19 +1350,54 @@ kernel's interface; programs use the library's calls rather than raw
 | `scalbn` | apps | [`math.h`](#math-h) | `double scalbn(double x, int n)` |
 | `scalbnf` | apps | [`math.h`](#math-h) | `float scalbnf(float x, int n)` |
 | `scalbnl` | apps | [`math.h`](#math-h) | `long double scalbnl(long double x, int n)` |
+| `scandir` | apps | [`dirent.h`](#dirent-h) | `int scandir(const char *path, struct dirent ***list, int (*filter)(const struct dirent *), int (*compare)(const struct dirent **, const struct dirent **))` |
 | `scanf` | apps | [`stdio.h`](#stdio-h) | `int scanf(const char *format, ...)` |
+| `sched_get_priority_max` | apps | [`sched.h`](#sched-h) | `int sched_get_priority_max(int policy)` |
+| `sched_get_priority_min` | apps | [`sched.h`](#sched-h) | `int sched_get_priority_min(int policy)` |
+| `sched_getaffinity` | apps | [`sched.h`](#sched-h) | `int sched_getaffinity(pid_t pid, size_t size, cpu_set_t *set)` |
+| `sched_getcpu` | apps | [`sched.h`](#sched-h) | `int sched_getcpu(void)` |
+| `sched_getparam` | apps | [`sched.h`](#sched-h) | `int sched_getparam(pid_t pid, struct sched_param *param)` |
+| `sched_getscheduler` | apps | [`sched.h`](#sched-h) | `int sched_getscheduler(pid_t pid)` |
+| `sched_rr_get_interval` | apps | [`sched.h`](#sched-h) | `int sched_rr_get_interval(pid_t pid, struct timespec *interval)` |
+| `sched_setaffinity` | apps | [`sched.h`](#sched-h) | `int sched_setaffinity(pid_t pid, size_t size, const cpu_set_t *set)` |
+| `sched_setparam` | apps | [`sched.h`](#sched-h) | `int sched_setparam(pid_t pid, const struct sched_param *param)` |
+| `sched_setscheduler` | apps | [`sched.h`](#sched-h) | `int sched_setscheduler(pid_t pid, int policy, const struct sched_param *param)` |
 | `sched_yield` | apps | [`sched.h`](#sched-h) | `int sched_yield(void)` |
+| `secure_getenv` | apps | [`stdlib.h`](#stdlib-h) | `char *secure_getenv(const char *name)` |
+| `seed48` | apps | [`stdlib.h`](#stdlib-h) | `unsigned short *seed48(unsigned short seed[3])` |
+| `seekdir` | apps | [`dirent.h`](#dirent-h) | `void seekdir(DIR *dir, long place)` |
 | `select` | apps | [`sys/select.h`](#sys-select-h) | `int select(int count, fd_set *read, fd_set *write, fd_set *except, struct timeval *timeout)` |
+| `sem_close` | apps | [`semaphore.h`](#semaphore-h) | `int sem_close(sem_t *s)` |
+| `sem_destroy` | apps | [`semaphore.h`](#semaphore-h) | `int sem_destroy(sem_t *s)` |
+| `sem_getvalue` | apps | [`semaphore.h`](#semaphore-h) | `int sem_getvalue(sem_t *s, int *value)` |
+| `sem_init` | apps | [`semaphore.h`](#semaphore-h) | `int sem_init(sem_t *s, int pshared, unsigned int value)` |
+| `sem_open` | apps | [`semaphore.h`](#semaphore-h) | `sem_t *sem_open(const char *name, int flags, ...)` |
+| `sem_post` | apps | [`semaphore.h`](#semaphore-h) | `int sem_post(sem_t *s)` |
+| `sem_timedwait` | apps | [`semaphore.h`](#semaphore-h) | `int sem_timedwait(sem_t *s, const struct timespec *until)` |
+| `sem_trywait` | apps | [`semaphore.h`](#semaphore-h) | `int sem_trywait(sem_t *s)` |
+| `sem_unlink` | apps | [`semaphore.h`](#semaphore-h) | `int sem_unlink(const char *name)` |
+| `sem_wait` | apps | [`semaphore.h`](#semaphore-h) | `int sem_wait(sem_t *s)` |
 | `send` | apps | [`sys/socket.h`](#sys-socket-h) | `ssize_t send(int fd, const void *data, size_t size, int flags)` |
 | `sendto` | apps | [`sys/socket.h`](#sys-socket-h) | `ssize_t sendto(int fd, const void *data, size_t size, int flags, const struct sockaddr *to, socklen_t length)` |
 | `setbuf` | apps | [`stdio.h`](#stdio-h) | `void setbuf(FILE *f, char *buf)` |
+| `setbuffer` | apps | [`stdio.h`](#stdio-h) | `void setbuffer(FILE *f, char *buf, size_t size)` |
 | `setenv` | apps | [`stdlib.h`](#stdlib-h) | `int setenv(const char *name, const char *value, int overwrite)` |
 | `setgid` | apps | [`unistd.h`](#unistd-h) | `int setgid(gid_t gid)` |
+| `setgrent` | apps | [`grp.h`](#grp-h) | `void setgrent(void)` |
+| `setgroups` | apps | [`grp.h`](#grp-h) | `int setgroups(size_t count, const gid_t *groups)` |
 | `setjmp` | apps | [`setjmp.h`](#setjmp-h) | `int setjmp(jmp_buf env)` |
+| `setlinebuf` | apps | [`stdio.h`](#stdio-h) | `void setlinebuf(FILE *f)` |
 | `setlocale` | apps | [`locale.h`](#locale-h) | `char *setlocale(int category, const char *locale)` |
+| `setlogmask` | apps | [`syslog.h`](#syslog-h) | `int setlogmask(int mask)` |
 | `setpgid` | apps | [`unistd.h`](#unistd-h) | `int setpgid(pid_t pid, pid_t group)` |
+| `setpgrp` | apps | [`unistd.h`](#unistd-h) | `int setpgrp(void)` |
+| `setpriority` | apps | [`sys/resource.h`](#sys-resource-h) | `int setpriority(int which, id_t who, int priority)` |
+| `setpwent` | apps | [`pwd.h`](#pwd-h) | `void setpwent(void)` |
+| `setrlimit` | apps | [`sys/resource.h`](#sys-resource-h) | `int setrlimit(int resource, const struct rlimit *limit)` |
 | `setsid` | apps | [`unistd.h`](#unistd-h) | `pid_t setsid(void)` |
 | `setsockopt` | apps | [`sys/socket.h`](#sys-socket-h) | `int setsockopt(int fd, int level, int option, const void *value, socklen_t length)` |
+| `setstate` | apps | [`stdlib.h`](#stdlib-h) | `char *setstate(char *state)` |
+| `settimeofday` | apps | [`sys/time.h`](#sys-time-h) | `int settimeofday(const struct timeval *tv, const void *zone)` |
 | `setuid` | apps | [`unistd.h`](#unistd-h) | `int setuid(uid_t uid)` |
 | `setvbuf` | apps | [`stdio.h`](#stdio-h) | `int setvbuf(FILE *f, char *buf, int mode, size_t size)` |
 | `sha1` | apps | [`crypto.h`](#crypto-h) | `void sha1(const void *data, size_t n, uint8_t out[SHA1_SIZE])` |
@@ -973,17 +1415,25 @@ kernel's interface; programs use the library's calls rather than raw
 | `sha512_final` | apps | [`crypto.h`](#crypto-h) | `void sha512_final(struct sha512 *s, uint8_t out[SHA512_SIZE])` |
 | `sha512_init` | apps | [`crypto.h`](#crypto-h) | `void sha512_init(struct sha512 *s)` |
 | `sha512_update` | apps | [`crypto.h`](#crypto-h) | `void sha512_update(struct sha512 *s, const void *data, size_t n)` |
+| `shm_open` | apps | [`sys/mman.h`](#sys-mman-h) | `int shm_open(const char *name, int flags, mode_t mode)` |
+| `shm_unlink` | apps | [`sys/mman.h`](#sys-mman-h) | `int shm_unlink(const char *name)` |
 | `shutdown` | apps | [`sys/socket.h`](#sys-socket-h) | `int shutdown(int fd, int how)` |
 | `sigaction` | apps | [`signal.h`](#signal-h) | `int sigaction(int signal, const struct sigaction *action, struct sigaction *old)` |
 | `sigaddset` | apps | [`signal.h`](#signal-h) | `int sigaddset(sigset_t *set, int signal)` |
+| `sigaltstack` | apps | [`signal.h`](#signal-h) | `int sigaltstack(const stack_t *stack, stack_t *old)` |
+| `sigandset` | apps | [`signal.h`](#signal-h) | `int sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b)` |
 | `sigdelset` | apps | [`signal.h`](#signal-h) | `int sigdelset(sigset_t *set, int signal)` |
 | `sigemptyset` | apps | [`signal.h`](#signal-h) | `int sigemptyset(sigset_t *set)` |
 | `sigfillset` | apps | [`signal.h`](#signal-h) | `int sigfillset(sigset_t *set)` |
+| `sigisemptyset` | apps | [`signal.h`](#signal-h) | `int sigisemptyset(const sigset_t *set)` |
 | `sigismember` | apps | [`signal.h`](#signal-h) | `int sigismember(const sigset_t *set, int signal)` |
+| `siglongjmp` | apps | [`setjmp.h`](#setjmp-h) | `void siglongjmp(sigjmp_buf env, int value)` |
 | `signal` | apps | [`signal.h`](#signal-h) | `sighandler_t signal(int signal, sighandler_t action)` |
 | `signbit` | apps | [`math.h`](#math-h) | `#define signbit(x)` |
+| `sigorset` | apps | [`signal.h`](#signal-h) | `int sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b)` |
 | `sigpending` | apps | [`signal.h`](#signal-h) | `int sigpending(sigset_t *set)` |
 | `sigprocmask` | apps | [`signal.h`](#signal-h) | `int sigprocmask(int how, const sigset_t *set, sigset_t *old)` |
+| `sigsetjmp` | apps | [`setjmp.h`](#setjmp-h) | `int sigsetjmp(sigjmp_buf env, int save)` |
 | `sigsuspend` | apps | [`signal.h`](#signal-h) | `int sigsuspend(const sigset_t *mask)` |
 | `sin` | apps | [`math.h`](#math-h) | `double sin(double x)` |
 | `sinf` | apps | [`math.h`](#math-h) | `float sinf(float x)` |
@@ -994,6 +1444,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `sleep` | apps | [`unistd.h`](#unistd-h) | `unsigned int sleep(unsigned int seconds)` |
 | `snprintf` | apps | [`stdio.h`](#stdio-h) | `int snprintf(char *buffer, size_t size, const char *format, ...)` |
 | `socket` | apps | [`sys/socket.h`](#sys-socket-h) | `int socket(int family, int type, int protocol)` |
+| `socketpair` | apps | [`sys/socket.h`](#sys-socket-h) | `int socketpair(int domain, int type, int protocol, int fds[2])` |
 | `spawn` | apps | [`unistd.h`](#unistd-h) | `pid_t spawn(const char *path, char *const argv[])` |
 | `spawn_new_group` | apps | [`unistd.h`](#unistd-h) | `pid_t spawn_new_group(const char *path, char *const argv[])` |
 | `sprintf` | apps | [`stdio.h`](#stdio-h) | `int sprintf(char *buffer, const char *format, ...)` |
@@ -1001,6 +1452,8 @@ kernel's interface; programs use the library's calls rather than raw
 | `sqrtf` | apps | [`math.h`](#math-h) | `float sqrtf(float x)` |
 | `sqrtl` | apps | [`math.h`](#math-h) | `long double sqrtl(long double x)` |
 | `srand` | apps | [`stdlib.h`](#stdlib-h) | `void srand(unsigned int seed)` |
+| `srand48` | apps | [`stdlib.h`](#stdlib-h) | `void srand48(long seed)` |
+| `srandom` | apps | [`stdlib.h`](#stdlib-h) | `void srandom(unsigned int seed)` |
 | `sscanf` | apps | [`stdio.h`](#stdio-h) | `int sscanf(const char *text, const char *format, ...)` |
 | `ssh_buf_init` | system | [`ssh.h`](#ssh-h) | `void ssh_buf_init(struct ssh_buf *b, uint8_t type)` |
 | `ssh_disconnect` | system | [`ssh.h`](#ssh-h) | `void ssh_disconnect(struct ssh *s, uint32_t reason, const char *text)` |
@@ -1022,44 +1475,77 @@ kernel's interface; programs use the library's calls rather than raw
 | `ssh_send` | system | [`ssh.h`](#ssh-h) | `int ssh_send(struct ssh *s, const struct ssh_buf *b)` |
 | `ssh_start` | system | [`ssh.h`](#ssh-h) | `int ssh_start(struct ssh *s, int fd, bool server)` |
 | `ssh_string_is` | system | [`ssh.h`](#ssh-h) | `bool ssh_string_is(const uint8_t *s, size_t n, const char *text)` |
-| `stat` | apps | [`sys/stat.h`](#sys-stat-h) | `int stat(const char *path, struct stat *st)` |
+| `stat` | apps | [`sys/stat.h`](#sys-stat-h) | `int stat(const char *path, struct stat *st) __asm__("__ritteros_stat2")` |
 | `STATUS_EXITED` | apps | [`common/syscalls.h`](#common-syscalls-h) | `#define STATUS_EXITED(code)` |
 | `STATUS_SIGNALED` | apps | [`common/syscalls.h`](#common-syscalls-h) | `#define STATUS_SIGNALED(sig)` |
+| `STATUS_STOPPED` | apps | [`common/syscalls.h`](#common-syscalls-h) | `#define STATUS_STOPPED(sig)` |
+| `statvfs` | apps | [`sys/statvfs.h`](#sys-statvfs-h) | `int statvfs(const char *path, struct statvfs *out)` |
 | `stpcpy` | apps | [`string.h`](#string-h) | `char *stpcpy(char *dst, const char *src)` |
+| `stpncpy` | apps | [`string.h`](#string-h) | `char *stpncpy(char *dst, const char *src, size_t n)` |
 | `strcasecmp` | apps | [`strings.h`](#strings-h) | `int strcasecmp(const char *a, const char *b)` |
+| `strcasecmp_l` | apps | [`strings.h`](#strings-h) | `int strcasecmp_l(const char *a, const char *b, locale_t l)` |
+| `strcasestr` | apps | [`string.h`](#string-h) | `char *strcasestr(const char *haystack, const char *needle)` |
 | `strcat` | apps | [`string.h`](#string-h) | `char *strcat(char *dst, const char *src)` |
 | `strchr` | apps | [`string.h`](#string-h) | `char *strchr(const char *s, int c)` |
+| `strchrnul` | apps | [`string.h`](#string-h) | `char *strchrnul(const char *s, int c)` |
 | `strcmp` | apps | [`string.h`](#string-h) | `int strcmp(const char *a, const char *b)` |
 | `strcoll` | apps | [`string.h`](#string-h) | `int strcoll(const char *a, const char *b)` |
+| `strcoll_l` | apps | [`string.h`](#string-h) | `int strcoll_l(const char *a, const char *b, locale_t l)` |
 | `strcpy` | apps | [`string.h`](#string-h) | `char *strcpy(char *dst, const char *src)` |
 | `strcspn` | apps | [`string.h`](#string-h) | `size_t strcspn(const char *s, const char *reject)` |
 | `strdup` | apps | [`string.h`](#string-h) | `char *strdup(const char *s)` |
-| `strerror` | apps | [`string.h`](#string-h) | `const char *strerror(int error)` |
+| `strerror` | apps | [`string.h`](#string-h) | `char *strerror(int error)` |
+| `strerror_l` | apps | [`string.h`](#string-h) | `char *strerror_l(int error, locale_t l)` |
+| `strerror_r` | apps | [`string.h`](#string-h) | `int strerror_r(int error, char *buf, size_t size)` |
 | `strftime` | apps | [`time.h`](#time-h) | `size_t strftime(char *s, size_t max, const char *format, const struct tm *tm)` |
+| `strftime_l` | apps | [`time.h`](#time-h) | `size_t strftime_l(char *s, size_t max, const char *format, const struct tm *tm, locale_t l)` |
+| `strlcat` | apps | [`string.h`](#string-h) | `size_t strlcat(char *dst, const char *src, size_t size)` |
+| `strlcpy` | apps | [`string.h`](#string-h) | `size_t strlcpy(char *dst, const char *src, size_t size)` |
 | `strlen` | apps | [`string.h`](#string-h) | `size_t strlen(const char *s)` |
 | `strncasecmp` | apps | [`strings.h`](#strings-h) | `int strncasecmp(const char *a, const char *b, size_t n)` |
+| `strncasecmp_l` | apps | [`strings.h`](#strings-h) | `int strncasecmp_l(const char *a, const char *b, size_t n, locale_t l)` |
 | `strncat` | apps | [`string.h`](#string-h) | `char *strncat(char *dst, const char *src, size_t n)` |
 | `strncmp` | apps | [`string.h`](#string-h) | `int strncmp(const char *a, const char *b, size_t n)` |
 | `strncpy` | apps | [`string.h`](#string-h) | `char *strncpy(char *dst, const char *src, size_t n)` |
 | `strndup` | apps | [`string.h`](#string-h) | `char *strndup(const char *s, size_t n)` |
 | `strnlen` | apps | [`string.h`](#string-h) | `size_t strnlen(const char *s, size_t n)` |
 | `strpbrk` | apps | [`string.h`](#string-h) | `char *strpbrk(const char *s, const char *breaks)` |
+| `strptime` | apps | [`time.h`](#time-h) | `char *strptime(const char *text, const char *format, struct tm *tm)` |
 | `strrchr` | apps | [`string.h`](#string-h) | `char *strrchr(const char *s, int c)` |
+| `strsep` | apps | [`string.h`](#string-h) | `char *strsep(char **s, const char *delimiters)` |
+| `strsignal` | apps | [`string.h`](#string-h) | `char *strsignal(int signal)` |
 | `strspn` | apps | [`string.h`](#string-h) | `size_t strspn(const char *s, const char *accept)` |
 | `strstr` | apps | [`string.h`](#string-h) | `char *strstr(const char *haystack, const char *needle)` |
 | `strtod` | apps | [`stdlib.h`](#stdlib-h) | `double strtod(const char *s, char **end)` |
+| `strtod_l` | apps | [`stdlib.h`](#stdlib-h) | `double strtod_l(const char *s, char **end, locale_t l)` |
 | `strtof` | apps | [`stdlib.h`](#stdlib-h) | `float strtof(const char *s, char **end)` |
+| `strtof_l` | apps | [`stdlib.h`](#stdlib-h) | `float strtof_l(const char *s, char **end, locale_t l)` |
+| `strtoimax` | apps | [`inttypes.h`](#inttypes-h) | `intmax_t strtoimax(const char *s, char **end, int base)` |
 | `strtok` | apps | [`string.h`](#string-h) | `char *strtok(char *s, const char *delimiters)` |
+| `strtok_r` | apps | [`string.h`](#string-h) | `char *strtok_r(char *s, const char *delimiters, char **save)` |
 | `strtol` | apps | [`stdlib.h`](#stdlib-h) | `long strtol(const char *s, char **end, int base)` |
+| `strtol_l` | apps | [`stdlib.h`](#stdlib-h) | `long strtol_l(const char *s, char **end, int base, locale_t l)` |
 | `strtold` | apps | [`stdlib.h`](#stdlib-h) | `long double strtold(const char *s, char **end)` |
+| `strtold_l` | apps | [`stdlib.h`](#stdlib-h) | `long double strtold_l(const char *s, char **end, locale_t l)` |
 | `strtoll` | apps | [`stdlib.h`](#stdlib-h) | `long long strtoll(const char *s, char **end, int base)` |
+| `strtoll_l` | apps | [`stdlib.h`](#stdlib-h) | `long long strtoll_l(const char *s, char **end, int base, locale_t l)` |
 | `strtoul` | apps | [`stdlib.h`](#stdlib-h) | `unsigned long strtoul(const char *s, char **end, int base)` |
+| `strtoul_l` | apps | [`stdlib.h`](#stdlib-h) | `unsigned long strtoul_l(const char *s, char **end, int base, locale_t l)` |
 | `strtoull` | apps | [`stdlib.h`](#stdlib-h) | `unsigned long long strtoull(const char *s, char **end, int base)` |
+| `strtoull_l` | apps | [`stdlib.h`](#stdlib-h) | `unsigned long long strtoull_l(const char *s, char **end, int base, locale_t l)` |
+| `strtoumax` | apps | [`inttypes.h`](#inttypes-h) | `uintmax_t strtoumax(const char *s, char **end, int base)` |
+| `strverscmp` | apps | [`string.h`](#string-h) | `int strverscmp(const char *a, const char *b)` |
 | `strxfrm` | apps | [`string.h`](#string-h) | `size_t strxfrm(char *dst, const char *src, size_t n)` |
+| `strxfrm_l` | apps | [`string.h`](#string-h) | `size_t strxfrm_l(char *dst, const char *src, size_t n, locale_t l)` |
 | `swprintf` | apps | [`wchar.h`](#wchar-h) | `int swprintf(wchar_t *s, size_t size, const wchar_t *format, ...)` |
 | `swscanf` | apps | [`wchar.h`](#wchar-h) | `int swscanf(const wchar_t *s, const wchar_t *format, ...)` |
 | `symlink` | apps | [`unistd.h`](#unistd-h) | `int symlink(const char *target, const char *path)` |
+| `symlinkat` | apps | [`unistd.h`](#unistd-h) | `int symlinkat(const char *target, int dirfd, const char *path)` |
+| `sync` | apps | [`unistd.h`](#unistd-h) | `void sync(void)` |
 | `syscall6` | system | [`ritteros.h`](#ritteros-h) | `int64_t syscall6(int64_t number, int64_t a, int64_t b, int64_t c, int64_t d, int64_t e, int64_t f)` |
+| `sysconf` | apps | [`unistd.h`](#unistd-h) | `long sysconf(int name)` |
+| `sysinfo` | apps | [`sys/sysinfo.h`](#sys-sysinfo-h) | `int sysinfo(struct sysinfo *info)` |
+| `syslog` | apps | [`syslog.h`](#syslog-h) | `void syslog(int priority, const char *format, ...)` |
 | `system` | apps | [`stdlib.h`](#stdlib-h) | `int system(const char *command)` |
 | `tan` | apps | [`math.h`](#math-h) | `double tan(double x)` |
 | `tanf` | apps | [`math.h`](#math-h) | `float tanf(float x)` |
@@ -1073,6 +1559,12 @@ kernel's interface; programs use the library's calls rather than raw
 | `tcgetpgrp` | apps | [`unistd.h`](#unistd-h) | `pid_t tcgetpgrp(int fd)` |
 | `tcsetattr` | apps | [`termios.h`](#termios-h) | `int tcsetattr(int fd, int when, const struct termios *t)` |
 | `tcsetpgrp` | apps | [`unistd.h`](#unistd-h) | `int tcsetpgrp(int fd, pid_t group)` |
+| `tdelete` | apps | [`search.h`](#search-h) | `void *tdelete(const void *key, void **root, int (*compare)(const void *a, const void *b))` |
+| `tdestroy` | apps | [`search.h`](#search-h) | `void tdestroy(void *root, void (*free_key)(void *key))` |
+| `telldir` | apps | [`dirent.h`](#dirent-h) | `long telldir(DIR *dir)` |
+| `tempnam` | apps | [`stdio.h`](#stdio-h) | `char *tempnam(const char *dir, const char *prefix)` |
+| `textdomain` | apps | [`libintl.h`](#libintl-h) | `char *textdomain(const char *domain)` |
+| `tfind` | apps | [`search.h`](#search-h) | `void *tfind(const void *key, void *const *root, int (*compare)(const void *a, const void *b))` |
 | `tgamma` | apps | [`math.h`](#math-h) | `double tgamma(double x)` |
 | `tgammaf` | apps | [`math.h`](#math-h) | `float tgammaf(float x)` |
 | `tgammal` | apps | [`math.h`](#math-h) | `long double tgammal(long double x)` |
@@ -1089,6 +1581,11 @@ kernel's interface; programs use the library's calls rather than raw
 | `thread_join` | apps | [`thread.h`](#thread-h) | `int thread_join(int number, int *result)` |
 | `thread_self` | apps | [`thread.h`](#thread-h) | `int thread_self(void)` |
 | `time` | apps | [`time.h`](#time-h) | `time_t time(time_t *t)` |
+| `timegm` | apps | [`time.h`](#time-h) | `time_t timegm(struct tm *tm)` |
+| `timerfd_create` | apps | [`sys/timerfd.h`](#sys-timerfd-h) | `int timerfd_create(int clock, int flags)` |
+| `timerfd_gettime` | apps | [`sys/timerfd.h`](#sys-timerfd-h) | `int timerfd_gettime(int fd, struct itimerspec *value)` |
+| `timerfd_settime` | apps | [`sys/timerfd.h`](#sys-timerfd-h) | `int timerfd_settime(int fd, int flags, const struct itimerspec *value, struct itimerspec *old)` |
+| `times` | apps | [`sys/times.h`](#sys-times-h) | `clock_t times(struct tms *t)` |
 | `timespec_get` | apps | [`time.h`](#time-h) | `int timespec_get(struct timespec *ts, int base)` |
 | `tls_client` | apps | [`tls.h`](#tls-h) | `struct tls *tls_client(void)` |
 | `tls_close` | apps | [`tls.h`](#tls-h) | `int tls_close(struct tls *ctx)` |
@@ -1118,24 +1615,39 @@ kernel's interface; programs use the library's calls rather than raw
 | `tls_write` | apps | [`tls.h`](#tls-h) | `ssize_t tls_write(struct tls *ctx, const void *buf, size_t length)` |
 | `tmpfile` | apps | [`stdio.h`](#stdio-h) | `FILE *tmpfile(void)` |
 | `tmpnam` | apps | [`stdio.h`](#stdio-h) | `char *tmpnam(char *s)` |
+| `toascii` | apps | [`ctype.h`](#ctype-h) | `int toascii(int c)` |
 | `tolower` | apps | [`ctype.h`](#ctype-h) | `int tolower(int c)` |
+| `tolower_l` | apps | [`ctype.h`](#ctype-h) | `int tolower_l(int c, locale_t l)` |
 | `toupper` | apps | [`ctype.h`](#ctype-h) | `int toupper(int c)` |
+| `toupper_l` | apps | [`ctype.h`](#ctype-h) | `int toupper_l(int c, locale_t l)` |
 | `towctrans` | apps | [`wctype.h`](#wctype-h) | `wint_t towctrans(wint_t wc, wctrans_t mapping)` |
+| `towctrans_l` | apps | [`wctype.h`](#wctype-h) | `wint_t towctrans_l(wint_t c, wctrans_t t, locale_t l)` |
 | `towlower` | apps | [`wctype.h`](#wctype-h) | `wint_t towlower(wint_t wc)` |
+| `towlower_l` | apps | [`wctype.h`](#wctype-h) | `wint_t towlower_l(wint_t c, locale_t l)` |
 | `towupper` | apps | [`wctype.h`](#wctype-h) | `wint_t towupper(wint_t wc)` |
+| `towupper_l` | apps | [`wctype.h`](#wctype-h) | `wint_t towupper_l(wint_t c, locale_t l)` |
 | `trunc` | apps | [`math.h`](#math-h) | `double trunc(double x)` |
+| `truncate` | apps | [`unistd.h`](#unistd-h) | `int truncate(const char *path, off_t length)` |
 | `truncf` | apps | [`math.h`](#math-h) | `float truncf(float x)` |
 | `truncl` | apps | [`math.h`](#math-h) | `long double truncl(long double x)` |
+| `tsearch` | apps | [`search.h`](#search-h) | `void *tsearch(const void *key, void **root, int (*compare)(const void *a, const void *b))` |
 | `tss_create` | apps | [`threads.h`](#threads-h) | `int tss_create(tss_t *key, tss_dtor_t dtor)` |
 | `tss_delete` | apps | [`threads.h`](#threads-h) | `void tss_delete(tss_t key)` |
 | `tss_get` | apps | [`threads.h`](#threads-h) | `void *tss_get(tss_t key)` |
 | `tss_set` | apps | [`threads.h`](#threads-h) | `int tss_set(tss_t key, void *value)` |
+| `ttyname` | apps | [`unistd.h`](#unistd-h) | `char *ttyname(int fd)` |
+| `ttyname_r` | apps | [`unistd.h`](#unistd-h) | `int ttyname_r(int fd, char *name, size_t size)` |
+| `twalk` | apps | [`search.h`](#search-h) | `void twalk(const void *root, void (*action)(const void *node, VISIT visit, int depth))` |
+| `tzset` | apps | [`time.h`](#time-h) | `void tzset(void)` |
+| `ualarm` | apps | [`unistd.h`](#unistd-h) | `useconds_t ualarm(useconds_t microseconds, useconds_t interval)` |
 | `umask` | apps | [`sys/stat.h`](#sys-stat-h) | `mode_t umask(mode_t mask)` |
 | `uname` | apps | [`sys/utsname.h`](#sys-utsname-h) | `int uname(struct utsname *name)` |
 | `ungetc` | apps | [`stdio.h`](#stdio-h) | `int ungetc(int c, FILE *f)` |
 | `ungetwc` | apps | [`wchar.h`](#wchar-h) | `wint_t ungetwc(wint_t wc, FILE *f)` |
 | `unlink` | apps | [`unistd.h`](#unistd-h) | `int unlink(const char *path)` |
+| `unlinkat` | apps | [`unistd.h`](#unistd-h) | `int unlinkat(int dirfd, const char *path, int flags)` |
 | `unsetenv` | apps | [`stdlib.h`](#stdlib-h) | `int unsetenv(const char *name)` |
+| `uselocale` | apps | [`locale.h`](#locale-h) | `locale_t uselocale(locale_t locale)` |
 | `user_file_set` | system | [`ritteros.h`](#ritteros-h) | `int user_file_set(const char *path, const char *user, const char *line, unsigned mode)` |
 | `user_name_valid` | system | [`ritteros.h`](#ritteros-h) | `bool user_name_valid(const char *name)` |
 | `usleep` | apps | [`unistd.h`](#unistd-h) | `int usleep(useconds_t microseconds)` |
@@ -1143,7 +1655,13 @@ kernel's interface; programs use the library's calls rather than raw
 | `utime` | apps | [`utime.h`](#utime-h) | `int utime(const char *path, const struct utimbuf *times)` |
 | `utimensat` | apps | [`sys/stat.h`](#sys-stat-h) | `int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags)` |
 | `utimes` | apps | [`sys/time.h`](#sys-time-h) | `int utimes(const char *path, const struct timeval times[2])` |
+| `valloc` | apps | [`malloc.h`](#malloc-h) | `void *valloc(size_t size)` |
+| `vasprintf` | apps | [`stdio.h`](#stdio-h) | `int vasprintf(char **out, const char *format, va_list ap)` |
 | `vdprintf` | apps | [`stdio.h`](#stdio-h) | `int vdprintf(int fd, const char *format, va_list ap)` |
+| `verr` | apps | [`err.h`](#err-h) | `void verr(int status, const char *format, va_list ap)` |
+| `verrx` | apps | [`err.h`](#err-h) | `void verrx(int status, const char *format, va_list ap)` |
+| `versionsort` | apps | [`dirent.h`](#dirent-h) | `int versionsort(const struct dirent **a, const struct dirent **b)` |
+| `vfork` | apps | [`unistd.h`](#unistd-h) | `pid_t vfork(void)` |
 | `vfprintf` | apps | [`stdio.h`](#stdio-h) | `int vfprintf(FILE *f, const char *format, va_list ap)` |
 | `vfscanf` | apps | [`stdio.h`](#stdio-h) | `int vfscanf(FILE *f, const char *format, va_list ap)` |
 | `vfwprintf` | apps | [`wchar.h`](#wchar-h) | `int vfwprintf(FILE *f, const wchar_t *format, va_list ap)` |
@@ -1160,22 +1678,40 @@ kernel's interface; programs use the library's calls rather than raw
 | `vsscanf` | apps | [`stdio.h`](#stdio-h) | `int vsscanf(const char *text, const char *format, va_list ap)` |
 | `vswprintf` | apps | [`wchar.h`](#wchar-h) | `int vswprintf(wchar_t *s, size_t size, const wchar_t *format, va_list ap)` |
 | `vswscanf` | apps | [`wchar.h`](#wchar-h) | `int vswscanf(const wchar_t *s, const wchar_t *format, va_list ap)` |
+| `vsyslog` | apps | [`syslog.h`](#syslog-h) | `void vsyslog(int priority, const char *format, va_list ap)` |
+| `vwarn` | apps | [`err.h`](#err-h) | `void vwarn(const char *format, va_list ap)` |
+| `vwarnx` | apps | [`err.h`](#err-h) | `void vwarnx(const char *format, va_list ap)` |
 | `vwprintf` | apps | [`wchar.h`](#wchar-h) | `int vwprintf(const wchar_t *format, va_list ap)` |
 | `vwscanf` | apps | [`wchar.h`](#wchar-h) | `int vwscanf(const wchar_t *format, va_list ap)` |
 | `wait` | apps | [`sys/wait.h`](#sys-wait-h) | `pid_t wait(int *status)` |
+| `wait3` | apps | [`sys/wait.h`](#sys-wait-h) | `pid_t wait3(int *status, int options, struct rusage *usage)` |
+| `wait4` | apps | [`sys/wait.h`](#sys-wait-h) | `pid_t wait4(pid_t pid, int *status, int options, struct rusage *usage)` |
 | `waitpid` | apps | [`sys/wait.h`](#sys-wait-h) | `pid_t waitpid(pid_t pid, int *status, int flags)` |
+| `warn` | apps | [`err.h`](#err-h) | `void warn(const char *format, ...)` |
+| `warnx` | apps | [`err.h`](#err-h) | `void warnx(const char *format, ...)` |
+| `wcpcpy` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcpcpy(wchar_t *dst, const wchar_t *src)` |
+| `wcpncpy` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcpncpy(wchar_t *dst, const wchar_t *src, size_t n)` |
 | `wcrtomb` | apps | [`wchar.h`](#wchar-h) | `size_t wcrtomb(char *s, wchar_t wc, mbstate_t *state)` |
+| `wcscasecmp` | apps | [`wchar.h`](#wchar-h) | `int wcscasecmp(const wchar_t *a, const wchar_t *b)` |
+| `wcscasecmp_l` | apps | [`wchar.h`](#wchar-h) | `int wcscasecmp_l(const wchar_t *a, const wchar_t *b, locale_t l)` |
 | `wcscat` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcscat(wchar_t *dst, const wchar_t *src)` |
 | `wcschr` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcschr(const wchar_t *s, wchar_t c)` |
 | `wcscmp` | apps | [`wchar.h`](#wchar-h) | `int wcscmp(const wchar_t *a, const wchar_t *b)` |
 | `wcscoll` | apps | [`wchar.h`](#wchar-h) | `int wcscoll(const wchar_t *a, const wchar_t *b)` |
+| `wcscoll_l` | apps | [`wchar.h`](#wchar-h) | `int wcscoll_l(const wchar_t *a, const wchar_t *b, locale_t l)` |
 | `wcscpy` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcscpy(wchar_t *dst, const wchar_t *src)` |
 | `wcscspn` | apps | [`wchar.h`](#wchar-h) | `size_t wcscspn(const wchar_t *s, const wchar_t *reject)` |
+| `wcsdup` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcsdup(const wchar_t *s)` |
 | `wcsftime` | apps | [`wchar.h`](#wchar-h) | `size_t wcsftime(wchar_t *s, size_t size, const wchar_t *format, const struct tm *tm)` |
+| `wcsftime_l` | apps | [`wchar.h`](#wchar-h) | `size_t wcsftime_l(wchar_t *s, size_t max, const wchar_t *format, const struct tm *tm, locale_t l)` |
 | `wcslen` | apps | [`wchar.h`](#wchar-h) | `size_t wcslen(const wchar_t *s)` |
+| `wcsncasecmp` | apps | [`wchar.h`](#wchar-h) | `int wcsncasecmp(const wchar_t *a, const wchar_t *b, size_t n)` |
+| `wcsncasecmp_l` | apps | [`wchar.h`](#wchar-h) | `int wcsncasecmp_l(const wchar_t *a, const wchar_t *b, size_t n, locale_t l)` |
 | `wcsncat` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcsncat(wchar_t *dst, const wchar_t *src, size_t n)` |
 | `wcsncmp` | apps | [`wchar.h`](#wchar-h) | `int wcsncmp(const wchar_t *a, const wchar_t *b, size_t n)` |
 | `wcsncpy` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcsncpy(wchar_t *dst, const wchar_t *src, size_t n)` |
+| `wcsnlen` | apps | [`wchar.h`](#wchar-h) | `size_t wcsnlen(const wchar_t *s, size_t n)` |
+| `wcsnrtombs` | apps | [`wchar.h`](#wchar-h) | `size_t wcsnrtombs(char *dst, const wchar_t **src, size_t nwc, size_t n, mbstate_t *state)` |
 | `wcspbrk` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcspbrk(const wchar_t *s, const wchar_t *accept)` |
 | `wcsrchr` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcsrchr(const wchar_t *s, wchar_t c)` |
 | `wcsrtombs` | apps | [`wchar.h`](#wchar-h) | `size_t wcsrtombs(char *dst, const wchar_t **src, size_t n, mbstate_t *state)` |
@@ -1183,6 +1719,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `wcsstr` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcsstr(const wchar_t *haystack, const wchar_t *needle)` |
 | `wcstod` | apps | [`wchar.h`](#wchar-h) | `double wcstod(const wchar_t *s, wchar_t **end)` |
 | `wcstof` | apps | [`wchar.h`](#wchar-h) | `float wcstof(const wchar_t *s, wchar_t **end)` |
+| `wcstoimax` | apps | [`inttypes.h`](#inttypes-h) | `intmax_t wcstoimax(const wchar_t *s, wchar_t **end, int base)` |
 | `wcstok` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wcstok(wchar_t *s, const wchar_t *delimiters, wchar_t **place)` |
 | `wcstol` | apps | [`wchar.h`](#wchar-h) | `long wcstol(const wchar_t *s, wchar_t **end, int base)` |
 | `wcstold` | apps | [`wchar.h`](#wchar-h) | `long double wcstold(const wchar_t *s, wchar_t **end)` |
@@ -1190,11 +1727,17 @@ kernel's interface; programs use the library's calls rather than raw
 | `wcstombs` | apps | [`stdlib.h`](#stdlib-h) | `size_t wcstombs(char *dst, const wchar_t *src, size_t n)` |
 | `wcstoul` | apps | [`wchar.h`](#wchar-h) | `unsigned long wcstoul(const wchar_t *s, wchar_t **end, int base)` |
 | `wcstoull` | apps | [`wchar.h`](#wchar-h) | `unsigned long long wcstoull(const wchar_t *s, wchar_t **end, int base)` |
+| `wcstoumax` | apps | [`inttypes.h`](#inttypes-h) | `uintmax_t wcstoumax(const wchar_t *s, wchar_t **end, int base)` |
+| `wcswidth` | apps | [`wchar.h`](#wchar-h) | `int wcswidth(const wchar_t *s, size_t n)` |
 | `wcsxfrm` | apps | [`wchar.h`](#wchar-h) | `size_t wcsxfrm(wchar_t *dst, const wchar_t *src, size_t n)` |
+| `wcsxfrm_l` | apps | [`wchar.h`](#wchar-h) | `size_t wcsxfrm_l(wchar_t *dst, const wchar_t *src, size_t n, locale_t l)` |
 | `wctob` | apps | [`wchar.h`](#wchar-h) | `int wctob(wint_t wc)` |
 | `wctomb` | apps | [`stdlib.h`](#stdlib-h) | `int wctomb(char *s, wchar_t wc)` |
 | `wctrans` | apps | [`wctype.h`](#wctype-h) | `wctrans_t wctrans(const char *name)` |
+| `wctrans_l` | apps | [`wctype.h`](#wctype-h) | `wctrans_t wctrans_l(const char *name, locale_t l)` |
 | `wctype` | apps | [`wctype.h`](#wctype-h) | `wctype_t wctype(const char *name)` |
+| `wctype_l` | apps | [`wctype.h`](#wctype-h) | `wctype_t wctype_l(const char *name, locale_t l)` |
+| `wcwidth` | apps | [`wchar.h`](#wchar-h) | `int wcwidth(wchar_t wc)` |
 | `WEXITSTATUS` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WEXITSTATUS(status)` |
 | `wfont_bold` | apps | [`wfont.h`](#wfont-h) | `const struct font *wfont_bold(void)` |
 | `wfont_find` | apps | [`wfont.h`](#wfont-h) | `const struct font *wfont_find(const char *name)` |
@@ -1217,6 +1760,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `widget_list` | apps | [`widget.h`](#widget-h) | `struct widget *widget_list(const char *lines)` |
 | `widget_message` | apps | [`widget.h`](#widget-h) | `void widget_message(struct window *parent, const char *title, const char *text)` |
 | `widget_on` | apps | [`widget.h`](#widget-h) | `void widget_on(struct widget *w, void (*fn)(struct widget *w, void *data), void *data)` |
+| `widget_pages` | apps | [`widget.h`](#widget-h) | `struct widget *widget_pages(void)` |
 | `widget_progress` | apps | [`widget.h`](#widget-h) | `struct widget *widget_progress(int max, int value)` |
 | `widget_question` | apps | [`widget.h`](#widget-h) | `int widget_question(struct window *parent, const char *title, const char *text, const char *yes, const char *no)` |
 | `widget_quit` | apps | [`widget.h`](#widget-h) | `void widget_quit(struct widget *root)` |
@@ -1232,8 +1776,10 @@ kernel's interface; programs use the library's calls rather than raw
 | `widget_text` | apps | [`widget.h`](#widget-h) | `const char *widget_text(const struct widget *w)` |
 | `widget_tree` | apps | [`widget.h`](#widget-h) | `struct widget *widget_tree(const char *lines)` |
 | `widget_value` | apps | [`widget.h`](#widget-h) | `int widget_value(const struct widget *w)` |
+| `WIFCONTINUED` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WIFCONTINUED(status)` |
 | `WIFEXITED` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WIFEXITED(status)` |
 | `WIFSIGNALED` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WIFSIGNALED(status)` |
+| `WIFSTOPPED` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WIFSTOPPED(status)` |
 | `window_app_for` | apps | [`window.h`](#window-h) | `int window_app_for(const char *path, char *buf, size_t size)` |
 | `window_app_opens` | apps | [`window.h`](#window-h) | `int window_app_opens(const char *bundle, const char *file)` |
 | `window_blit` | apps | [`window.h`](#window-h) | `void window_blit(struct window *win, int x, int y, int w, int h, const uint32_t *src)` |
@@ -1259,6 +1805,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `window_field_text` | apps | [`window.h`](#window-h) | `const char *window_field_text(const struct window_field *f)` |
 | `window_fill` | apps | [`window.h`](#window-h) | `void window_fill(struct window *win, int x, int y, int w, int h, uint32_t color)` |
 | `window_flush` | apps | [`window.h`](#window-h) | `void window_flush(struct window *win)` |
+| `window_flush_rect` | apps | [`window.h`](#window-h) | `void window_flush_rect(struct window *win, int x, int y, int w, int h)` |
 | `window_fullscreen` | apps | [`window.h`](#window-h) | `void window_fullscreen(struct window *win, int on)` |
 | `window_height` | apps | [`window.h`](#window-h) | `int window_height(struct window *win)` |
 | `window_minimize` | apps | [`window.h`](#window-h) | `void window_minimize(struct window *win)` |
@@ -1273,6 +1820,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `window_set_cursor` | apps | [`window.h`](#window-h) | `void window_set_cursor(struct window *win, int shape)` |
 | `window_set_limits` | apps | [`window.h`](#window-h) | `void window_set_limits(struct window *win, int min_w, int min_h, int max_w, int max_h)` |
 | `window_set_menu` | apps | [`window.h`](#window-h) | `int window_set_menu(struct window *win, const struct window_menu *menus, int count)` |
+| `window_settings_reload` | apps | [`window.h`](#window-h) | `int window_settings_reload(struct window *win)` |
 | `window_shifts` | apps | [`window.h`](#window-h) | `void window_shifts(struct window *win, int *red, int *green, int *blue)` |
 | `window_text` | apps | [`window.h`](#window-h) | `void window_text(struct window *win, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)` |
 | `window_text_font` | apps | [`window.h`](#window-h) | `void window_text_font(struct window *win, const struct font *font, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)` |
@@ -1287,7 +1835,9 @@ kernel's interface; programs use the library's calls rather than raw
 | `wmemset` | apps | [`wchar.h`](#wchar-h) | `wchar_t *wmemset(wchar_t *s, wchar_t c, size_t n)` |
 | `wprintf` | apps | [`wchar.h`](#wchar-h) | `int wprintf(const wchar_t *format, ...)` |
 | `write` | apps | [`unistd.h`](#unistd-h) | `ssize_t write(int fd, const void *buffer, size_t size)` |
+| `writev` | apps | [`sys/uio.h`](#sys-uio-h) | `ssize_t writev(int fd, const struct iovec *parts, int count)` |
 | `wscanf` | apps | [`wchar.h`](#wchar-h) | `int wscanf(const wchar_t *format, ...)` |
+| `WSTOPSIG` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WSTOPSIG(status)` |
 | `WTERMSIG` | apps | [`sys/wait.h`](#sys-wait-h) | `#define WTERMSIG(status)` |
 | `x25519` | apps | [`crypto.h`](#crypto-h) | `void x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[32])` |
 | `x25519_base` | apps | [`crypto.h`](#crypto-h) | `void x25519_base(uint8_t out[32], const uint8_t scalar[32])` |
@@ -1425,6 +1975,67 @@ int getc_unlocked(FILE *f);
 int getchar_unlocked(void);
 int putc_unlocked(int c, FILE *f);
 int putchar_unlocked(int c);
+
+/* (43a) What ported code expects beside C's:
+ * - fseeko/ftello: fseek and ftell with off_t positions;
+ * - getline/getdelim: a whole line (up to and with delimiter) into *line,
+ *   made bigger with realloc as needed (*size its room): its length, or -1
+ *   at the end;
+ * - open_memstream: a stream writing into memory: *buffer and *size give
+ *   what was written (NUL-terminated) after each fflush and at fclose,
+ *   then the buffer is the caller's to free; fmemopen: a stream over size
+ *   bytes of buf (a new buffer when buf is 0), read and written as a file;
+ * - fopencookie: GNU's stream over the caller's functions (read, write,
+ *   seek, close; any may be 0) and cookie, their first argument;
+ * - asprintf/vasprintf: printf into a new malloc'd string (*out); its
+ *   length, or -1;
+ * - the _unlocked forms of the stream functions (the caller holds the
+ *   stream with flockfile, or no other thread uses it);
+ * - setbuffer (setvbuf with size), setlinebuf (line-buffered), ctermid
+ *   ("/dev/tty"), tempnam (a temporary file's name in dir, the caller
+ *   frees it). */
+typedef int64_t off64_t;
+typedef ssize_t cookie_read_function_t(void *cookie, char *buf, size_t size);
+typedef ssize_t cookie_write_function_t(void *cookie, const char *buf, size_t size);
+typedef int cookie_seek_function_t(void *cookie, off64_t *offset, int whence);
+typedef int cookie_close_function_t(void *cookie);
+typedef struct {
+    cookie_read_function_t *read;
+    cookie_write_function_t *write;
+    cookie_seek_function_t *seek;
+    cookie_close_function_t *close;
+} cookie_io_functions_t;
+#define FILENAME_MAX    4096
+#define FOPEN_MAX       256
+#define P_tmpdir        "/tmp"
+#define L_ctermid       9
+int fseeko(FILE *f, off_t offset, int whence);
+off_t ftello(FILE *f);
+ssize_t getline(char **line, size_t *size, FILE *f);
+ssize_t getdelim(char **line, size_t *size, int delimiter, FILE *f);
+FILE *open_memstream(char **buffer, size_t *size);
+FILE *fmemopen(void *buf, size_t size, const char *mode);
+FILE *fopencookie(void *cookie, const char *mode, cookie_io_functions_t functions);
+int asprintf(char **out, const char *format, ...) __attribute__((format(printf, 2, 3)));
+int vasprintf(char **out, const char *format, va_list ap);
+int fgetc_unlocked(FILE *f);
+int fputc_unlocked(int c, FILE *f);
+size_t fread_unlocked(void *buf, size_t size, size_t count, FILE *f);
+size_t fwrite_unlocked(const void *buf, size_t size, size_t count, FILE *f);
+char *fgets_unlocked(char *s, int size, FILE *f);
+int fputs_unlocked(const char *s, FILE *f);
+int fflush_unlocked(FILE *f);
+int feof_unlocked(FILE *f);
+int ferror_unlocked(FILE *f);
+void clearerr_unlocked(FILE *f);
+int fileno_unlocked(FILE *f);
+void setbuffer(FILE *f, char *buf, size_t size);
+void setlinebuf(FILE *f);
+char *ctermid(char *s);
+char *tempnam(const char *dir, const char *prefix);
+
+/* (43b-1) rename with paths relative to folders' descriptors. */
+int renameat(int fromfd, const char *from, int tofd, const char *to);
 ```
 
 <a id="stdlib-h"></a>
@@ -1507,11 +2118,14 @@ int at_quick_exit(void (*fn)(void));
 __attribute__((noreturn)) void quick_exit(int code);
 __attribute__((noreturn)) void _Exit(int code);
 
-/* (22p) Multibyte characters in the "C" locale: every byte is a character
- * of its own (MB_CUR_MAX 1; UTF-8 is not decoded here). mblen/mbtowc: the
- * bytes of the character at s (0 for the NUL, -1 for none); wctomb: the
- * bytes written (-1, EILSEQ, for a character above 255). */
-#define MB_CUR_MAX 1
+/* (22p) Multibyte characters: in the "C" locale every byte is a character
+ * of its own (MB_CUR_MAX 1), (43a-2) in C.UTF-8 a character is UTF-8's 1
+ * to 4 bytes (MB_CUR_MAX 4; the calling thread's locale, see locale.h).
+ * mblen/mbtowc: the bytes of the character at s (0 for the NUL, -1 for
+ * none); wctomb: the bytes written (-1, EILSEQ, for a character the
+ * locale has no bytes for). */
+int __ritteros_mb_cur_max(void);
+#define MB_CUR_MAX ((size_t)__ritteros_mb_cur_max())
 int mblen(const char *s, size_t n);
 int mbtowc(wchar_t *wc, const char *s, size_t n);
 int wctomb(char *s, wchar_t wc);
@@ -1545,6 +2159,84 @@ int mkstemp(char *name);
 /* End the program at once, as a failed assert does: with SIGABRT (22r; a
  * handler may run first, but the program ends even if it returns). */
 __attribute__((noreturn)) void abort(void);
+
+/* (43a) What ported code expects beside C's:
+ * - memory: posix_memalign (aligned_alloc's, into *out: 0 or an error
+ *   number), reallocarray (realloc of count * size, ENOMEM if that
+ *   overflows);
+ * - temporary files: mkostemp (mkstemp with open's O_CLOEXEC/O_APPEND
+ *   flags), mkstemps/mkostemps (XXXXXX followed by suffix_length more
+ *   bytes), mkdtemp (a new folder, 0700: the name, or 0), mktemp (only
+ *   the name: another program may take it first; prefer mkstemp);
+ * - realpath: the path without ., .. or symbolic links (into resolved,
+ *   PATH_MAX bytes, or a new malloc'd string when resolved is 0);
+ * - the environment: secure_getenv (getenv, but 0 in a setuid program),
+ *   clearenv (empties it);
+ * - random numbers: random/srandom/initstate/setstate (the BSD generator
+ *   glibc and macOS share: the same numbers for a seed), the 48-bit
+ *   generators (drand48 ... lcong48, as POSIX defines them), rand_r (a
+ *   generator in *seed: threads may each have one);
+ * - qsort_r: qsort with arg passed to every compare (POSIX 2024's and
+ *   GNU's order);
+ * - getloadavg: -1 (RitterOS keeps no load averages). */
+int posix_memalign(void **out, size_t alignment, size_t size);
+void *reallocarray(void *ptr, size_t count, size_t size);
+int mkostemp(char *name, int flags);
+int mkstemps(char *name, int suffix_length);
+int mkostemps(char *name, int suffix_length, int flags);
+char *mkdtemp(char *name);
+char *mktemp(char *name);
+char *realpath(const char *path, char *resolved);
+char *secure_getenv(const char *name);
+int clearenv(void);
+long random(void);
+void srandom(unsigned int seed);
+char *initstate(unsigned int seed, char *state, size_t size);
+char *setstate(char *state);
+double drand48(void);
+double erand48(unsigned short x[3]);
+long lrand48(void);
+long nrand48(unsigned short x[3]);
+long mrand48(void);
+long jrand48(unsigned short x[3]);
+void srand48(long seed);
+unsigned short *seed48(unsigned short seed[3]);
+void lcong48(unsigned short parameters[7]);
+int rand_r(unsigned int *seed);
+void qsort_r(void *base, size_t count, size_t size,
+             int (*compare)(const void *a, const void *b, void *arg), void *arg);
+int getloadavg(double loads[], int count);
+
+/* (43a-2) glibc's strto*_l (every locale's decimal point is '.'). */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+double strtod_l(const char *s, char **end, locale_t l);
+float strtof_l(const char *s, char **end, locale_t l);
+long double strtold_l(const char *s, char **end, locale_t l);
+long strtol_l(const char *s, char **end, int base, locale_t l);
+unsigned long strtoul_l(const char *s, char **end, int base, locale_t l);
+long long strtoll_l(const char *s, char **end, int base, locale_t l);
+unsigned long long strtoull_l(const char *s, char **end, int base, locale_t l);
+
+/* (43a-4) The C++ ABI's calls (the compiler's and the C++ library's):
+ * __cxa_atexit registers a static object's destructor (fn(arg)) with the
+ * module (dso) that made it, run by exit with atexit's functions, last
+ * first; __cxa_finalize(dso) runs dso's now (0: all);
+ * __cxa_thread_atexit_impl a thread_local object's, run when its thread
+ * ends (or, for the thread calling exit, before the others). */
+int __cxa_atexit(void (*fn)(void *), void *arg, void *dso);
+void __cxa_finalize(void *dso);
+int __cxa_thread_atexit_impl(void (*fn)(void *), void *obj, void *dso);
+int __cxa_thread_atexit(void (*fn)(void *), void *obj, void *dso);
+
+/* (45d) The compiler's __builtin___clear_cache (GCC's and compiler-rt's
+ * name): code just written into [start, end), as a JIT writes it through
+ * a writable mapping of the memory another maps executable, made
+ * runnable. On AArch64 the data cache cleaned and the instruction cache
+ * invalidated over it, line by line; on x86-64 nothing (coherent). */
+void __clear_cache(void *start, void *end);
 ```
 
 <a id="string-h"></a>
@@ -1594,7 +2286,39 @@ int strcoll(const char *a, const char *b);
 size_t strxfrm(char *dst, const char *src, size_t n);
 
 /* The text for an error number, e.g. "No such file or directory". */
-const char *strerror(int error);
+char *strerror(int error);
+
+/* (43a) What ported code expects beside C's: strtok_r (strtok with the
+ * place kept in *save: threads may each use one), strerror_r (POSIX's: the
+ * text into buf, 0 or ERANGE when it does not fit), strsignal (a signal's
+ * name in words), strcasestr (strstr without case), strchrnul (strchr, or
+ * the string's end), stpncpy, mempcpy (the place after the copy), memmem
+ * (memory in memory), strsep (the next field of *s, ended by one of
+ * delimiters), strlcpy and strlcat (BSD's: always a NUL within size; the
+ * length they tried to make), explicit_bzero (zeroes that the compiler
+ * cannot leave out), strverscmp (GNU's: digits as numbers, "a9" < "a10"). */
+char *strtok_r(char *s, const char *delimiters, char **save);
+int strerror_r(int error, char *buf, size_t size);
+char *strsignal(int signal);
+char *strcasestr(const char *haystack, const char *needle);
+char *strchrnul(const char *s, int c);
+char *stpncpy(char *dst, const char *src, size_t n);
+void *mempcpy(void *dst, const void *src, size_t n);
+void *memmem(const void *haystack, size_t n, const void *needle, size_t m);
+char *strsep(char **s, const char *delimiters);
+size_t strlcpy(char *dst, const char *src, size_t size);
+size_t strlcat(char *dst, const char *src, size_t size);
+void explicit_bzero(void *s, size_t n);
+int strverscmp(const char *a, const char *b);
+
+/* (43a-2) The same in a given locale (every locale collates as C). */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int strcoll_l(const char *a, const char *b, locale_t l);
+size_t strxfrm_l(char *dst, const char *src, size_t n, locale_t l);
+char *strerror_l(int error, locale_t l);
 ```
 
 <a id="strings-h"></a>
@@ -1608,6 +2332,26 @@ strings.h (22m): comparing text without regard to case (ASCII letters), as BSD a
 ```c
 int strcasecmp(const char *a, const char *b);
 int strncasecmp(const char *a, const char *b, size_t n);
+
+/* (43a) BSD's older names: bcmp (memcmp's zero or not), bcopy (memmove
+ * with the arguments the other way), bzero (memset to 0), index and rindex
+ * (strchr, strrchr); ffs, ffsl, ffsll: the lowest bit set, counted from 1
+ * (0 for none). */
+int bcmp(const void *a, const void *b, size_t n);
+void bcopy(const void *src, void *dst, size_t n);
+void bzero(void *s, size_t n);
+char *index(const char *s, int c);
+char *rindex(const char *s, int c);
+int ffs(int v);
+int ffsl(long v);
+int ffsll(long long v);
+
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int strcasecmp_l(const char *a, const char *b, locale_t l);
+int strncasecmp_l(const char *a, const char *b, size_t n, locale_t l);
 ```
 
 <a id="ctype-h"></a>
@@ -1633,6 +2377,31 @@ int isupper(int c);
 int isxdigit(int c);
 int tolower(int c);
 int toupper(int c);
+
+/* (43a) isascii: c is 0-127; toascii: its low 7 bits. */
+int isascii(int c);
+int toascii(int c);
+
+/* (43a-2) The same in a given locale (POSIX's *_l): the bytes' classes
+ * are ASCII's in every locale. */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int isalnum_l(int c, locale_t l);
+int isalpha_l(int c, locale_t l);
+int isblank_l(int c, locale_t l);
+int iscntrl_l(int c, locale_t l);
+int isdigit_l(int c, locale_t l);
+int isgraph_l(int c, locale_t l);
+int islower_l(int c, locale_t l);
+int isprint_l(int c, locale_t l);
+int ispunct_l(int c, locale_t l);
+int isspace_l(int c, locale_t l);
+int isupper_l(int c, locale_t l);
+int isxdigit_l(int c, locale_t l);
+int tolower_l(int c, locale_t l);
+int toupper_l(int c, locale_t l);
 ```
 
 <a id="assert-h"></a>
@@ -2099,6 +2868,35 @@ int swscanf(const wchar_t *s, const wchar_t *format, ...);
 int vwscanf(const wchar_t *format, va_list ap);
 int vfwscanf(FILE *f, const wchar_t *format, va_list ap);
 int vswscanf(const wchar_t *s, const wchar_t *format, va_list ap);
+
+/* (43a) POSIX's and GNU's beside C's: wcsdup (a malloc'd copy), wcsnlen,
+ * wcscasecmp/wcsncasecmp (without case: towlower's), wcpcpy/wcpncpy (the
+ * place of the copy's end). */
+wchar_t *wcsdup(const wchar_t *s);
+size_t wcsnlen(const wchar_t *s, size_t n);
+int wcscasecmp(const wchar_t *a, const wchar_t *b);
+int wcsncasecmp(const wchar_t *a, const wchar_t *b, size_t n);
+wchar_t *wcpcpy(wchar_t *dst, const wchar_t *src);
+wchar_t *wcpncpy(wchar_t *dst, const wchar_t *src, size_t n);
+
+/* (43a-2) wcwidth: the columns a character takes on a terminal (0
+ * combining marks, 2 wide East Asian ones, -1 controls and, in the C
+ * locale, anything past ASCII); wcswidth: n characters' (-1 if one is
+ * -1). mbsnrtowcs/wcsnrtombs: mbsrtowcs/wcsrtombs reading at most nms
+ * bytes or nwc characters. The *_l forms in a given locale. */
+int wcwidth(wchar_t wc);
+int wcswidth(const wchar_t *s, size_t n);
+size_t mbsnrtowcs(wchar_t *dst, const char **src, size_t nms, size_t n, mbstate_t *state);
+size_t wcsnrtombs(char *dst, const wchar_t **src, size_t nwc, size_t n, mbstate_t *state);
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int wcscoll_l(const wchar_t *a, const wchar_t *b, locale_t l);
+size_t wcsxfrm_l(wchar_t *dst, const wchar_t *src, size_t n, locale_t l);
+int wcscasecmp_l(const wchar_t *a, const wchar_t *b, locale_t l);
+int wcsncasecmp_l(const wchar_t *a, const wchar_t *b, size_t n, locale_t l);
+size_t wcsftime_l(wchar_t *s, size_t max, const wchar_t *format, const struct tm *tm, locale_t l);
 ```
 
 <a id="wctype-h"></a>
@@ -2139,6 +2937,30 @@ wint_t towlower(wint_t wc);
 wint_t towupper(wint_t wc);
 wint_t towctrans(wint_t wc, wctrans_t mapping);
 wctrans_t wctrans(const char *name);
+
+/* (43a-2) The same in a given locale (POSIX's *_l). */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int iswalnum_l(wint_t c, locale_t l);
+int iswalpha_l(wint_t c, locale_t l);
+int iswblank_l(wint_t c, locale_t l);
+int iswcntrl_l(wint_t c, locale_t l);
+int iswdigit_l(wint_t c, locale_t l);
+int iswgraph_l(wint_t c, locale_t l);
+int iswlower_l(wint_t c, locale_t l);
+int iswprint_l(wint_t c, locale_t l);
+int iswpunct_l(wint_t c, locale_t l);
+int iswspace_l(wint_t c, locale_t l);
+int iswupper_l(wint_t c, locale_t l);
+int iswxdigit_l(wint_t c, locale_t l);
+wint_t towlower_l(wint_t c, locale_t l);
+wint_t towupper_l(wint_t c, locale_t l);
+int iswctype_l(wint_t c, wctype_t type, locale_t l);
+wctype_t wctype_l(const char *name, locale_t l);
+wint_t towctrans_l(wint_t c, wctrans_t t, locale_t l);
+wctrans_t wctrans_l(const char *name, locale_t l);
 ```
 
 <a id="uchar-h"></a>
@@ -2150,9 +2972,11 @@ wctrans_t wctrans(const char *name);
 uchar.h (step 22w): Unicode characters and UTF-8. Unlike wchar.h's calls (the "C" locale: a byte each), these always read and write UTF-8, the text of RitterOS: char32_t holds a code point, char16_t a UTF-16 unit (characters above U+FFFF are two: a surrogate pair), char8_t (C23) a UTF-8 byte. Invalid UTF-8 (overlong forms, surrogates, above U+10FFFF, a byte out of place) is EILSEQ.  mbrtoXX: the character at s (at most n bytes) into *c; the bytes it took, 0 for the NUL, (size_t)-2 for a character not complete yet (the bytes are kept in *state), (size_t)-1 for invalid UTF-8, (size_t)-3 for a unit given from *state without taking a byte (the second half of a pair, the rest of a char8_t's character). XXrtomb: c's UTF-8 into s; the bytes written (0 while a pair's or a character's first part is kept in *state), (size_t)-1 for a value that is not one. A null state uses one of the library's own.
 
 ```c
+#ifndef __cplusplus                     /* (43c: C++'s own types there) */
 typedef unsigned char char8_t;
 typedef __CHAR16_TYPE__ char16_t;
 typedef __CHAR32_TYPE__ char32_t;
+#endif
 
 #ifndef RITTEROS_MBSTATE_T
 #define RITTEROS_MBSTATE_T
@@ -2161,8 +2985,10 @@ typedef struct {
 } mbstate_t;
 #endif
 
+#if !defined(__cplusplus) || defined(__cpp_char8_t)   /* (C++ before 20 has no char8_t) */
 size_t mbrtoc8(char8_t *c, const char *s, size_t n, mbstate_t *state);
 size_t c8rtomb(char *s, char8_t c, mbstate_t *state);
+#endif
 size_t mbrtoc16(char16_t *c, const char *s, size_t n, mbstate_t *state);
 size_t c16rtomb(char *s, char16_t c, mbstate_t *state);
 size_t mbrtoc32(char32_t *c, const char *s, size_t n, mbstate_t *state);
@@ -2277,7 +3103,9 @@ long double _Complex __divtc3(long double a, long double b, long double c, long 
 threads.h (step 22y): C11's threads, mutexes, condition variables, call_once and thread-specific storage. Threads are thread.h's (up to 256 per program, the main one included; thrd_t is the thread's number); waiting goes through the kernel's futex (SYS_FUTEX), so a blocked thread uses no processor time. Timed calls take an absolute TIME_UTC time (timespec_get), measured in the kernel's 10 ms ticks. Mutexes, condition variables and once flags are a program's own (not shared between programs). thread_local is C's _Thread_local (per-thread data, 22i).
 
 ```c
-#define thread_local _Thread_local
+#ifndef __cplusplus
+#define thread_local _Thread_local      /* (C++'s keyword there) */
+#endif
 #define ONCE_FLAG_INIT { 0 }
 #define TSS_DTOR_ITERATIONS 4
 
@@ -2363,13 +3191,22 @@ typedef long jmp_buf[22];
 
 __attribute__((returns_twice)) int setjmp(jmp_buf env);
 __attribute__((noreturn)) void longjmp(jmp_buf env, int value);
+
+/* (43a-4) POSIX's sigsetjmp/siglongjmp: setjmp/longjmp that also keep
+ * (save nonzero) and put back the blocked signals; BSD's _setjmp and
+ * _longjmp, which never touch them. */
+typedef long sigjmp_buf[24];
+__attribute__((returns_twice)) int sigsetjmp(sigjmp_buf env, int save);
+__attribute__((noreturn)) void siglongjmp(sigjmp_buf env, int value);
+__attribute__((returns_twice)) int _setjmp(jmp_buf env);
+__attribute__((noreturn)) void _longjmp(jmp_buf env, int value);
 ```
 
 <a id="locale-h"></a>
 
 ### locale.h
 
-`user/include/locale.h` (in RitterOS's tree) -- the C locale (the only one); for apps.
+`user/include/locale.h` (in RitterOS's tree) -- locales: C and C.UTF-8, a thread's own (uselocale); for apps.
 
 Locales (step 22n): RitterOS has one, the "C" locale (also called "POSIX"): ASCII, a '.' before decimals, no grouping. setlocale takes it by those names or "" (the system's: the same) and refuses others (0); setlocale(category, 0) says which is in use.
 
@@ -2413,6 +3250,32 @@ struct lconv {
 
 char *setlocale(int category, const char *locale);
 struct lconv *localeconv(void);
+
+/* (43a-2) Locales: "C" (or "POSIX") and "C.UTF-8" (any name ending in
+ * ".UTF-8" or ".utf8", such as "en_US.UTF-8", is C.UTF-8 under its own
+ * name): in C.UTF-8 characters are UTF-8 and the wide classes Unicode's;
+ * numbers, dates and messages are the C locale's in both. setlocale(c,
+ * "") takes LC_ALL, LC_<category> or LANG from the environment (else C).
+ * newlocale makes (or changes base into) a locale with the categories of
+ * mask from name; uselocale makes it the calling thread's own
+ * (LC_GLOBAL_LOCALE: back to the program's; 0: only ask), returning the
+ * one before; duplocale copies one; freelocale frees one. */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+#define LC_CTYPE_MASK       (1 << LC_CTYPE)
+#define LC_NUMERIC_MASK     (1 << LC_NUMERIC)
+#define LC_TIME_MASK        (1 << LC_TIME)
+#define LC_COLLATE_MASK     (1 << LC_COLLATE)
+#define LC_MONETARY_MASK    (1 << LC_MONETARY)
+#define LC_MESSAGES_MASK    (1 << LC_MESSAGES)
+#define LC_ALL_MASK         0x3f
+#define LC_GLOBAL_LOCALE    ((locale_t)-1)
+locale_t newlocale(int mask, const char *name, locale_t base);
+locale_t duplocale(locale_t locale);
+void freelocale(locale_t locale);
+locale_t uselocale(locale_t locale);
 ```
 
 <a id="time-h"></a>
@@ -2424,8 +3287,11 @@ struct lconv *localeconv(void);
 Time (step 22o): the clock (seconds since 1970-01-01 UTC), the CPU time a program used, dates in the calendar and dates as text. Local time is UTC plus the fixed offset in /system/config/time ("zone = -05:00"; none: UTC); there are no daylight saving rules, so tm_isdst is always 0.
 
 ```c
+#ifndef RITTEROS_TIME_TYPES
+#define RITTEROS_TIME_TYPES
 typedef int64_t time_t;
 typedef long clock_t;
+#endif
 
 #define CLOCKS_PER_SEC 1000000L
 
@@ -2487,7 +3353,51 @@ typedef int clockid_t;
 #define CLOCK_MONOTONIC          1
 #define CLOCK_PROCESS_CPUTIME_ID 2
 int clock_gettime(clockid_t clock, struct timespec *ts);
+/* (68l) The clock set (CLOCK_REALTIME only; root only: EPERM), the
+ * firmware's too, so the next start has it: 0, or -1 with errno set
+ * (EINVAL: another clock, a time before 1970 or nanoseconds out of range). */
+int clock_settime(clockid_t clock, const struct timespec *ts);
 int nanosleep(const struct timespec *req, struct timespec *rem);
+
+/* (43a) POSIX's beside C's:
+ * - timegm: mktime for a date in UTC; tzset: takes /system/config/time's
+ *   zone again (it is read at every call anyway);
+ * - asctime_r, ctime_r: into buf (26 bytes or more);
+ * - strptime: text to a date by a format of strftime's conversions (the
+ *   C locale's names; %z +hhmm, %s seconds since 1970): the place after
+ *   what was read, or 0;
+ * - clock_getres: how fine a clock is; clock_nanosleep: nanosleep on a
+ *   clock, TIMER_ABSTIME to sleep until a time; an error number, not -1;
+ * - more clocks under Linux's names: CLOCK_MONOTONIC_RAW, _COARSE and
+ *   CLOCK_BOOTTIME are CLOCK_MONOTONIC here, CLOCK_REALTIME_COARSE is
+ *   CLOCK_REALTIME; (43b-6) CLOCK_THREAD_CPUTIME_ID the calling thread's
+ *   CPU time (pthread_getcpuclockid gives it for the calling thread only). */
+#define CLOCK_THREAD_CPUTIME_ID  3
+#define CLOCK_MONOTONIC_RAW      4
+#define CLOCK_REALTIME_COARSE    5
+#define CLOCK_MONOTONIC_COARSE   6
+#define CLOCK_BOOTTIME           7
+#define TIMER_ABSTIME            1
+time_t timegm(struct tm *tm);
+void tzset(void);
+char *asctime_r(const struct tm *tm, char *buf);
+char *ctime_r(const time_t *t, char *buf);
+char *strptime(const char *text, const char *format, struct tm *tm);
+int clock_getres(clockid_t clock, struct timespec *resolution);
+int clock_nanosleep(clockid_t clock, int flags, const struct timespec *request, struct timespec *remain);
+
+/* (43b-4) A timer's setting (timerfd_settime): the first expiry, then
+ * the time between (0: once). */
+struct itimerspec {
+    struct timespec it_interval;
+    struct timespec it_value;
+};
+
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+size_t strftime_l(char *s, size_t max, const char *format, const struct tm *tm, locale_t l);
 ```
 
 <a id="inttypes-h"></a>
@@ -2535,6 +3445,16 @@ inttypes.h (22m): printf and scanf conversions for the integer types of stdint.h
 #define SCNu64 "lu"
 #define SCNx32 "x"
 #define SCNx64 "lx"
+
+/* (43a) intmax_t's own abs, div and strto (as long long's here), and
+ * the wide strings' strto. */
+typedef struct { intmax_t quot, rem; } imaxdiv_t;
+intmax_t imaxabs(intmax_t v);
+imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator);
+intmax_t strtoimax(const char *s, char **end, int base);
+uintmax_t strtoumax(const char *s, char **end, int base);
+intmax_t wcstoimax(const wchar_t *s, wchar_t **end, int base);
+uintmax_t wcstoumax(const wchar_t *s, wchar_t **end, int base);
 ```
 
 <a id="unistd-h"></a>
@@ -2661,8 +3581,180 @@ pid_t getppid(void);
 int setpgid(pid_t pid, pid_t group);
 pid_t getpgid(pid_t pid);
 pid_t setsid(void);
+/* (43b-6) pid's session (0: this process's): its leader's number; ESRCH. */
+pid_t getsid(pid_t pid);
 pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, pid_t group);
+
+/* (43a) getopt: the next option letter of argv (options: the letters,
+ * a ':' after one that takes an argument, "::" an optional one written in
+ * the same word); -1 at the first word that is not an option, or after
+ * "--"; '?' for an unknown option or a missing argument (':' instead for
+ * the latter when options starts with ':'), with a message unless opterr
+ * is 0. As GNU's: words that are not options are moved after the options
+ * (unless options starts with '+' or POSIXLY_CORRECT is set; '-' returns
+ * each as option 1). optarg is the argument, optind the next word's
+ * index (0 starts over), optopt the letter that failed. (46b) The four
+ * are the library's variables, the one kind of data it exports (before,
+ * macros onto the calls below, which programs built then still use). */
+extern char *optarg;
+extern int optind;
+extern int opterr;
+extern int optopt;
+char **__ritteros_optarg(void);
+int *__ritteros_optind(void);
+int *__ritteros_opterr(void);
+int *__ritteros_optopt(void);
+int getopt(int argc, char *const argv[], const char *options);
+
+/* (43a) access: whether the program's real user (not a setuid
+ * program's) may read (R_OK), write (W_OK) or run (X_OK) path, or (F_OK)
+ * whether it exists: 0, or -1 with errno set. Root may read and write
+ * anything, and run what has any x bit; a group's rights go by the user's
+ * group. */
+#define F_OK    0
+#define X_OK    1
+#define W_OK    2
+#define R_OK    4
+int access(const char *path, int mode);
+
+/* (43a-3) The system and the program:
+ * - sysconf: a limit or option by name (_SC_*: RitterOS's limits, the
+ *   cores the firmware lists and those started, the memory's pages), -1
+ *   and EINVAL for a name it has not; pathconf/fpathconf a file system's
+ *   (_PC_*); confstr: _CS_PATH, where the standard programs are;
+ * - getpagesize (4096), getdtablesize (256 descriptors), gethostname
+ *   (uname's nodename);
+ * - getegid (the group: a program never runs as its file's group),
+ *   getresuid/getresgid, getgroups (the user's one group), issetugid (a
+ *   setuid program), getlogin/getlogin_r (the real user's name), ttyname
+ *   and ttyname_r ("/dev/tty" for any terminal), nice (no priorities: 0);
+ * - alarm/ualarm (SIGALRM after the seconds or microseconds: a thread of
+ *   the library's waits for it), pause (until a signal is handled);
+ * - daemon (a child in a new session, the parent gone; nochdir 0: to /,
+ *   noclose 0: 0-2 to /dev/null), execvpe (execvp with an environment),
+ *   vfork (fork: copy-on-write is as cheap), setpgrp (setpgid(0, 0));
+ * - getentropy: up to 256 random bytes. */
+#define _SC_ARG_MAX             0
+#define _SC_CHILD_MAX           1
+#define _SC_CLK_TCK             2
+#define _SC_NGROUPS_MAX         3
+#define _SC_OPEN_MAX            4
+#define _SC_STREAM_MAX          5
+#define _SC_TZNAME_MAX          6
+#define _SC_JOB_CONTROL         7
+#define _SC_SAVED_IDS           8
+#define _SC_TIMERS              11
+#define _SC_FSYNC               15
+#define _SC_MAPPED_FILES        16
+#define _SC_MEMORY_PROTECTION   19
+#define _SC_SEMAPHORES          21
+#define _SC_VERSION             29
+#define _SC_PAGESIZE            30
+#define _SC_PAGE_SIZE           _SC_PAGESIZE
+#define _SC_SEM_NSEMS_MAX       32
+#define _SC_SEM_VALUE_MAX       33
+#define _SC_LINE_MAX            43
+#define _SC_RE_DUP_MAX          44
+#define _SC_IOV_MAX             60
+#define _SC_THREADS             67
+#define _SC_THREAD_SAFE_FUNCTIONS 68
+#define _SC_GETGR_R_SIZE_MAX    69
+#define _SC_GETPW_R_SIZE_MAX    70
+#define _SC_LOGIN_NAME_MAX      71
+#define _SC_TTY_NAME_MAX        72
+#define _SC_THREAD_KEYS_MAX     74
+#define _SC_THREAD_STACK_MIN    75
+#define _SC_THREAD_THREADS_MAX  76
+#define _SC_NPROCESSORS_CONF    83
+#define _SC_NPROCESSORS_ONLN    84
+#define _SC_PHYS_PAGES          85
+#define _SC_AVPHYS_PAGES        86
+#define _SC_MONOTONIC_CLOCK     149
+#define _SC_SYMLOOP_MAX         173
+#define _SC_HOST_NAME_MAX       180
+#define _SC_LEVEL1_DCACHE_LINESIZE 190
+#define _PC_LINK_MAX            0
+#define _PC_MAX_CANON           1
+#define _PC_MAX_INPUT           2
+#define _PC_NAME_MAX            3
+#define _PC_PATH_MAX            4
+#define _PC_PIPE_BUF            5
+#define _PC_CHOWN_RESTRICTED    6
+#define _PC_NO_TRUNC            7
+#define _PC_VDISABLE            8
+#define _PC_FILESIZEBITS        13
+#define _PC_SYMLINK_MAX         19
+#define _CS_PATH                0
+#define _POSIX_VERSION          200809L
+#define _POSIX2_VERSION         200809L
+#define _XOPEN_VERSION          700
+#define _POSIX_THREADS          200809L
+#define _POSIX_SEMAPHORES       200809L
+#define _POSIX_TIMEOUTS         200809L
+#define _POSIX_MONOTONIC_CLOCK  200809L
+#define _POSIX_MAPPED_FILES     200809L
+#define _POSIX_FSYNC            200809L
+long sysconf(int name);
+long pathconf(const char *path, int name);
+long fpathconf(int fd, int name);
+size_t confstr(int name, char *buf, size_t size);
+int getpagesize(void);
+int getdtablesize(void);
+int gethostname(char *name, size_t size);
+gid_t getegid(void);
+int getresuid(uid_t *real, uid_t *effective, uid_t *saved);
+int getresgid(gid_t *real, gid_t *effective, gid_t *saved);
+int getgroups(int size, gid_t list[]);
+int issetugid(void);
+char *getlogin(void);
+int getlogin_r(char *name, size_t size);
+char *ttyname(int fd);
+int ttyname_r(int fd, char *name, size_t size);
+int nice(int increment);
+unsigned int alarm(unsigned int seconds);
+useconds_t ualarm(useconds_t microseconds, useconds_t interval);
+int pause(void);
+int daemon(int nochdir, int noclose);
+int execvpe(const char *name, char *const argv[], char *const envp[]);
+pid_t vfork(void);
+int setpgrp(void);
+int getentropy(void *buf, size_t size);
+
+/* (43b-1) Files: pread/pwrite (at an offset, the position unmoved;
+ * ESPIPE for a pipe or socket), truncate/ftruncate (a file's length;
+ * longer: zeros), fsync/fdatasync (written data committed now), sync
+ * (nothing waits uncommitted past a close), fchown/lchown/fchownat,
+ * fchdir, dup3 (dup2 with O_CLOEXEC), pipe2 (O_CLOEXEC, O_NONBLOCK), and
+ * the *at forms of access, readlink, unlink (rmdir with AT_REMOVEDIR),
+ * link and symlink. */
+ssize_t pread(int fd, void *buffer, size_t size, off_t offset);
+ssize_t pwrite(int fd, const void *buffer, size_t size, off_t offset);
+int truncate(const char *path, off_t length);
+int ftruncate(int fd, off_t length);
+int fsync(int fd);
+/* (43b-4) lockf: fcntl's write locks from the descriptor's position over
+ * length bytes (0: to the end; negative: before it): F_LOCK waits, F_TLOCK
+ * does not (EAGAIN), F_ULOCK lets go, F_TEST says whether another
+ * process holds one there (EACCES). */
+#define F_ULOCK     0
+#define F_LOCK      1
+#define F_TLOCK     2
+#define F_TEST      3
+int lockf(int fd, int command, off_t length);
+int fdatasync(int fd);
+void sync(void);
+int fchown(int fd, uid_t uid, gid_t gid);
+int lchown(const char *path, uid_t uid, gid_t gid);
+int fchownat(int dirfd, const char *path, uid_t uid, gid_t gid, int flags);
+int fchdir(int fd);
+int dup3(int fd, int newfd, int flags);
+int pipe2(int fds[2], int flags);
+int faccessat(int dirfd, const char *path, int mode, int flags);
+ssize_t readlinkat(int dirfd, const char *path, char *buffer, size_t size);
+int unlinkat(int dirfd, const char *path, int flags);
+int linkat(int fromfd, const char *from, int tofd, const char *to, int flags);
+int symlinkat(const char *target, int dirfd, const char *path);
 ```
 
 <a id="fcntl-h"></a>
@@ -2699,6 +3791,38 @@ Opening files.
 #define F_SETFL         FCNTL_SETFL
 #define F_DUPFD_CLOEXEC FCNTL_DUPFD_CLOEXEC
 #define FD_CLOEXEC      FCNTL_CLOEXEC
+/* (43b-3) A memory file's seals (memfd_create with MFD_ALLOW_SEALING):
+ * F_ADD_SEALS adds them (EPERM once F_SEAL_SEAL is there; EBUSY for
+ * F_SEAL_WRITE while a program maps it writable), F_GET_SEALS reads them. */
+#define F_ADD_SEALS     FCNTL_ADD_SEALS
+#define F_GET_SEALS     FCNTL_GET_SEALS
+#define F_SEAL_SEAL         0x0001      /* no more seals */
+#define F_SEAL_SHRINK       0x0002      /* never shorter */
+#define F_SEAL_GROW         0x0004      /* never longer */
+#define F_SEAL_WRITE        0x0008      /* never written again */
+#define F_SEAL_FUTURE_WRITE 0x0010      /* written only through the writable mappings made before */
+/* (43b-4) Record locks (POSIX's): F_SETLK sets or (F_UNLCK) lets go of a
+ * lock on [l_start, l_start + l_len) (from l_whence's place; l_len 0: to
+ * the end, however long the file gets; negative: the bytes before),
+ * EAGAIN if another process holds one in the way; F_SETLKW waits instead
+ * (EINTR on a signal; no deadlock detection); F_GETLK the first lock in
+ * the way (l_whence SEEK_SET, its holder in l_pid) or l_type F_UNLCK. A
+ * process's locks on a file go when it closes any descriptor of it, or
+ * ends; a read lock needs the file open for reading, a write lock for
+ * writing (EBADF). RitterFS files and memory files only (EINVAL). */
+#define F_GETLK     FCNTL_GETLK
+#define F_SETLK     FCNTL_SETLK
+#define F_SETLKW    FCNTL_SETLKW
+#define F_RDLCK     FCNTL_RDLCK
+#define F_WRLCK     FCNTL_WRLCK
+#define F_UNLCK     FCNTL_UNLCK
+struct flock {
+    short l_type;
+    short l_whence;
+    off_t l_start;
+    off_t l_len;
+    pid_t l_pid;
+};
 int fcntl(int fd, int command, ...);
 
 /* (63m) For utimensat: the current folder (relative paths start there;
@@ -2713,6 +3837,39 @@ int fcntl(int fd, int command, ...);
  * (e.g. 0666; the umask's bits are taken away, 022 at the start), as POSIX's. */
 int open(const char *path, int flags, ...);
 int creat(const char *path, mode_t mode);
+
+/* (43b-1) More of open's flags: O_CLOEXEC (the descriptor closes at
+ * exec, set as it is made), O_DIRECTORY (ENOTDIR unless a folder),
+ * O_NOFOLLOW (ELOOP when path is a symbolic link), and flags that change
+ * nothing here (O_NOCTTY, O_SYNC, O_DSYNC, O_LARGEFILE, O_NOATIME).
+ * openat and the other *at calls take a path relative to a folder's
+ * descriptor (dirfd; AT_FDCWD: the current folder); AT_REMOVEDIR makes
+ * unlinkat rmdir, AT_EACCESS makes faccessat use the effective user,
+ * AT_EMPTY_PATH with "" means dirfd's own file. posix_fadvise: taken;
+ * posix_fallocate: the file made at least offset + length long. */
+#define O_CLOEXEC       OPEN_CLOEXEC
+#define O_DIRECTORY     0x10000
+#define O_NOFOLLOW      0x20000
+#define O_NOCTTY        0
+#define O_SYNC          0
+#define O_DSYNC         0
+#define O_RSYNC         0
+#define O_LARGEFILE     0
+#define O_NOATIME       0
+#define O_NDELAY        O_NONBLOCK
+#define AT_REMOVEDIR    0x200
+#define AT_SYMLINK_FOLLOW 0x400
+#define AT_EACCESS      0x200
+#define AT_EMPTY_PATH   0x1000
+#define POSIX_FADV_NORMAL       0
+#define POSIX_FADV_RANDOM       1
+#define POSIX_FADV_SEQUENTIAL   2
+#define POSIX_FADV_WILLNEED     3
+#define POSIX_FADV_DONTNEED     4
+#define POSIX_FADV_NOREUSE      5
+int openat(int dirfd, const char *path, int flags, ...);
+int posix_fadvise(int fd, off_t offset, off_t length, int advice);
+int posix_fallocate(int fd, off_t offset, off_t length);
 ```
 
 <a id="errno-h"></a>
@@ -2787,6 +3944,49 @@ int *__errno(void);
 #define ENONAME         ERR_NONAME
 #define ERANGE          34              /* a number out of range (strtol, 22m; the library's own) */
 #define EILSEQ          84      /* (22p: a byte or character no character set has; Linux's number) */
+
+/* (43a) The other POSIX names (and Linux's common ones) for ported code,
+ * with Linux's numbers like the kernel's: the system does not give these
+ * yet; the library gives some (ENFILE, EOVERFLOW, ESPIPE, ...). */
+#define ENOTBLK         15
+#define ENFILE          23
+#define ETXTBSY         26
+#define EFBIG           27
+#define ESPIPE          29
+#define EMLINK          31
+#define EDOM            33
+#define ENOLCK          37
+#define ENOMSG          42
+#define EIDRM           43
+#define ENOSTR          60
+#define ETIME           62
+#define ENOSR           63
+#define ENONET          64
+#define EREMOTE         66
+#define ENOLINK         67
+#define EPROTO          71
+#define EMULTIHOP       72
+#define EBADMSG         74
+#define EOVERFLOW       75
+#define EBADFD          77
+#define EUSERS          87
+#define EPROTOTYPE      91
+#define EPFNOSUPPORT    96
+#define ENETDOWN        100
+#define ENETRESET       102
+#define ENOBUFS         105
+#define ESHUTDOWN       108
+#define ETOOMANYREFS    109
+#define EHOSTDOWN       112
+#define ESTALE          116
+#define EDQUOT          122
+#define ENOMEDIUM       123
+#define EMEDIUMTYPE     124
+#define ECANCELED       125
+#define EOWNERDEAD      130
+#define ENOTRECOVERABLE 131
+#define ELAST           131     /* (43c) the highest of them (the BSDs' name) */
+#define EDEADLOCK       EDEADLK
 ```
 
 <a id="sys-types-h"></a>
@@ -2803,6 +4003,33 @@ typedef unsigned int mode_t;
 typedef int64_t ssize_t;
 typedef unsigned int useconds_t;
 typedef int64_t off_t;
+/* (43a) The rest of POSIX's: a device and an object's numbers, links,
+ * blocks, ids, and BSD's short names. */
+typedef uint64_t dev_t;
+typedef uint64_t ino_t;
+typedef uint64_t nlink_t;
+typedef int64_t blksize_t;
+typedef int64_t blkcnt_t;
+typedef uint64_t fsblkcnt_t;
+typedef uint64_t fsfilcnt_t;
+typedef unsigned int id_t;
+typedef int key_t;
+typedef long suseconds_t;
+typedef int64_t loff_t;
+typedef char *caddr_t;
+typedef unsigned char u_char;
+typedef unsigned short u_short;
+typedef unsigned int u_int;
+typedef unsigned long u_long;
+typedef unsigned char u_int8_t;
+typedef unsigned short u_int16_t;
+typedef unsigned int u_int32_t;
+typedef unsigned long u_int64_t;
+#ifndef RITTEROS_TIME_TYPES
+#define RITTEROS_TIME_TYPES
+typedef int64_t time_t;
+typedef long clock_t;
+#endif
 ```
 
 <a id="sys-stat-h"></a>
@@ -2830,29 +4057,62 @@ File information.
 #define S_ISSOCK(mode)  (((mode) & S_IFMT) == S_IFSOCK)
 #define S_ISLNK(mode)   (((mode) & S_IFMT) == S_IFLNK)
 #define S_ISUID         0004000         /* setuid: the program runs as its file's owner (50b) */
+#define S_ISGID         0002000         /* (43a) setgid: the program runs as its file's group */
+#define S_IRWXU         0000700         /* (43a) the permission bits by name: the owner's, */
+#define S_IRUSR         0000400
+#define S_IWUSR         0000200
+#define S_IXUSR         0000100
+#define S_IRWXG         0000070         /* the group's, */
+#define S_IRGRP         0000040
+#define S_IWGRP         0000020
+#define S_IXGRP         0000010
+#define S_IRWXO         0000007         /* everyone else's */
+#define S_IROTH         0000004
+#define S_IWOTH         0000002
+#define S_IXOTH         0000001
+#define S_IREAD         S_IRUSR         /* (the older BSD names) */
+#define S_IWRITE        S_IWUSR
+#define S_IEXEC         S_IXUSR
+#define ACCESSPERMS     0000777
+#define ALLPERMS        0007777
+#define DEFFILEMODE     0000666
 #define S_ISVTX         0001000         /* (57b) sticky: in this folder only an entry's owner
                                          * (or the folder's) removes or renames it */
 
+/* (43a) POSIX's whole struct stat. RitterFS keeps no access times:
+ * st_atim is the last change of the contents, as st_mtim; st_ctim is when
+ * the file was made. st_blocks counts 512-byte units of the 4 KiB blocks
+ * the size takes, st_blksize the best size to read and write at once;
+ * st_rdev is 0. st_atime, st_mtime and st_ctime are the seconds. Programs
+ * built before 43a had a shorter struct stat: the library keeps their
+ * stat, fstat and lstat, and these declarations name the new ones (the
+ * __asm__ names), so both kinds of program keep working. */
 struct stat {
-    uint32_t st_dev;            /* the file system (a mount point differs from its parent) */
-    uint64_t st_ino;            /* RitterFS object ID */
-    unsigned int st_mode;       /* S_IFDIR or S_IFREG, and the rwxrwxrwx bits */
+    dev_t st_dev;               /* the file system (a mount point differs from its parent) */
+    ino_t st_ino;               /* RitterFS object ID */
+    mode_t st_mode;             /* the kind (S_IFDIR, S_IFREG, ...) and the rwxrwxrwx bits */
+    nlink_t st_nlink;
     uid_t st_uid;               /* owner */
     gid_t st_gid;
-    unsigned int st_nlink;
-    int64_t st_size;
-    int64_t st_ctime, st_mtime; /* seconds since 1970 (RitterFS: created, modified) */
+    dev_t st_rdev;
+    off_t st_size;
+    blksize_t st_blksize;
+    blkcnt_t st_blocks;
+    struct timespec st_atim, st_mtim, st_ctim;
 };
+#define st_atime st_atim.tv_sec
+#define st_mtime st_mtim.tv_sec
+#define st_ctime st_ctim.tv_sec
 
 /* Information about the file at path; 0, or -1 with errno set. */
-int stat(const char *path, struct stat *st);
+int stat(const char *path, struct stat *st) __asm__("__ritteros_stat2");
 /* (52b) The same for an open descriptor (a file as it is now; a terminal,
  * pipe or socket by its kind: S_ISCHR, S_ISFIFO, S_ISSOCK). */
-int fstat(int fd, struct stat *st);
+int fstat(int fd, struct stat *st) __asm__("__ritteros_fstat2");
 /* (57a) stat of the name itself: a symbolic link is S_ISLNK, its size the
  * length of the path it names, its mode lrwxrwxrwx; st_nlink counts a
  * file's names (hard links). */
-int lstat(const char *path, struct stat *st);
+int lstat(const char *path, struct stat *st) __asm__("__ritteros_lstat2");
 
 /* Create a directory with these permissions (e.g. 0755); 0, or -1 with
  * errno set. */
@@ -2881,6 +4141,15 @@ int chown(const char *path, uid_t uid, gid_t gid);
 #define UTIME_OMIT      ((1L << 30) - 2)
 int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags);
 int futimens(int fd, const struct timespec times[2]);
+
+/* (43b-1) fchmod: chmod of an open file; the *at forms (a path relative
+ * to a folder's descriptor, AT_SYMLINK_NOFOLLOW, AT_EMPTY_PATH). mkfifo:
+ * there are no named pipes (ENOSYS). */
+int fchmod(int fd, mode_t mode);
+int fchmodat(int dirfd, const char *path, mode_t mode, int flags);
+int fstatat(int dirfd, const char *path, struct stat *st, int flags);
+int mkdirat(int dirfd, const char *path, mode_t mode);
+int mkfifo(const char *path, mode_t mode);
 ```
 
 <a id="poll-h"></a>
@@ -2906,6 +4175,12 @@ typedef unsigned long nfds_t;
  * Pipes, pseudo-terminals, the terminal (a byte typed: a line read still
  * waits for its Enter) and sockets can wait; files and devices never do. */
 int poll(struct pollfd *fds, nfds_t count, int timeout);
+
+/* (43a-4) ppoll: poll with a timeout as a timespec (0: none) and, when
+ * mask is not 0, that set of blocked signals while it waits (set, then
+ * waited, then put back: a signal that comes just before the wait is
+ * handled then, not by waking it). */
+int ppoll(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *mask);
 ```
 
 <a id="sys-socket-h"></a>
@@ -2914,7 +4189,7 @@ int poll(struct pollfd *fds, nfds_t count, int timeout);
 
 `user/include/sys/socket.h` (in RitterOS's tree) -- BSD sockets: TCP, UDP and local connections by address; for apps.
 
-BSD sockets (53a): connections and datagrams by address. AF_INET is IPv4 over TCP (SOCK_STREAM) and UDP (SOCK_DGRAM), AF_INET6 (64d) IPv6 and IPv4 (netinet/in.h); AF_UNIX the local stream sockets, named by sun_path in a kernel registry (no file is made). Binding takes a port; the socket answers on every address the machine has. Calls return -1 with errno set on errors.
+BSD sockets (53a): connections and datagrams by address. AF_INET is IPv4 over TCP (SOCK_STREAM) and UDP (SOCK_DGRAM), AF_INET6 (64d) IPv6 and IPv4 (netinet/in.h); AF_UNIX the local stream sockets, named by sun_path in a kernel registry (no file is made), and (45b) SOCK_SEQPACKET ones: each send one message kept whole (at most 64 KiB, else EMSGSIZE), each receive one message (what does not fit is dropped, MSG_TRUNC in recvmsg's msg_flags); a packet socket connects only to a packet listener (EPROTOTYPE). Binding takes a port; the socket answers on every address the machine has. Calls return -1 with errno set on errors.
 
 ```c
 typedef uint32_t socklen_t;
@@ -2945,6 +4220,7 @@ struct sockaddr_storage {
 
 #define SOCK_STREAM     1
 #define SOCK_DGRAM      2
+#define SOCK_SEQPACKET  5       /* (45b) AF_UNIX only */
 
 #define SOMAXCONN       128
 
@@ -2999,6 +4275,63 @@ int getsockname(int fd, struct sockaddr *address, socklen_t *length);
 int getpeername(int fd, struct sockaddr *address, socklen_t *length);
 int setsockopt(int fd, int level, int option, const void *value, socklen_t length);
 int getsockopt(int fd, int level, int option, void *value, socklen_t *length);
+
+/* (43b-1) socket's type may carry SOCK_CLOEXEC and SOCK_NONBLOCK;
+ * accept4 is accept with them. */
+#define SOCK_NONBLOCK   0x800
+#define SOCK_CLOEXEC    0x80000
+int accept4(int fd, struct sockaddr *address, socklen_t *length, int flags);
+
+/* (43b-2) sendmsg and recvmsg: bytes in several parts (msg_iov) and,
+ * on a local socket, open descriptors passed along (a control message of
+ * SOL_SOCKET, SCM_RIGHTS: an int array; at most 64 a message): the
+ * receiver gets new descriptors for the same open files, as dup would
+ * give (MSG_CMSG_CLOEXEC: marked FD_CLOEXEC; MSG_CTRUNC in msg_flags when
+ * msg_control had too little room, the rest closed). A recvmsg stops
+ * before the next message that carries descriptors, so they always come
+ * with the first byte of a read. On a UDP socket msg_name is the address.
+ * socketpair(AF_UNIX, SOCK_STREAM [| SOCK_CLOEXEC | SOCK_NONBLOCK], 0,
+ * fds): two local sockets connected to each other. */
+struct msghdr {
+    void *msg_name;
+    socklen_t msg_namelen;
+    struct iovec *msg_iov;
+    size_t msg_iovlen;
+    void *msg_control;
+    size_t msg_controllen;
+    int msg_flags;
+};
+struct cmsghdr {
+    size_t cmsg_len;
+    int cmsg_level;
+    int cmsg_type;
+};
+#define SCM_RIGHTS      1
+#define MSG_OOB         0x1
+#define MSG_CTRUNC      0x8
+#define MSG_TRUNC       0x20
+#define MSG_EOR         0x80
+#define MSG_CMSG_CLOEXEC 0x40000000
+#define CMSG_ALIGN(n)   (((n) + sizeof(size_t) - 1) & ~(sizeof(size_t) - 1))
+#define CMSG_DATA(c)    ((unsigned char *)((struct cmsghdr *)(c) + 1))
+#define CMSG_SPACE(n)   (CMSG_ALIGN(n) + CMSG_ALIGN(sizeof(struct cmsghdr)))
+#define CMSG_LEN(n)     (CMSG_ALIGN(sizeof(struct cmsghdr)) + (n))
+#define CMSG_FIRSTHDR(m) ((m)->msg_controllen >= sizeof(struct cmsghdr) ? \
+                          (struct cmsghdr *)(m)->msg_control : (struct cmsghdr *)0)
+#define CMSG_NXTHDR(m, c) __ritteros_cmsg_next((m), (c))
+static inline struct cmsghdr *__ritteros_cmsg_next(struct msghdr *m, struct cmsghdr *c)
+{
+    if (c->cmsg_len < sizeof(struct cmsghdr))
+        return (struct cmsghdr *)0;
+    unsigned char *next = (unsigned char *)c + CMSG_ALIGN(c->cmsg_len);
+    unsigned char *end = (unsigned char *)m->msg_control + m->msg_controllen;
+    if (next + sizeof(struct cmsghdr) > end || next + CMSG_ALIGN(((struct cmsghdr *)(void *)next)->cmsg_len) > end)
+        return (struct cmsghdr *)0;
+    return (struct cmsghdr *)(void *)next;
+}
+ssize_t sendmsg(int fd, const struct msghdr *message, int flags);
+ssize_t recvmsg(int fd, struct msghdr *message, int flags);
+int socketpair(int domain, int type, int protocol, int fds[2]);
 ```
 
 <a id="netinet-in-h"></a>
@@ -3143,8 +4476,6 @@ struct sockaddr_un {
 Times of day in seconds and microseconds (53a): what socket timeouts and select take.
 
 ```c
-typedef long suseconds_t;
-
 struct timeval {
     time_t tv_sec;
     suseconds_t tv_usec;        /* 0 to 999999 */
@@ -3152,10 +4483,15 @@ struct timeval {
 
 /* The time now since 1970 (UTC); zone must be 0. 0, or -1 with errno set. */
 int gettimeofday(struct timeval *tv, void *zone);
+/* (68l) The clock set to *tv (clock_settime's: root only, the firmware's
+ * clock too); zone is not used. 0, or -1 with errno set. */
+int settimeofday(const struct timeval *tv, const void *zone);
 
 /* (63m) A file's times in microseconds ([0] access, [1] modification; 0:
  * both now): utimensat's older form (sys/stat.h). */
 int utimes(const char *path, const struct timeval times[2]);
+
+/* (46b) POSIX's sys/time.h also gives fd_set, the FD_ macros and select. */
 ```
 
 <a id="sys-utsname-h"></a>
@@ -3224,6 +4560,11 @@ typedef struct {
  * waiting up to timeout (0: as long as it takes; it is left as it was);
  * -1 with errno set (EBADF: one is not open, EINVAL, EINTR). */
 int select(int count, fd_set *read, fd_set *write, fd_set *except, struct timeval *timeout);
+
+/* (43a-4) pselect: select with a timespec and a set of blocked signals
+ * while it waits (as ppoll, poll.h). */
+int pselect(int count, fd_set *read, fd_set *write, fd_set *except, const struct timespec *timeout,
+            const sigset_t *mask);
 ```
 
 <a id="pthread-h"></a>
@@ -3238,9 +4579,19 @@ POSIX threads (54a), over threads.h's C11 threads and the kernel's futex: a wait
 typedef unsigned long pthread_t;        /* the thread's number (thread.h) */
 typedef unsigned int pthread_key_t;
 
+/* (43a-4) The scheduling and stack attributes too. Programs built before
+ * had only detached and stack_size, which keep their places, so the calls
+ * that touch only them serve both; pthread_attr_init and pthread_create
+ * are new symbols (the __asm__ names below), the old ones kept for those
+ * programs. */
 typedef struct {
     int detached;                       /* PTHREAD_CREATE_* */
+    int inherit;                        /* PTHREAD_INHERIT_SCHED or _EXPLICIT_SCHED */
     size_t stack_size;                  /* the thread's stack (54d) */
+    void *stack_addr;                   /* pthread_attr_setstack's (the size is used) */
+    size_t guard_size;
+    int policy, priority, scope;        /* SCHED_OTHER, 0, PTHREAD_SCOPE_SYSTEM */
+    int reserved;
 } pthread_attr_t;
 
 typedef struct {
@@ -3290,14 +4641,15 @@ typedef struct {
  * detached one is nobody's to join). pthread_exit ends the calling thread
  * with value (keys' destructors run first, as when start returns); the
  * program ends when its last thread has. */
-int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg);
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg)
+    __asm__("__ritteros_pthread_create2");
 int pthread_join(pthread_t thread, void **value);
 int pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
 int pthread_equal(pthread_t a, pthread_t b);
 __attribute__((noreturn)) void pthread_exit(void *value);
 
-int pthread_attr_init(pthread_attr_t *attr);
+int pthread_attr_init(pthread_attr_t *attr) __asm__("__ritteros_pthread_attr_init2");
 int pthread_attr_destroy(pthread_attr_t *attr);
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int state);
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *state);
@@ -3352,6 +4704,10 @@ int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(vo
 
 /* The calling thread's blocked signals (sigprocmask's, as an error number). */
 int pthread_sigmask(int how, const sigset_t *set, sigset_t *old);
+/* (43b-5) A signal to one thread of the program: its handler runs in that
+ * thread (si_code SI_TKILL); without one, its default is the program's
+ * (it ends). 0, ESRCH, EINVAL; signal 0 only asks. */
+int pthread_kill(pthread_t thread, int signal);
 
 /* (54c) Cancellation: pthread_cancel asks a thread to end. A deferred one
  * (the default) ends at its next cancellation point -- read, write, open,
@@ -3451,6 +4807,71 @@ int pthread_spin_destroy(pthread_spinlock_t *s);
 int pthread_spin_lock(pthread_spinlock_t *s);
 int pthread_spin_trylock(pthread_spinlock_t *s);
 int pthread_spin_unlock(pthread_spinlock_t *s);
+
+/* (43a-4) The rest of POSIX's thread attributes and GNU's _np calls:
+ * - pthread_attr_setstack/getstack: a stack's address and size (the
+ *   size is used; the kernel places each thread's stack itself, so the
+ *   address is only remembered); guard size, scope (PTHREAD_SCOPE_SYSTEM
+ *   only), scheduling (SCHED_OTHER with priority 0 only: see sched.h);
+ * - pthread_getattr_np: a running thread's attributes, its stack's place
+ *   and size (from its first frame: the stack a garbage collector scans);
+ *   pthread_setattr_default_np/getattr_default_np;
+ * - pthread_getschedparam/setschedparam/setschedprio, the affinity
+ *   (every core), pthread_getcpuclockid ((43b-6) the calling thread's:
+ *   CLOCK_THREAD_CPUTIME_ID; another's ENOENT),
+ *   the concurrency level (remembered);
+ * - the mutex attributes' protocol (PTHREAD_PRIO_NONE), priority ceiling
+ *   (0) and robustness (PTHREAD_MUTEX_STALLED), and the condition
+ *   variables', read-write locks' and barriers' pshared (PRIVATE only):
+ *   other values are ENOTSUP. */
+#define PTHREAD_INHERIT_SCHED   0
+#define PTHREAD_EXPLICIT_SCHED  1
+#define PTHREAD_SCOPE_SYSTEM    0
+#define PTHREAD_SCOPE_PROCESS   1
+#define PTHREAD_PRIO_NONE       0
+#define PTHREAD_PRIO_INHERIT    1
+#define PTHREAD_PRIO_PROTECT    2
+#define PTHREAD_MUTEX_STALLED   0
+#define PTHREAD_MUTEX_ROBUST    1
+int pthread_attr_setstack(pthread_attr_t *attr, void *addr, size_t size);
+int pthread_attr_getstack(const pthread_attr_t *attr, void **addr, size_t *size);
+int pthread_attr_setguardsize(pthread_attr_t *attr, size_t size);
+int pthread_attr_getguardsize(const pthread_attr_t *attr, size_t *size);
+int pthread_attr_setscope(pthread_attr_t *attr, int scope);
+int pthread_attr_getscope(const pthread_attr_t *attr, int *scope);
+int pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit);
+int pthread_attr_getinheritsched(const pthread_attr_t *attr, int *inherit);
+int pthread_attr_setschedpolicy(pthread_attr_t *attr, int policy);
+int pthread_attr_getschedpolicy(const pthread_attr_t *attr, int *policy);
+int pthread_attr_setschedparam(pthread_attr_t *attr, const struct sched_param *param);
+int pthread_attr_getschedparam(const pthread_attr_t *attr, struct sched_param *param);
+int pthread_getattr_np(pthread_t thread, pthread_attr_t *attr);
+int pthread_setattr_default_np(const pthread_attr_t *attr);
+int pthread_getattr_default_np(pthread_attr_t *attr);
+int pthread_getschedparam(pthread_t thread, int *policy, struct sched_param *param);
+int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param *param);
+int pthread_setschedprio(pthread_t thread, int priority);
+int pthread_getaffinity_np(pthread_t thread, size_t size, cpu_set_t *set);
+int pthread_setaffinity_np(pthread_t thread, size_t size, const cpu_set_t *set);
+int pthread_getcpuclockid(pthread_t thread, clockid_t *clock);
+/* (43b-6) A thread's name, as `threads` lists it (the program's name at
+ * first): at most 15 bytes (ERANGE), and read into size bytes (ERANGE if
+ * they cannot hold it). */
+int pthread_setname_np(pthread_t thread, const char *name);
+int pthread_getname_np(pthread_t thread, char *name, size_t size);
+int pthread_getconcurrency(void);
+int pthread_setconcurrency(int level);
+int pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr, int protocol);
+int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr, int *protocol);
+int pthread_mutexattr_setprioceiling(pthread_mutexattr_t *attr, int ceiling);
+int pthread_mutexattr_getprioceiling(const pthread_mutexattr_t *attr, int *ceiling);
+int pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust);
+int pthread_mutexattr_getrobust(const pthread_mutexattr_t *attr, int *robust);
+int pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr, int *shared);
+int pthread_condattr_setpshared(pthread_condattr_t *attr, int shared);
+int pthread_condattr_getpshared(const pthread_condattr_t *attr, int *shared);
+int pthread_rwlockattr_setpshared(pthread_rwlockattr_t *attr, int shared);
+int pthread_rwlockattr_getpshared(const pthread_rwlockattr_t *attr, int *shared);
 ```
 
 <a id="sched-h"></a>
@@ -3459,11 +4880,43 @@ int pthread_spin_unlock(pthread_spinlock_t *s);
 
 `user/include/sched.h` (in RitterOS's tree) -- sched_yield; for apps.
 
-(54a) Giving the processor away.
+(54a) Giving the processor away; (43a-4) POSIX's scheduling calls and GNU's core sets. RitterOS's scheduler has one policy without priorities (SCHED_OTHER, priority 0); asking for another is EINVAL (SCHED_FIFO, SCHED_RR: EPERM, as for a user without rights); a thread may run on every core: sched_getaffinity gives them all, sched_setaffinity is believed but changes nothing. sched_getcpu is not known (-1, ENOSYS).
 
 ```c
 /* Let other threads and programs run first; 0. */
 int sched_yield(void);
+
+#define SCHED_OTHER     0
+#define SCHED_FIFO      1
+#define SCHED_RR        2
+#define SCHED_BATCH     3
+#define SCHED_IDLE      5
+struct sched_param {
+    int sched_priority;
+};
+int sched_get_priority_max(int policy);
+int sched_get_priority_min(int policy);
+int sched_getparam(pid_t pid, struct sched_param *param);
+int sched_setparam(pid_t pid, const struct sched_param *param);
+int sched_getscheduler(pid_t pid);
+int sched_setscheduler(pid_t pid, int policy, const struct sched_param *param);
+int sched_rr_get_interval(pid_t pid, struct timespec *interval);
+
+/* A set of cores, GNU's: up to 1024. */
+#define CPU_SETSIZE     1024
+typedef struct {
+    unsigned long bits[CPU_SETSIZE / 64];
+} cpu_set_t;
+#define CPU_ZERO(set)           __builtin_memset((set), 0, sizeof(cpu_set_t))
+#define CPU_SET(n, set)         ((void)((n) < CPU_SETSIZE && ((set)->bits[(n) / 64] |= 1UL << ((n) % 64))))
+#define CPU_CLR(n, set)         ((void)((n) < CPU_SETSIZE && ((set)->bits[(n) / 64] &= ~(1UL << ((n) % 64)))))
+#define CPU_ISSET(n, set)       ((n) < CPU_SETSIZE && ((set)->bits[(n) / 64] >> ((n) % 64) & 1))
+#define CPU_COUNT(set)          __ritteros_cpu_count(sizeof(cpu_set_t), (set))
+#define CPU_EQUAL(a, b)         (__builtin_memcmp((a), (b), sizeof(cpu_set_t)) == 0)
+int __ritteros_cpu_count(size_t size, const cpu_set_t *set);
+int sched_getaffinity(pid_t pid, size_t size, cpu_set_t *set);
+int sched_setaffinity(pid_t pid, size_t size, const cpu_set_t *set);
+int sched_getcpu(void);
 ```
 
 <a id="spawn-h"></a>
@@ -3508,6 +4961,13 @@ int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *actions, int fd
                                      const char *path, int oflag, mode_t mode);
 int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *actions, int fd, int newfd);
 int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *actions, int fd);
+/* (43a-3) The child changes its folder to path there, in the actions'
+ * order (POSIX 2024's name, and glibc's _np one). */
+int posix_spawn_file_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path);
+int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t *actions, const char *path);
+/* (43b-6) The same with a folder's descriptor (open in the child then). */
+int posix_spawn_file_actions_addfchdir(posix_spawn_file_actions_t *actions, int fd);
+int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *actions, int fd);
 
 int posix_spawnattr_init(posix_spawnattr_t *attr);
 int posix_spawnattr_destroy(posix_spawnattr_t *attr);
@@ -3771,16 +5231,32 @@ Waiting for child processes, and what their status means.
 
 ```c
 #define WNOHANG                 1       /* return 0 at once if none has ended */
+#define WUNTRACED               2       /* (44a) also a child that stopped (job control) */
+#define WCONTINUED              8       /* (44a) also a stopped child that SIGCONT made go on */
 
+/* What a status says (44a: Linux's encoding): ended by exit (WEXITSTATUS:
+ * its code), by a signal (WTERMSIG), stopped (WSTOPSIG: by which signal),
+ * or continued. */
 #define WIFEXITED(status)       (((status) & 0x7F) == 0)
 #define WEXITSTATUS(status)     (((status) >> 8) & 0xFF)
-#define WIFSIGNALED(status)     (((status) & 0x7F) != 0)
+#define WIFSIGNALED(status)     (((status) & 0x7F) != 0 && ((status) & 0x7F) != 0x7F)
 #define WTERMSIG(status)        ((status) & 0x7F)
+#define WIFSTOPPED(status)      (((status) & 0xFF) == 0x7F)
+#define WSTOPSIG(status)        WEXITSTATUS(status)
+#define WIFCONTINUED(status)    ((status) == 0xFFFF)
 
 /* Wait for any child / for child pid (-1: any) to end; its ID, or -1 with
- * errno set (ECHILD: no such child). flags: 0 or WNOHANG. */
+ * errno set (ECHILD: no such child). flags: 0 or WNOHANG, (44a) WUNTRACED
+ * and WCONTINUED: also a child's stop and its continuing, each reported
+ * once. */
 pid_t wait(int *status);
 pid_t waitpid(pid_t pid, int *status, int flags);
+
+/* (43a-3) BSD's waits with the child's use (a struct rusage of
+ * sys/resource.h; a child's use is not kept: zeros). */
+struct rusage;
+pid_t wait3(int *status, int options, struct rusage *usage);
+pid_t wait4(pid_t pid, int *status, int options, struct rusage *usage);
 ```
 
 <a id="sys-mman-h"></a>
@@ -3803,6 +5279,9 @@ Memory mappings (step 22a): mmap and munmap as on Unix, a subset. Anonymous memo
                                          * replacing the mappings there */
 #define MAP_ANONYMOUS   MMAP_ANONYMOUS  /* zeroed memory: fd and offset are not used */
 #define MAP_ANON        MAP_ANONYMOUS
+#define MAP_NORESERVE   0x4000          /* (45c) taken, nothing more: no memory is reserved
+                                         * ahead anyway (a page costs memory from its first
+                                         * touch), so large PROT_NONE reservations are free */
 
 #define MAP_FAILED      ((void *)-1)
 
@@ -3831,6 +5310,51 @@ int mprotect(void *addr, size_t length, int prot);
  * [addr, addr + length) (addr on a page boundary) to their files (22j). 0, or
  * -1 with errno set (EIO if a file could not be written). */
 int msync(void *addr, size_t length, int flags);
+
+/* (43b-3) Memory files: shared memory with a size, read and written as a
+ * file (read, write, lseek, ftruncate, fstat) and mapped MAP_SHARED by
+ * every program it is given to (sendmsg's SCM_RIGHTS, fork); MAP_PRIVATE
+ * only to read (ENOTSUP for writing). A page past its size is SIGBUS.
+ * memfd_create makes one without a name (MFD_CLOEXEC; MFD_ALLOW_SEALING:
+ * else it comes with F_SEAL_SEAL, as Linux's); shm_open opens one by name
+ * in /dev/shm (O_RDONLY or O_RDWR, O_CREAT, O_EXCL, O_TRUNC; the name is
+ * "/NAME" or "NAME", no other slash), shm_unlink removes the name (its
+ * owner or root): it lives while descriptors or mappings hold it. */
+#define MFD_CLOEXEC         0x0001U
+#define MFD_ALLOW_SEALING   0x0002U
+int memfd_create(const char *name, unsigned int flags);
+int shm_open(const char *name, int flags, mode_t mode);
+int shm_unlink(const char *name);
+
+/* (43b-3) madvise: MADV_DONTNEED and MADV_FREE give the pages back
+ * (anonymous memory reads 0 at the next touch, a private file mapping the
+ * file again; shared memory keeps its content), the others change nothing.
+ * posix_madvise returns the error instead (POSIX_MADV_DONTNEED changes
+ * nothing, as glibc's). */
+#define MADV_NORMAL         0
+#define MADV_RANDOM         1
+#define MADV_SEQUENTIAL     2
+#define MADV_WILLNEED       MADVISE_WILLNEED
+#define MADV_DONTNEED       MADVISE_DONTNEED
+#define MADV_FREE           MADVISE_FREE
+#define POSIX_MADV_NORMAL       0
+#define POSIX_MADV_RANDOM       1
+#define POSIX_MADV_SEQUENTIAL   2
+#define POSIX_MADV_WILLNEED     3
+#define POSIX_MADV_DONTNEED     4
+int madvise(void *addr, size_t length, int advice);
+int posix_madvise(void *addr, size_t length, int advice);
+
+/* (46b) Memory locking: not there. RitterOS cannot keep pages out of swap
+ * (which is encrypted, with a key made at each `swap on`), so these fail
+ * with ENOSYS rather than promise it; OpenSSL's secure heap goes on
+ * without it. */
+#define MCL_CURRENT     1
+#define MCL_FUTURE      2
+int mlock(const void *addr, size_t length);
+int munlock(const void *addr, size_t length);
+int mlockall(int flags);
+int munlockall(void);
 ```
 
 <a id="dlfcn-h"></a>
@@ -3860,6 +5384,17 @@ int dlclose(void *handle);
 
 /* The last failure's message in this thread, once; 0 if none since. */
 char *dlerror(void);
+
+/* (43a-4) dladdr: the object and symbol holding address: the file's
+ * name and where it begins, the nearest function or object at or below
+ * address and its place (0 when none); 0 when no object holds it. */
+typedef struct {
+    const char *dli_fname;
+    void *dli_fbase;
+    const char *dli_sname;
+    void *dli_saddr;
+} Dl_info;
+int dladdr(const void *address, Dl_info *info);
 ```
 
 <a id="dirent-h"></a>
@@ -3875,6 +5410,10 @@ Reading directories: opendir, then readdir until it returns 0.
 #define DT_DIR  4
 #define DT_REG  8
 #define DT_LNK  10              /* (57a) a symbolic link */
+#define DT_UNKNOWN 0            /* (43c) the rest of the BSDs' and Linux's: never given here */
+#define DT_FIFO 1
+#define DT_CHR  2
+#define DT_SOCK 12
 
 struct dirent {
     uint64_t d_ino;             /* RitterFS object ID */
@@ -3887,6 +5426,22 @@ typedef struct DIR DIR;         /* (as many open as descriptors: 63k) */
 DIR *opendir(const char *path);
 struct dirent *readdir(DIR *dir);       /* 0 at the end (or on an error: errno) */
 int closedir(DIR *dir);
+
+/* (43b-1) fdopendir: a DIR on a folder's descriptor (closedir closes
+ * it); dirfd: a DIR's descriptor; rewinddir, telldir, seekdir: its place;
+ * readdir_r: readdir into the caller's entry; scandir: the entries that
+ * filter keeps (all when 0), sorted by compare (alphasort: strcoll's
+ * order; versionsort: strverscmp's), into a malloc'd list. */
+DIR *fdopendir(int fd);
+int dirfd(DIR *dir);
+void rewinddir(DIR *dir);
+long telldir(DIR *dir);
+void seekdir(DIR *dir, long place);
+int readdir_r(DIR *dir, struct dirent *entry, struct dirent **result);
+int scandir(const char *path, struct dirent ***list, int (*filter)(const struct dirent *),
+            int (*compare)(const struct dirent **, const struct dirent **));
+int alphasort(const struct dirent **a, const struct dirent **b);
+int versionsort(const struct dirent **a, const struct dirent **b);
 ```
 
 <a id="signal-h"></a>
@@ -3895,7 +5450,7 @@ int closedir(DIR *dir);
 
 `user/include/signal.h` (in RitterOS's tree) -- signals; for apps.
 
-Signals. A signal ends the process it is sent to, unless the process ignores it (SIG_IGN) or handles it (since 22r): a handler is a function the kernel calls on the program's way back from the kernel (a system call, an interrupt, a fault), on its own stack; when it returns, the program goes on where it was. A waiting system call such as read that a signal interrupts returns -1 with errno EINTR (it is not restarted), so a shell notices Ctrl-C (SIGINT) at its prompt. Faults (SIGSEGV, SIGBUS, SIGILL, SIGFPE) go to a handler too; one that returns runs the faulting instruction again, so such a handler usually ends the program or jumps away with longjmp. SIGKILL can be neither handled nor ignored.
+Signals. A signal ends the process it is sent to, unless the process ignores it (SIG_IGN) or handles it (since 22r): a handler is a function the kernel calls on the program's way back from the kernel (a system call, an interrupt, a fault), on its own stack; when it returns, the program goes on where it was. A waiting system call such as read that a signal interrupts returns -1 with errno EINTR (it is not restarted), so a shell notices Ctrl-C (SIGINT) at its prompt. Faults (SIGSEGV, SIGBUS, SIGILL, SIGFPE) go to a handler too; one that returns runs the faulting instruction again, so such a handler usually ends the program or jumps away with longjmp. SIGKILL can be neither handled nor ignored. (43b-5) Linux's numbers 1-31. Ignored unless handled: SIGCHLD (sent to a parent when a child ends), SIGURG, SIGWINCH, SIGCONT, and the stop signals (SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU: nothing can be stopped yet, no job control); such a signal never interrupts a waiting call. kill's pid 0 is the caller's group, -1 every process it may signal, -N group N; signal 0 only asks (ESRCH, EPERM).
 
 ```c
 typedef void (*sighandler_t)(int);
@@ -3919,16 +5474,61 @@ int raise(int signal);
  * the signals it holds back while it runs (sa_mask, besides its own unless
  * SA_NODEFER) and SA_RESETHAND (back to SIG_DFL once called). SA_RESTART is
  * taken and does nothing (interrupted calls are never restarted here).
- * There is no SA_SIGINFO. */
+ * (43b-5) SA_SIGINFO: sa_sigaction(signal, info, context) is called (the
+ * same place as sa_handler: every handler is given both), info as Linux's
+ * siginfo_t (si_signo, si_code, si_pid, si_uid, si_status, si_addr), the
+ * context a ucontext_t (sys/ucontext.h: the registers, which it may
+ * change for the way back); SA_ONSTACK: on the thread's alternate stack
+ * (sigaltstack). (44a) SA_NOCLDSTOP: no SIGCHLD when a child stops or
+ * continues (job control), only when it ends; SA_NOCLDWAIT is
+ * not done (ignoring SIGCHLD frees ended children: use that). */
 typedef unsigned long sigset_t;
+#define SA_NOCLDSTOP 0x00000001
+#define SA_NOCLDWAIT 0x00000002
+#define SA_SIGINFO   0x00000004
+#define SA_ONSTACK   0x08000000
 #define SA_RESETHAND 0x80000000
 #define SA_NODEFER   0x40000000
 #define SA_RESTART   0x10000000
+#define SA_ONESHOT   SA_RESETHAND
+#define SA_NOMASK    SA_NODEFER
+
+union sigval {
+    int sival_int;
+    void *sival_ptr;
+};
+
+typedef struct {
+    int si_signo;
+    int si_errno;
+    int si_code;                /* SI_USER, SI_KERNEL, SI_TKILL, CLD_EXITED, SEGV_MAPERR... */
+    int __pad0;
+    union {
+        struct {
+            pid_t si_pid;       /* the sender (kill, pthread_kill); SIGCHLD's child */
+            uid_t si_uid;
+            int si_status;      /* SIGCHLD: the exit code, or the signal that ended it */
+        } __proc;
+        void *si_addr;          /* a fault's address (SIGSEGV, SIGBUS; SIGILL, SIGFPE the
+                                   instruction's) */
+        int __pad[28];
+    } __fields;
+} siginfo_t;
+#define si_pid      __fields.__proc.si_pid
+#define si_uid      __fields.__proc.si_uid
+#define si_status   __fields.__proc.si_status
+#define si_addr     __fields.si_addr
+
 struct sigaction {
-    sighandler_t sa_handler;
+    union {
+        sighandler_t sa_handler;
+        void (*sa_sigaction)(int, siginfo_t *, void *);
+    } __handler;
     sigset_t sa_mask;
     int sa_flags;
 };
+#define sa_handler      __handler.sa_handler
+#define sa_sigaction    __handler.sa_sigaction
 int sigaction(int signal, const struct sigaction *action, struct sigaction *old);
 int sigemptyset(sigset_t *set);
 int sigfillset(sigset_t *set);
@@ -3955,6 +5555,35 @@ int sigpending(sigset_t *set);
  * ones do not count): its handler runs, then the set from before is back
  * and sigsuspend returns -1 with errno EINTR. Or the program ends. */
 int sigsuspend(const sigset_t *mask);
+
+/* (43a-3) killpg: a signal to a process group; psignal: "s: SIGNAL'S
+ * WORDS" on the standard error; GNU's sigisemptyset, sigandset (both
+ * sets' signals), sigorset (either set's). */
+int killpg(pid_t group, int signal);
+
+/* (43b-5) The thread's alternate stack for handlers with SA_ONSTACK (a
+ * handler for a stack overflow needs one): ss_sp and ss_size, or
+ * SS_DISABLE; the old one's ss_flags SS_ONSTACK while it runs there.
+ * ENOMEM below MINSIGSTKSZ. Threads start without one; exec forgets it. */
+typedef struct {
+    void *ss_sp;
+    int ss_flags;
+    size_t ss_size;
+} stack_t;
+#define SS_ONSTACK      SIGSTACK_ONSTACK
+#define SS_DISABLE      SIGSTACK_DISABLE
+#define MINSIGSTKSZ     SIGSTACK_MIN
+#define SIGSTKSZ        16384
+int sigaltstack(const stack_t *stack, stack_t *old);
+#define NSIG            SIGNALS
+#define _NSIG           SIGNALS
+#define SIGPOLL         SIGIO
+#define SIGIOT          SIGABRT
+#define SIGCLD          SIGCHLD
+void psignal(int signal, const char *s);
+int sigisemptyset(const sigset_t *set);
+int sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b);
+int sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b);
 ```
 
 <a id="pwd-h"></a>
@@ -3968,17 +5597,1427 @@ Users: /system/config/users holds one line per user, name:uid:gid:home (readable
 ```c
 #define USERS_FILE "/system/config/users"
 
+/* (43a) POSIX's whole struct passwd: pw_passwd is "x" (passwords are
+ * elsewhere), pw_gecos the user's name, pw_shell /bin/sh. Programs built
+ * before 43a had a shorter one (name, uid, gid, dir): the library keeps
+ * their getpwnam and getpwuid, and these declarations name the new ones. */
 struct passwd {
     char *pw_name;
+    char *pw_passwd;
     uid_t pw_uid;
     gid_t pw_gid;
+    char *pw_gecos;
     char *pw_dir;               /* the home directory */
+    char *pw_shell;
 };
 
 /* The user with that name or ID, or 0 (errno set only on a read error).
  * The result lives until the next call. */
-struct passwd *getpwnam(const char *name);
-struct passwd *getpwuid(uid_t uid);
+struct passwd *getpwnam(const char *name) __asm__("__ritteros_getpwnam2");
+struct passwd *getpwuid(uid_t uid) __asm__("__ritteros_getpwuid2");
+
+/* (43a) The same into the caller's pwd, its strings in buf (size bytes):
+ * 0 with *result = pwd, or 0 with *result = 0 when there is none, or an
+ * error number (ERANGE: buf too small). getpwent: the users one by one
+ * (root first), 0 after the last; setpwent starts over, endpwent ends. */
+int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t size, struct passwd **result);
+int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t size, struct passwd **result);
+struct passwd *getpwent(void);
+void setpwent(void);
+void endpwent(void);
+```
+
+<a id="iconv-h"></a>
+
+### iconv.h
+
+`user/include/iconv.h` (in RitterOS's tree) -- converting text between encodings (UTF-8, UTF-16, UTF-32, Latin-1, Windows-1252); for apps.
+
+iconv.h (43a-2): converting text between encodings: UTF-8, UTF-16, UTF-32 (UCS-2, UCS-4; LE, BE, or with a byte order mark), WCHAR_T, ASCII, ISO-8859-1 and Windows-1252 (names without regard to case, '-' or '_'). iconv_open(to, from): a converter, or (iconv_t)-1 with errno EINVAL for an encoding it does not know ("//TRANSLIT" after to: '?' for a character the target has not; "//IGNORE": such characters left out). iconv converts *in (*in_left bytes) into *out (*out_left bytes room), moving both: the characters converted irreversibly (TRANSLIT's), or -1 with errno E2BIG (out is full), EILSEQ (a character it cannot convert: *in stays at it) or EINVAL (*in ends inside a character). in 0: back to the initial state.
+
+```c
+typedef struct ritteros_iconv *iconv_t;
+
+iconv_t iconv_open(const char *to, const char *from);
+size_t iconv(iconv_t cd, char **in, size_t *in_left, char **out, size_t *out_left);
+int iconv_close(iconv_t cd);
+```
+
+<a id="langinfo-h"></a>
+
+### langinfo.h
+
+`user/include/langinfo.h` (in RitterOS's tree) -- the locale's words and formats (nl_langinfo); for apps.
+
+langinfo.h (43a-2): the locale's words and formats: CODESET ("UTF-8" in C.UTF-8, "ANSI_X3.4-1968" in C), the days' and months' names and short names, the date and time formats, AM/PM, RADIXCHAR, YESEXPR and NOEXPR (regular expressions of a yes and a no), CRNCYSTR. Every locale has the C locale's English ones.
+
+```c
+typedef int nl_item;
+
+#define CODESET         14
+#define RADIXCHAR       0x10000
+#define THOUSEP         0x10001
+#define ABDAY_1         0x20000
+#define ABDAY_2         0x20001
+#define ABDAY_3         0x20002
+#define ABDAY_4         0x20003
+#define ABDAY_5         0x20004
+#define ABDAY_6         0x20005
+#define ABDAY_7         0x20006
+#define DAY_1           0x20007
+#define DAY_2           0x20008
+#define DAY_3           0x20009
+#define DAY_4           0x2000A
+#define DAY_5           0x2000B
+#define DAY_6           0x2000C
+#define DAY_7           0x2000D
+#define ABMON_1         0x2000E
+#define ABMON_2         0x2000F
+#define ABMON_3         0x20010
+#define ABMON_4         0x20011
+#define ABMON_5         0x20012
+#define ABMON_6         0x20013
+#define ABMON_7         0x20014
+#define ABMON_8         0x20015
+#define ABMON_9         0x20016
+#define ABMON_10        0x20017
+#define ABMON_11        0x20018
+#define ABMON_12        0x20019
+#define MON_1           0x2001A
+#define MON_2           0x2001B
+#define MON_3           0x2001C
+#define MON_4           0x2001D
+#define MON_5           0x2001E
+#define MON_6           0x2001F
+#define MON_7           0x20020
+#define MON_8           0x20021
+#define MON_9           0x20022
+#define MON_10          0x20023
+#define MON_11          0x20024
+#define MON_12          0x20025
+#define AM_STR          0x20026
+#define PM_STR          0x20027
+#define D_T_FMT         0x20028
+#define D_FMT           0x20029
+#define T_FMT           0x2002A
+#define T_FMT_AMPM      0x2002B
+#define ERA             0x2002C
+#define ERA_D_FMT       0x2002E
+#define ALT_DIGITS      0x2002F
+#define ERA_D_T_FMT     0x20030
+#define ERA_T_FMT       0x20031
+#define CRNCYSTR        0x4000F
+#define YESEXPR         0x50000
+#define NOEXPR          0x50001
+
+char *nl_langinfo(nl_item item);
+char *nl_langinfo_l(nl_item item, locale_t locale);
+```
+
+<a id="libintl-h"></a>
+
+### libintl.h
+
+`user/include/libintl.h` (in RitterOS's tree) -- gettext's calls (no translations: English only); for apps.
+
+libintl.h (43a-2): GNU gettext's calls. There are no translations (English only): gettext and dgettext give their text back, ngettext the singular for n == 1 and else the plural; textdomain, bindtextdomain and bind_textdomain_codeset are taken and change nothing.
+
+```c
+char *gettext(const char *text);
+char *dgettext(const char *domain, const char *text);
+char *dcgettext(const char *domain, const char *text, int category);
+char *ngettext(const char *singular, const char *plural, unsigned long n);
+char *dngettext(const char *domain, const char *singular, const char *plural, unsigned long n);
+char *dcngettext(const char *domain, const char *singular, const char *plural, unsigned long n, int category);
+char *textdomain(const char *domain);
+char *bindtextdomain(const char *domain, const char *folder);
+char *bind_textdomain_codeset(const char *domain, const char *codeset);
+```
+
+<a id="sys-resource-h"></a>
+
+### sys/resource.h
+
+`user/include/sys/resource.h` (in RitterOS's tree) -- limits (getrlimit) and use (getrusage); for apps.
+
+sys/resource.h (43a-3): limits and use. getrlimit gives RitterOS's fixed limits (RLIMIT_NOFILE 256 descriptors, RLIMIT_STACK 8 MiB, RLIMIT_NPROC 256 threads; core files and locked memory 0; the rest RLIM_INFINITY); setrlimit takes lower ones (believed, the system's own still hold) and refuses higher ones but for root. getrusage: the program's CPU time as ru_utime (RUSAGE_SELF; the children's is not kept). getpriority/setpriority: there are no priorities (0).
+
+```c
+typedef unsigned long rlim_t;
+#define RLIM_INFINITY           (~0UL)
+#define RLIM_SAVED_MAX          RLIM_INFINITY
+#define RLIM_SAVED_CUR          RLIM_INFINITY
+struct rlimit {
+    rlim_t rlim_cur;
+    rlim_t rlim_max;
+};
+#define RLIMIT_CPU              0
+#define RLIMIT_FSIZE            1
+#define RLIMIT_DATA             2
+#define RLIMIT_STACK            3
+#define RLIMIT_CORE             4
+#define RLIMIT_RSS              5
+#define RLIMIT_NPROC            6
+#define RLIMIT_NOFILE           7
+#define RLIMIT_MEMLOCK          8
+#define RLIMIT_AS               9
+#define RLIMIT_LOCKS            10
+#define RLIMIT_SIGPENDING       11
+#define RLIMIT_MSGQUEUE         12
+#define RLIMIT_NICE             13
+#define RLIMIT_RTPRIO           14
+#define RLIMIT_RTTIME           15
+#define RLIMIT_NLIMITS          16
+
+struct rusage {
+    struct timeval ru_utime, ru_stime;
+    long ru_maxrss, ru_ixrss, ru_idrss, ru_isrss, ru_minflt, ru_majflt, ru_nswap, ru_inblock,
+         ru_oublock, ru_msgsnd, ru_msgrcv, ru_nsignals, ru_nvcsw, ru_nivcsw;
+};
+#define RUSAGE_SELF             0
+#define RUSAGE_CHILDREN         (-1)
+#define RUSAGE_THREAD           1
+
+#define PRIO_PROCESS            0
+#define PRIO_PGRP               1
+#define PRIO_USER               2
+
+int getrlimit(int resource, struct rlimit *limit);
+int setrlimit(int resource, const struct rlimit *limit);
+int getrusage(int who, struct rusage *usage);
+int getpriority(int which, id_t who);
+int setpriority(int which, id_t who, int priority);
+```
+
+<a id="sys-times-h"></a>
+
+### sys/times.h
+
+`user/include/sys/times.h` (in RitterOS's tree) -- times: CPU time in clock ticks; for apps.
+
+sys/times.h (43a-3): times: the program's CPU time in clock ticks (sysconf(_SC_CLK_TCK), 100 a second) as tms_utime (the children's is not kept); the result: ticks since the start.
+
+```c
+struct tms {
+    clock_t tms_utime, tms_stime, tms_cutime, tms_cstime;
+};
+clock_t times(struct tms *t);
+```
+
+<a id="sys-sysinfo-h"></a>
+
+### sys/sysinfo.h
+
+`user/include/sys/sysinfo.h` (in RitterOS's tree) -- sysinfo, get_nprocs: memory and cores; for apps.
+
+sys/sysinfo.h (43a-3): sysinfo: the time since the start (seconds), the memory (totalram, freeram in units of mem_unit bytes; no swap or load figures: 0); get_nprocs_conf/get_nprocs: the cores the firmware lists, and those started; get_phys_pages/get_avphys_pages: memory and free memory in pages.
+
+```c
+struct sysinfo {
+    long uptime;
+    unsigned long loads[3];
+    unsigned long totalram, freeram, sharedram, bufferram, totalswap, freeswap;
+    unsigned short procs, pad;
+    unsigned long totalhigh, freehigh;
+    unsigned int mem_unit;
+    char reserved[256];
+};
+int sysinfo(struct sysinfo *info);
+int get_nprocs_conf(void);
+int get_nprocs(void);
+long get_phys_pages(void);
+long get_avphys_pages(void);
+```
+
+<a id="sys-random-h"></a>
+
+### sys/random.h
+
+`user/include/sys/random.h` (in RitterOS's tree) -- getrandom: random bytes; for apps.
+
+sys/random.h (43a-3): getrandom: size random bytes from the kernel's generator (it never waits: the flags change nothing); the bytes given, or -1.
+
+```c
+#define GRND_NONBLOCK   1
+#define GRND_RANDOM     2
+#define GRND_INSECURE   4
+ssize_t getrandom(void *buf, size_t size, unsigned flags);
+/* (43c) Also here, as glibc has it (unistd.h's: up to 256 random bytes). */
+int getentropy(void *buf, size_t size);
+```
+
+<a id="sys-ioctl-h"></a>
+
+### sys/ioctl.h
+
+`user/include/sys/ioctl.h` (in RitterOS's tree) -- ioctl: a socket non-blocking, close-on-exec; for apps.
+
+sys/ioctl.h (46b): ioctl, for ported programs (OpenSSL and curl make sockets non-blocking with FIONBIO). RitterOS has no ioctl system call: the library does the requests below through fcntl (Linux's numbers); any other request is -1 with ENOTTY, as for a device that has none. FIONBIO   *(int *)arg non-zero: O_NONBLOCK on, else off FIOCLEX   close-on-exec on (FD_CLOEXEC); FIONCLEX off (68v) and sys/soundcard.h's on a sound device (SNDCTL_DSP_GETODELAY, SNDCTL_DSP_RESET), through SYS_SOUND.
+
+```c
+#define FIONBIO     0x5421
+#define FIONCLEX    0x5450
+#define FIOCLEX     0x5451
+int ioctl(int fd, unsigned long request, ...);
+```
+
+<a id="sys-soundcard-h"></a>
+
+### sys/soundcard.h
+
+`user/include/sys/soundcard.h` (in RitterOS's tree) -- OSS's sound requests: where playing is, dropping what is buffered; for apps.
+
+sys/soundcard.h (68v): OSS's requests on a sound device (/dev/pcmN), for players and ported programs, through ioctl (the numbers are Linux's). RitterOS's devices play 48 kHz, 16-bit, stereo PCM only. SNDCTL_DSP_GETODELAY  *(int *)arg: the bytes written and not yet played (0 once everything was): where playing is SNDCTL_DSP_RESET      what is buffered dropped at once (silence); the next write starts again, a close does not wait Any other descriptor: -1 with ENOTTY.
+
+```c
+#define SNDCTL_DSP_RESET        0x00005000
+#define SNDCTL_DSP_GETODELAY    0x80045017
+```
+
+<a id="sys-auxv-h"></a>
+
+### sys/auxv.h
+
+`user/include/sys/auxv.h` (in RitterOS's tree) -- getauxval: the kernel's vector for a new program; for apps.
+
+sys/auxv.h (43a-3): getauxval: a value of the vector the kernel gives a new program (AT_PAGESZ, AT_PHDR, AT_PHNUM, AT_ENTRY, AT_BASE...: the ELF standard's numbers); 0 and ENOENT for one it did not give.
+
+```c
+#ifndef AT_NULL
+#define AT_NULL         0
+#define AT_IGNORE       1
+#define AT_EXECFD       2
+#define AT_PHDR         3
+#define AT_PHENT        4
+#define AT_PHNUM        5
+#define AT_PAGESZ       6
+#define AT_BASE         7
+#define AT_FLAGS        8
+#define AT_ENTRY        9
+#define AT_UID          11
+#define AT_EUID         12
+#define AT_GID          13
+#define AT_EGID         14
+#define AT_PLATFORM     15
+#define AT_HWCAP        16
+#define AT_CLKTCK       17
+#define AT_SECURE       23
+#define AT_RANDOM       25
+#define AT_HWCAP2       26
+#define AT_EXECFN       31
+#endif
+
+/* (43b-6) AT_HWCAP: x86 CPUID 1's EDX (AT_HWCAP2 0); AArch64 Linux's
+ * HWCAP_* bits from the ID registers (AT_HWCAP2 0 so far). */
+#if defined(__aarch64__) && !defined(HWCAP_FP)
+#define HWCAP_FP        (1UL << 0)
+#define HWCAP_ASIMD     (1UL << 1)
+#define HWCAP_EVTSTRM   (1UL << 2)
+#define HWCAP_AES       (1UL << 3)
+#define HWCAP_PMULL     (1UL << 4)
+#define HWCAP_SHA1      (1UL << 5)
+#define HWCAP_SHA2      (1UL << 6)
+#define HWCAP_CRC32     (1UL << 7)
+#define HWCAP_ATOMICS   (1UL << 8)
+#define HWCAP_FPHP      (1UL << 9)
+#define HWCAP_ASIMDHP   (1UL << 10)
+#define HWCAP_CPUID     (1UL << 11)
+#define HWCAP_ASIMDRDM  (1UL << 12)
+#define HWCAP_JSCVT     (1UL << 13)
+#define HWCAP_FCMA      (1UL << 14)
+#define HWCAP_LRCPC     (1UL << 15)
+#define HWCAP_DCPOP     (1UL << 16)
+#define HWCAP_SHA3      (1UL << 17)
+#define HWCAP_SM3       (1UL << 18)
+#define HWCAP_SM4       (1UL << 19)
+#define HWCAP_ASIMDDP   (1UL << 20)
+#define HWCAP_SHA512    (1UL << 21)
+#define HWCAP_SVE       (1UL << 22)
+#define HWCAP_ASIMDFHM  (1UL << 23)
+#define HWCAP_ILRCPC    (1UL << 26)
+#endif
+
+unsigned long getauxval(unsigned long type);
+```
+
+<a id="syslog-h"></a>
+
+### syslog.h
+
+`user/include/syslog.h` (in RitterOS's tree) -- syslog: lines for the system's logs; for apps.
+
+syslog.h (43a-3): messages for the system's logs. syslog adds a line to the log named by openlog's ident (the program's name when none), as /system/logs/IDENT.log once the elf logd writes it; only root may add to the logs, so other programs' lines are dropped, unless openlog asked for LOG_PERROR (also on the standard error) or LOG_CONS (there when the log refuses). %m in the format is errno's words. setlogmask picks the priorities kept (LOG_UPTO(LOG_DEBUG): all, the start).
+
+```c
+#define LOG_EMERG       0
+#define LOG_ALERT       1
+#define LOG_CRIT        2
+#define LOG_ERR         3
+#define LOG_WARNING     4
+#define LOG_NOTICE      5
+#define LOG_INFO        6
+#define LOG_DEBUG       7
+#define LOG_PRIMASK     0x07
+#define LOG_PRI(p)      ((p) & LOG_PRIMASK)
+#define LOG_MAKEPRI(f, p) ((f) | (p))
+#define LOG_KERN        (0 << 3)
+#define LOG_USER        (1 << 3)
+#define LOG_MAIL        (2 << 3)
+#define LOG_DAEMON      (3 << 3)
+#define LOG_AUTH        (4 << 3)
+#define LOG_SYSLOG      (5 << 3)
+#define LOG_LPR         (6 << 3)
+#define LOG_NEWS        (7 << 3)
+#define LOG_UUCP        (8 << 3)
+#define LOG_CRON        (9 << 3)
+#define LOG_AUTHPRIV    (10 << 3)
+#define LOG_FTP         (11 << 3)
+#define LOG_LOCAL0      (16 << 3)
+#define LOG_LOCAL1      (17 << 3)
+#define LOG_LOCAL2      (18 << 3)
+#define LOG_LOCAL3      (19 << 3)
+#define LOG_LOCAL4      (20 << 3)
+#define LOG_LOCAL5      (21 << 3)
+#define LOG_LOCAL6      (22 << 3)
+#define LOG_LOCAL7      (23 << 3)
+#define LOG_FACMASK     0x03f8
+#define LOG_MASK(p)     (1 << (p))
+#define LOG_UPTO(p)     ((1 << ((p) + 1)) - 1)
+#define LOG_PID         0x01
+#define LOG_CONS        0x02
+#define LOG_ODELAY      0x04
+#define LOG_NDELAY      0x08
+#define LOG_NOWAIT      0x10
+#define LOG_PERROR      0x20
+
+void openlog(const char *ident, int options, int facility);
+void syslog(int priority, const char *format, ...) __attribute__((format(printf, 2, 3)));
+void vsyslog(int priority, const char *format, va_list ap);
+void closelog(void);
+int setlogmask(int mask);
+```
+
+<a id="semaphore-h"></a>
+
+### semaphore.h
+
+`user/include/semaphore.h` (in RitterOS's tree) -- counting semaphores between a program's threads; for apps.
+
+semaphore.h (43a-4): POSIX's counting semaphores between a program's threads, and (43b-3) between programs: sem_init with pshared 1 in memory they share (MAP_SHARED), or by name (sem_open: a memory file /dev/shm/sem.NAME; O_CREAT takes a mode and a value, O_EXCL; sem_close unmaps it, sem_unlink removes the name). sem_wait takes one (waiting while the count is 0; a cancellation point), sem_trywait without waiting (EAGAIN), sem_timedwait until an absolute CLOCK_REALTIME time (ETIMEDOUT), sem_post gives one back (waking a waiter), sem_getvalue the count.
+
+```c
+typedef struct {
+    int value;                          /* the count */
+    int waiters;                        /* threads sleeping on value */
+    long reserved[2];
+} sem_t;
+#define SEM_FAILED ((sem_t *)0)
+
+int sem_init(sem_t *s, int pshared, unsigned int value);
+int sem_destroy(sem_t *s);
+int sem_wait(sem_t *s);
+int sem_trywait(sem_t *s);
+int sem_timedwait(sem_t *s, const struct timespec *until);
+int sem_post(sem_t *s);
+int sem_getvalue(sem_t *s, int *value);
+sem_t *sem_open(const char *name, int flags, ...);
+int sem_close(sem_t *s);
+int sem_unlink(const char *name);
+```
+
+<a id="link-h"></a>
+
+### link.h
+
+`user/include/link.h` (in RitterOS's tree) -- dl_iterate_phdr: the loaded objects and their program headers; for apps.
+
+link.h (43a-4): dl_iterate_phdr: callback for each loaded object (the program first, its name "", then its libraries in load order, then dlopen's) with where it is (dlpi_addr: what its addresses are moved by), its program headers in memory (an unwinder finds PT_GNU_EH_FRAME there), its per-thread data's module and the calling thread's block; it stops at the first nonzero result, which it returns. A static program is the only object.
+
+```c
+#define ElfW(type) Elf64_##type
+
+struct dl_phdr_info {
+    Elf64_Addr dlpi_addr;
+    const char *dlpi_name;
+    const Elf64_Phdr *dlpi_phdr;
+    Elf64_Half dlpi_phnum;
+    unsigned long long dlpi_adds;
+    unsigned long long dlpi_subs;
+    size_t dlpi_tls_modid;
+    void *dlpi_tls_data;
+};
+
+int dl_iterate_phdr(int (*callback)(struct dl_phdr_info *info, size_t size, void *data), void *data);
+```
+
+<a id="elf-h"></a>
+
+### elf.h
+
+`user/include/elf.h` (in RitterOS's tree) -- the ELF format's types and constants; for apps.
+
+elf.h (43a-4): the ELF format's types and constants (the System V ABI's and the GNU extensions' names), for programs that read their own or other objects (unwinders, debuggers, loaders): file and program headers, sections, symbols, relocations, the dynamic section, notes and the auxiliary vector. (The kernel and ld.so use a smaller one of their own, common/elf.h; a file includes one of the two.)
+
+```c
+typedef uint16_t Elf32_Half, Elf64_Half;
+typedef uint32_t Elf32_Word, Elf64_Word;
+typedef int32_t Elf32_Sword, Elf64_Sword;
+typedef uint64_t Elf32_Xword, Elf64_Xword;
+typedef int64_t Elf32_Sxword, Elf64_Sxword;
+typedef uint32_t Elf32_Addr, Elf32_Off;
+typedef uint64_t Elf64_Addr, Elf64_Off;
+typedef uint16_t Elf32_Section, Elf64_Section;
+typedef Elf32_Half Elf32_Versym;
+typedef Elf64_Half Elf64_Versym;
+
+#define EI_NIDENT       16
+#define EI_MAG0         0
+#define EI_MAG1         1
+#define EI_MAG2         2
+#define EI_MAG3         3
+#define EI_CLASS        4
+#define EI_DATA         5
+#define EI_VERSION      6
+#define EI_OSABI        7
+#define EI_ABIVERSION   8
+#define ELFMAG0         0x7f
+#define ELFMAG1         'E'
+#define ELFMAG2         'L'
+#define ELFMAG3         'F'
+#define ELFMAG          "\177ELF"
+#define SELFMAG         4
+#define ELFCLASSNONE    0
+#define ELFCLASS32      1
+#define ELFCLASS64      2
+#define ELFDATANONE     0
+#define ELFDATA2LSB     1
+#define ELFDATA2MSB     2
+#define EV_NONE         0
+#define EV_CURRENT      1
+#define ELFOSABI_NONE   0
+#define ELFOSABI_SYSV   0
+#define ELFOSABI_GNU    3
+#define ELFOSABI_LINUX  ELFOSABI_GNU
+
+typedef struct {
+    unsigned char e_ident[EI_NIDENT];
+    Elf32_Half e_type, e_machine;
+    Elf32_Word e_version;
+    Elf32_Addr e_entry;
+    Elf32_Off e_phoff, e_shoff;
+    Elf32_Word e_flags;
+    Elf32_Half e_ehsize, e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx;
+} Elf32_Ehdr;
+typedef struct {
+    unsigned char e_ident[EI_NIDENT];
+    Elf64_Half e_type, e_machine;
+    Elf64_Word e_version;
+    Elf64_Addr e_entry;
+    Elf64_Off e_phoff, e_shoff;
+    Elf64_Word e_flags;
+    Elf64_Half e_ehsize, e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx;
+} Elf64_Ehdr;
+
+#define ET_NONE         0
+#define ET_REL          1
+#define ET_EXEC         2
+#define ET_DYN          3
+#define ET_CORE         4
+#define EM_NONE         0
+#define EM_386          3
+#define EM_ARM          40
+#define EM_X86_64       62
+#define EM_AARCH64      183
+#define EM_RISCV        243
+
+typedef struct {
+    Elf32_Word p_type;
+    Elf32_Off p_offset;
+    Elf32_Addr p_vaddr, p_paddr;
+    Elf32_Word p_filesz, p_memsz, p_flags, p_align;
+} Elf32_Phdr;
+typedef struct {
+    Elf64_Word p_type, p_flags;
+    Elf64_Off p_offset;
+    Elf64_Addr p_vaddr, p_paddr;
+    Elf64_Xword p_filesz, p_memsz, p_align;
+} Elf64_Phdr;
+
+#define PT_NULL         0
+#define PT_LOAD         1
+#define PT_DYNAMIC      2
+#define PT_INTERP       3
+#define PT_NOTE         4
+#define PT_SHLIB        5
+#define PT_PHDR         6
+#define PT_TLS          7
+#define PT_LOOS         0x60000000
+#define PT_GNU_EH_FRAME 0x6474e550
+#define PT_GNU_STACK    0x6474e551
+#define PT_GNU_RELRO    0x6474e552
+#define PT_GNU_PROPERTY 0x6474e553
+#define PT_HIOS         0x6fffffff
+#define PF_X            1
+#define PF_W            2
+#define PF_R            4
+
+typedef struct {
+    Elf32_Word sh_name, sh_type, sh_flags;
+    Elf32_Addr sh_addr;
+    Elf32_Off sh_offset;
+    Elf32_Word sh_size, sh_link, sh_info, sh_addralign, sh_entsize;
+} Elf32_Shdr;
+typedef struct {
+    Elf64_Word sh_name, sh_type;
+    Elf64_Xword sh_flags;
+    Elf64_Addr sh_addr;
+    Elf64_Off sh_offset;
+    Elf64_Xword sh_size;
+    Elf64_Word sh_link, sh_info;
+    Elf64_Xword sh_addralign, sh_entsize;
+} Elf64_Shdr;
+
+#define SHN_UNDEF       0
+#define SHN_ABS         0xfff1
+#define SHN_COMMON      0xfff2
+#define SHT_NULL        0
+#define SHT_PROGBITS    1
+#define SHT_SYMTAB      2
+#define SHT_STRTAB      3
+#define SHT_RELA        4
+#define SHT_HASH        5
+#define SHT_DYNAMIC     6
+#define SHT_NOTE        7
+#define SHT_NOBITS      8
+#define SHT_REL         9
+#define SHT_DYNSYM      11
+#define SHT_INIT_ARRAY  14
+#define SHT_FINI_ARRAY  15
+#define SHT_GNU_HASH    0x6ffffff6
+#define SHF_WRITE       0x1
+#define SHF_ALLOC       0x2
+#define SHF_EXECINSTR   0x4
+#define SHF_MERGE       0x10
+#define SHF_STRINGS     0x20
+#define SHF_TLS         0x400
+
+typedef struct {
+    Elf32_Word st_name;
+    Elf32_Addr st_value;
+    Elf32_Word st_size;
+    unsigned char st_info, st_other;
+    Elf32_Section st_shndx;
+} Elf32_Sym;
+typedef struct {
+    Elf64_Word st_name;
+    unsigned char st_info, st_other;
+    Elf64_Section st_shndx;
+    Elf64_Addr st_value;
+    Elf64_Xword st_size;
+} Elf64_Sym;
+
+#define ELF32_ST_BIND(i)        ((i) >> 4)
+#define ELF32_ST_TYPE(i)        ((i) & 0xf)
+#define ELF32_ST_INFO(b, t)     (((b) << 4) + ((t) & 0xf))
+#define ELF64_ST_BIND(i)        ((i) >> 4)
+#define ELF64_ST_TYPE(i)        ((i) & 0xf)
+#define ELF64_ST_INFO(b, t)     (((b) << 4) + ((t) & 0xf))
+#define ELF32_ST_VISIBILITY(o)  ((o) & 0x3)
+#define ELF64_ST_VISIBILITY(o)  ((o) & 0x3)
+#define STB_LOCAL       0
+#define STB_GLOBAL      1
+#define STB_WEAK        2
+#define STB_GNU_UNIQUE  10
+#define STT_NOTYPE      0
+#define STT_OBJECT      1
+#define STT_FUNC        2
+#define STT_SECTION     3
+#define STT_FILE        4
+#define STT_COMMON      5
+#define STT_TLS         6
+#define STT_GNU_IFUNC   10
+#define STV_DEFAULT     0
+#define STV_INTERNAL    1
+#define STV_HIDDEN      2
+#define STV_PROTECTED   3
+
+typedef struct {
+    Elf32_Addr r_offset;
+    Elf32_Word r_info;
+} Elf32_Rel;
+typedef struct {
+    Elf32_Addr r_offset;
+    Elf32_Word r_info;
+    Elf32_Sword r_addend;
+} Elf32_Rela;
+typedef struct {
+    Elf64_Addr r_offset;
+    Elf64_Xword r_info;
+} Elf64_Rel;
+typedef struct {
+    Elf64_Addr r_offset;
+    Elf64_Xword r_info;
+    Elf64_Sxword r_addend;
+} Elf64_Rela;
+#define ELF32_R_SYM(i)          ((i) >> 8)
+#define ELF32_R_TYPE(i)         ((i) & 0xff)
+#define ELF32_R_INFO(s, t)      (((s) << 8) + ((t) & 0xff))
+#define ELF64_R_SYM(i)          ((i) >> 32)
+#define ELF64_R_TYPE(i)         ((i) & 0xffffffff)
+#define ELF64_R_INFO(s, t)      ((((Elf64_Xword)(s)) << 32) + (t))
+
+typedef struct {
+    Elf32_Sword d_tag;
+    union {
+        Elf32_Word d_val;
+        Elf32_Addr d_ptr;
+    } d_un;
+} Elf32_Dyn;
+typedef struct {
+    Elf64_Sxword d_tag;
+    union {
+        Elf64_Xword d_val;
+        Elf64_Addr d_ptr;
+    } d_un;
+} Elf64_Dyn;
+#define DT_NULL         0
+#define DT_NEEDED       1
+#define DT_PLTRELSZ     2
+#define DT_PLTGOT       3
+#define DT_HASH         4
+#define DT_STRTAB       5
+#define DT_SYMTAB       6
+#define DT_RELA         7
+#define DT_RELASZ       8
+#define DT_RELAENT      9
+#define DT_STRSZ        10
+#define DT_SYMENT       11
+#define DT_INIT         12
+#define DT_FINI         13
+#define DT_SONAME       14
+#define DT_RPATH        15
+#define DT_SYMBOLIC     16
+#define DT_REL          17
+#define DT_RELSZ        18
+#define DT_RELENT       19
+#define DT_PLTREL       20
+#define DT_DEBUG        21
+#define DT_TEXTREL      22
+#define DT_JMPREL       23
+#define DT_BIND_NOW     24
+#define DT_INIT_ARRAY   25
+#define DT_FINI_ARRAY   26
+#define DT_INIT_ARRAYSZ 27
+#define DT_FINI_ARRAYSZ 28
+#define DT_RUNPATH      29
+#define DT_FLAGS        30
+#define DT_GNU_HASH     0x6ffffef5
+#define DT_VERSYM       0x6ffffff0
+#define DT_FLAGS_1      0x6ffffffb
+#define DT_VERDEF       0x6ffffffc
+#define DT_VERNEED      0x6ffffffe
+
+typedef struct {
+    Elf32_Word n_namesz, n_descsz, n_type;
+} Elf32_Nhdr;
+typedef struct {
+    Elf64_Word n_namesz, n_descsz, n_type;
+} Elf64_Nhdr;
+#define NT_GNU_ABI_TAG  1
+#define NT_GNU_BUILD_ID 3
+#define NT_GNU_PROPERTY_TYPE_0 5
+
+typedef struct {
+    uint64_t a_type;
+    union {
+        uint64_t a_val;
+    } a_un;
+} Elf64_auxv_t;
+#ifndef AT_NULL
+#define AT_NULL         0
+#define AT_IGNORE       1
+#define AT_EXECFD       2
+#define AT_PHDR         3
+#define AT_PHENT        4
+#define AT_PHNUM        5
+#define AT_PAGESZ       6
+#define AT_BASE         7
+#define AT_FLAGS        8
+#define AT_ENTRY        9
+#define AT_UID          11
+#define AT_EUID         12
+#define AT_GID          13
+#define AT_EGID         14
+#define AT_PLATFORM     15
+#define AT_HWCAP        16
+#define AT_CLKTCK       17
+#define AT_SECURE       23
+#define AT_RANDOM       25
+#define AT_HWCAP2       26
+#define AT_EXECFN       31
+#endif
+```
+
+<a id="sys-uio-h"></a>
+
+### sys/uio.h
+
+`user/include/sys/uio.h` (in RitterOS's tree) -- readv, writev: several buffers in one call; for apps.
+
+sys/uio.h (43b-1): reading and writing several buffers in one call. writev's buffers are gathered and written by one write (a pipe's writes up to PIPE_BUF stay whole); readv reads once and spreads; preadv and pwritev at an offset.
+
+```c
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+};
+ssize_t readv(int fd, const struct iovec *parts, int count);
+ssize_t writev(int fd, const struct iovec *parts, int count);
+ssize_t preadv(int fd, const struct iovec *parts, int count, off_t offset);
+ssize_t pwritev(int fd, const struct iovec *parts, int count, off_t offset);
+```
+
+<a id="sys-statvfs-h"></a>
+
+### sys/statvfs.h
+
+`user/include/sys/statvfs.h` (in RitterOS's tree) -- a file system's sizes; for apps.
+
+sys/statvfs.h (43b-1): a file system's sizes, of the one path (or an open file, fstatvfs) is on: f_bsize/f_frsize its block, f_blocks, f_bfree and f_bavail (blocks, free ones; on FAT and exFAT not told yet: 0), f_namemax, f_flag ST_RDONLY for a read-only one.
+
+```c
+struct statvfs {
+    unsigned long f_bsize, f_frsize;
+    fsblkcnt_t f_blocks, f_bfree, f_bavail;
+    fsfilcnt_t f_files, f_ffree, f_favail;
+    unsigned long f_fsid, f_flag, f_namemax;
+};
+#define ST_RDONLY       1
+#define ST_NOSUID       2
+int statvfs(const char *path, struct statvfs *out);
+int fstatvfs(int fd, struct statvfs *out);
+```
+
+<a id="sys-eventfd-h"></a>
+
+### sys/eventfd.h
+
+`user/include/sys/eventfd.h` (in RitterOS's tree) -- event counters as descriptors; for apps.
+
+sys/eventfd.h (43b-4): an event counter as a descriptor, as Linux's. read takes the count (8 bytes, a uint64_t; with EFD_SEMAPHORE just 1), waiting while it is 0; write adds a uint64_t (not 2^64 - 1: EINVAL), waiting while the count would pass 2^64 - 2; poll: POLLIN while above 0, POLLOUT while 1 more fits. EFD_NONBLOCK: EAGAIN instead of waiting.
+
+```c
+typedef uint64_t eventfd_t;
+#define EFD_SEMAPHORE   1
+#define EFD_CLOEXEC     OPEN_CLOEXEC
+#define EFD_NONBLOCK    OPEN_NONBLOCK
+
+int eventfd(unsigned int initial, int flags);
+int eventfd_read(int fd, eventfd_t *value);
+int eventfd_write(int fd, eventfd_t value);
+```
+
+<a id="sys-timerfd-h"></a>
+
+### sys/timerfd.h
+
+`user/include/sys/timerfd.h` (in RitterOS's tree) -- timers as descriptors; for apps.
+
+sys/timerfd.h (43b-4): timers as descriptors, as Linux's. read waits until the timer has expired and gives how many times since the last read (8 bytes, a uint64_t; EAGAIN with TFD_NONBLOCK); poll: POLLIN once expired. timerfd_settime's it_value is the first expiry (from now, or the clock's time with TFD_TIMER_ABSTIME; 0 disarms it), it_interval the time between later ones (0: once); timerfd_gettime gives the time left and the interval. CLOCK_REALTIME, CLOCK_MONOTONIC and CLOCK_BOOTTIME are one clock here. Expiries are seen at the system's tick (10 ms).
+
+```c
+#define TFD_CLOEXEC         OPEN_CLOEXEC
+#define TFD_NONBLOCK        OPEN_NONBLOCK
+#define TFD_TIMER_ABSTIME   1
+#define TFD_TIMER_CANCEL_ON_SET 2
+
+int timerfd_create(int clock, int flags);
+int timerfd_settime(int fd, int flags, const struct itimerspec *value, struct itimerspec *old);
+int timerfd_gettime(int fd, struct itimerspec *value);
+```
+
+<a id="sys-file-h"></a>
+
+### sys/file.h
+
+`user/include/sys/file.h` (in RitterOS's tree) -- flock: whole-file locks; for apps.
+
+sys/file.h (43b-4): flock, a whole-file lock held by the open file (its descriptors: dup's, a fork's, one passed over a socket) until LOCK_UN or its last close: LOCK_SH shared, LOCK_EX exclusive, waiting while another holds one in the way unless LOCK_NB (EWOULDBLOCK). Advisory: reads and writes never look at it. fcntl's record locks are another kind (fcntl.h); the two never meet, as on Linux.
+
+```c
+#define LOCK_SH     1
+#define LOCK_EX     2
+#define LOCK_NB     4
+#define LOCK_UN     8
+
+int flock(int fd, int op);
+```
+
+<a id="sys-ucontext-h"></a>
+
+### sys/ucontext.h
+
+`user/include/sys/ucontext.h` (in RitterOS's tree) -- a signal handler's context: the registers; for apps.
+
+sys/ucontext.h (43b-5): a signal handler's context (sigaction's SA_SIGINFO handlers get it as their third argument), with glibc's names: uc_mcontext holds the registers the program had when the signal came, uc_sigmask the signals it blocked, uc_stack the thread's alternate stack. A handler may change them: sigreturn puts them back (the FP/SIMD state from the context's own area, never through a pointer); only what a program may have comes back. (getcontext, setcontext, makecontext and swapcontext are not done.) x86-64: uc_mcontext.gregs[REG_RIP], [REG_RSP], [REG_RAX]..., [REG_CR2] a fault's address; fpregs the FXSAVE area. AArch64: uc_mcontext.regs[0..30], sp, pc, pstate, fault_address; __reserved: Linux's FP/SIMD record (FPSIMD_MAGIC), then an empty one.
+
+```c
+#if defined(__x86_64__)
+typedef long long greg_t;
+#define NGREG   23
+#define __NGREG NGREG
+typedef greg_t gregset_t[NGREG];
+enum {
+    REG_R8 = 0, REG_R9, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15, REG_RDI, REG_RSI,
+    REG_RBP, REG_RBX, REG_RDX, REG_RAX, REG_RCX, REG_RSP, REG_RIP, REG_EFL, REG_CSGSFS, REG_ERR,
+    REG_TRAPNO, REG_OLDMASK, REG_CR2
+};
+struct _libc_fpxreg {
+    unsigned short significand[4];
+    unsigned short exponent;
+    unsigned short __pad[3];
+};
+struct _libc_xmmreg {
+    uint32_t element[4];
+};
+struct _libc_fpstate {          /* FXSAVE's layout */
+    uint16_t cwd, swd, ftw, fop;
+    uint64_t rip, rdp;
+    uint32_t mxcsr, mxcr_mask;
+    struct _libc_fpxreg _st[8];
+    struct _libc_xmmreg _xmm[16];
+    uint32_t __reserved[24];
+};
+typedef struct _libc_fpstate *fpregset_t;
+typedef struct {
+    gregset_t gregs;
+    fpregset_t fpregs;
+    unsigned long long __reserved1[8];
+} mcontext_t;
+typedef struct ucontext_t {
+    unsigned long uc_flags;
+    struct ucontext_t *uc_link;
+    stack_t uc_stack;
+    mcontext_t uc_mcontext;
+    sigset_t uc_sigmask;
+    unsigned char __fpregs_mem[832] __attribute__((aligned(64)));
+} ucontext_t;
+#elif defined(__aarch64__)
+#define FPSIMD_MAGIC 0x46508001
+struct _aarch64_ctx {
+    uint32_t magic;
+    uint32_t size;
+};
+struct fpsimd_context {
+    struct _aarch64_ctx head;
+    uint32_t fpsr;
+    uint32_t fpcr;
+    unsigned __int128 vregs[32];        /* (glibc's __uint128_t: our cc knows only this name) */
+};
+typedef struct {
+    unsigned long long fault_address;
+    unsigned long long regs[31];
+    unsigned long long sp;
+    unsigned long long pc;
+    unsigned long long pstate;
+    unsigned char __reserved[544] __attribute__((aligned(16)));
+} mcontext_t;
+typedef struct ucontext_t {
+    unsigned long uc_flags;
+    struct ucontext_t *uc_link;
+    stack_t uc_stack;
+    sigset_t uc_sigmask;
+    mcontext_t uc_mcontext;
+} ucontext_t;
+#endif
+```
+
+<a id="ucontext-h"></a>
+
+### ucontext.h
+
+`user/include/ucontext.h` (in RitterOS's tree) -- ucontext_t (sys/ucontext.h); for apps.
+
+ucontext.h (43b-5): a signal handler's context, ucontext_t (see sys/ucontext.h; getcontext and the others are not done).
+
+```c
+
+```
+
+<a id="net-if-h"></a>
+
+### net/if.h
+
+`user/include/net/if.h` (in RitterOS's tree) -- network interfaces by name and number; for apps.
+
+net/if.h (43b-6): network interfaces by name and number. A card's number is its place in the kernel's list + 1 (the IPv6 scope sin6_scope_id takes: eth0 is usually 1); lo, which is no card of the kernel's, is IF_LOOPBACK_INDEX, past every card. if_nameindex lists lo first, then the cards (a removed tap or bridge keeps its place and is listed too).
+
+```c
+#define IF_NAMESIZE         16
+#define IFNAMSIZ            IF_NAMESIZE
+#define IF_LOOPBACK_INDEX   65          /* (RitterOS's: the kernel lists at most 64 cards) */
+
+/* getifaddrs's ifa_flags (Linux's values). */
+#define IFF_UP          0x1             /* (every card: there is no "down" setting) */
+#define IFF_BROADCAST   0x2
+#define IFF_LOOPBACK    0x8
+#define IFF_RUNNING     0x40            /* it has a link */
+#define IFF_MULTICAST   0x1000
+#define IFF_LOWER_UP    0x10000
+
+struct if_nameindex {
+    unsigned int if_index;
+    char *if_name;
+};
+
+unsigned int if_nametoindex(const char *name);
+char *if_indextoname(unsigned int index, char *name);
+struct if_nameindex *if_nameindex(void);
+void if_freenameindex(struct if_nameindex *list);
+```
+
+<a id="ifaddrs-h"></a>
+
+### ifaddrs.h
+
+`user/include/ifaddrs.h` (in RitterOS's tree) -- getifaddrs: every interface's addresses; for apps.
+
+ifaddrs.h (43b-6): every network interface's addresses, as glibc's getifaddrs gives them: lo (127.0.0.1/8, ::1/128), then each card's IPv4 address (netmask, broadcast) and IPv6 addresses (in use), one entry per address; a card without any address one entry with ifa_addr 0. No AF_PACKET entries (there are no packet sockets). freeifaddrs frees the list.
+
+```c
+struct ifaddrs {
+    struct ifaddrs *ifa_next;
+    char *ifa_name;
+    unsigned int ifa_flags;             /* IFF_* (net/if.h) */
+    struct sockaddr *ifa_addr;
+    struct sockaddr *ifa_netmask;
+    union {
+        struct sockaddr *ifu_broadaddr; /* IFF_BROADCAST */
+        struct sockaddr *ifu_dstaddr;
+    } ifa_ifu;
+    void *ifa_data;
+};
+#define ifa_broadaddr   ifa_ifu.ifu_broadaddr
+#define ifa_dstaddr     ifa_ifu.ifu_dstaddr
+
+int getifaddrs(struct ifaddrs **list);
+void freeifaddrs(struct ifaddrs *list);
+```
+
+<a id="grp-h"></a>
+
+### grp.h
+
+`user/include/grp.h` (in RitterOS's tree) -- groups (each user's own: no groups file); for apps.
+
+grp.h (43a): groups. RitterOS has no groups file: each user's group (its gid in /system/config/users) is a group of that one user, named as the user whose uid it is (gid 0 is "root"); getgrouplist and getgroups give a user's one group. setgroups and initgroups change nothing (0 for root, else EPERM).
+
+```c
+struct group {
+    char *gr_name;
+    char *gr_passwd;
+    gid_t gr_gid;
+    char **gr_mem;
+};
+
+struct group *getgrnam(const char *name);
+struct group *getgrgid(gid_t gid);
+int getgrnam_r(const char *name, struct group *grp, char *buf, size_t size, struct group **result);
+int getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t size, struct group **result);
+struct group *getgrent(void);
+void setgrent(void);
+void endgrent(void);
+int getgrouplist(const char *user, gid_t group, gid_t *groups, int *count);
+int setgroups(size_t count, const gid_t *groups);
+int initgroups(const char *user, gid_t group);
+```
+
+<a id="limits-h"></a>
+
+### limits.h
+
+`user/include/limits.h` (in RitterOS's tree) -- POSIX's limits (PATH_MAX, OPEN_MAX, PIPE_BUF...) beside the compiler's; for apps.
+
+limits.h (43a): the compiler's limits of C's types (CHAR_BIT, INT_MAX, ...: its own limits.h, found after this one), and POSIX's of the system (RitterOS's own numbers): - PATH_MAX: a path's bytes with the NUL (the kernel takes 4096); NAME_MAX: a name in a folder (RitterFS: 255); - OPEN_MAX: descriptors a process may have (256); IOV_MAX: parts of a readv/writev; ARG_MAX: bytes of a new program's arguments and environment (128 KiB); HOST_NAME_MAX, LOGIN_NAME_MAX, TTY_NAME_MAX; - SYMLOOP_MAX: links in one path (40); PTHREAD_STACK_MIN (16 KiB), PTHREAD_KEYS_MAX, PTHREAD_THREADS_MAX (256 a program); PIPE_BUF: a pipe's writes up to this size are never mixed with others' (4096); - NGROUPS_MAX, LINE_MAX, NL_ARGMAX, SSIZE_MAX, and the _POSIX_ minimums.
+
+```c
+#undef MB_LEN_MAX
+#define MB_LEN_MAX              4       /* (43a-2) a UTF-8 character's bytes */
+#define PATH_MAX                4096
+#define NAME_MAX                255
+#define OPEN_MAX                256
+#define IOV_MAX                 1024
+#define ARG_MAX                 131072
+#define HOST_NAME_MAX           64
+#define LOGIN_NAME_MAX          256
+#define TTY_NAME_MAX            32
+#define SYMLOOP_MAX             40
+#define PTHREAD_STACK_MIN       65536
+#define PTHREAD_KEYS_MAX        64
+#define PTHREAD_THREADS_MAX     256
+#define PTHREAD_DESTRUCTOR_ITERATIONS 4
+#define PIPE_BUF                4096
+#define NGROUPS_MAX             32
+#define LINE_MAX                4096
+#define NL_ARGMAX               9
+#define NL_TEXTMAX              2048
+#define NZERO                   20
+#define SSIZE_MAX               LONG_MAX
+#define CHARCLASS_NAME_MAX      14
+#define COLL_WEIGHTS_MAX        2
+#define EXPR_NEST_MAX           32
+#define RE_DUP_MAX              255
+#define BC_BASE_MAX             99
+#define BC_DIM_MAX              2048
+#define BC_SCALE_MAX            99
+#define BC_STRING_MAX           1000
+#define DELAYTIMER_MAX          0x7fffffff
+#define SEM_VALUE_MAX           0x7fffffff
+#define SEM_NSEMS_MAX           256
+#define WORD_BIT                32
+#define LONG_BIT                64
+
+#define _POSIX_ARG_MAX          4096
+#define _POSIX_CHILD_MAX        25
+#define _POSIX_HOST_NAME_MAX    255
+#define _POSIX_LINK_MAX         8
+#define _POSIX_LOGIN_NAME_MAX   9
+#define _POSIX_MAX_CANON        255
+#define _POSIX_MAX_INPUT        255
+#define _POSIX_NAME_MAX         14
+#define _POSIX_NGROUPS_MAX      8
+#define _POSIX_OPEN_MAX         20
+#define _POSIX_PATH_MAX         256
+#define _POSIX_PIPE_BUF         512
+#define _POSIX_SSIZE_MAX        32767
+#define _POSIX_SYMLOOP_MAX      8
+#define _POSIX_TTY_NAME_MAX     9
+#define _POSIX_TZNAME_MAX       6
+#define _POSIX2_LINE_MAX        2048
+#define _POSIX2_RE_DUP_MAX      255
+#define _XOPEN_IOV_MAX          16
+#define _XOPEN_NAME_MAX         255
+#define _XOPEN_PATH_MAX         1024
+```
+
+<a id="malloc-h"></a>
+
+### malloc.h
+
+`user/include/malloc.h` (in RitterOS's tree) -- memalign, valloc, malloc_usable_size; for apps.
+
+malloc.h (43a): the heap's calls (stdlib.h's) and glibc's extra ones ported code includes this header for: memalign (aligned_alloc), valloc and pvalloc (page-aligned; pvalloc's size rounded up to pages), and malloc_usable_size (the bytes a block may hold: at least what was asked).
+
+```c
+void *memalign(size_t alignment, size_t size);
+void *valloc(size_t size);
+void *pvalloc(size_t size);
+size_t malloc_usable_size(void *ptr);
+```
+
+<a id="alloca-h"></a>
+
+### alloca.h
+
+`user/include/alloca.h` (in RitterOS's tree) -- alloca: memory on the stack; for apps.
+
+alloca.h (43a): alloca(size): size bytes on the caller's stack, freed when the caller returns (the compiler's builtin; nothing checks that they fit: the stack is 8 MiB).
+
+```c
+#define alloca(size) __builtin_alloca(size)
+```
+
+<a id="libgen-h"></a>
+
+### libgen.h
+
+`user/include/libgen.h` (in RitterOS's tree) -- basename and dirname; for apps.
+
+libgen.h (43a): POSIX's basename (the last part of a path: "usr" of "/usr/", "/" of "/") and dirname (the part before it: "/" of "/usr", "." of "usr"). Both may write into path, and may return a constant (".").
+
+```c
+char *basename(char *path);
+char *dirname(char *path);
+```
+
+<a id="search-h"></a>
+
+### search.h
+
+`user/include/search.h` (in RitterOS's tree) -- linear search, binary trees (tsearch), a hash table (hsearch); for apps.
+
+search.h (43a): POSIX's searching tables. - lfind/lsearch: a linear search of *count elements of size bytes (lsearch adds key at the end when it is not there); - tsearch/tfind/tdelete/twalk (and GNU's tdestroy): a balanced binary tree (AVL) of keys, rooted at *root; tsearch adds key when it is not there; the result points to the node, whose first member is the key pointer; twalk calls action for each node in preorder, postorder, endorder (and leaf for leaves) with the depth; - hcreate/hsearch/hdestroy: one hash table of at least count entries, ENTER or FIND by a string key (and the _r forms with the caller's table); - insque/remque: a doubly linked queue of elements whose first two members are the next and previous pointers.
+
+```c
+void *lfind(const void *key, const void *base, size_t *count, size_t size,
+            int (*compare)(const void *a, const void *b));
+void *lsearch(const void *key, void *base, size_t *count, size_t size,
+              int (*compare)(const void *a, const void *b));
+
+typedef enum { preorder, postorder, endorder, leaf } VISIT;
+void *tsearch(const void *key, void **root, int (*compare)(const void *a, const void *b));
+void *tfind(const void *key, void *const *root, int (*compare)(const void *a, const void *b));
+void *tdelete(const void *key, void **root, int (*compare)(const void *a, const void *b));
+void twalk(const void *root, void (*action)(const void *node, VISIT visit, int depth));
+void tdestroy(void *root, void (*free_key)(void *key));
+
+typedef struct entry {
+    char *key;
+    void *data;
+} ENTRY;
+typedef enum { FIND, ENTER } ACTION;
+struct hsearch_data {
+    struct ritteros_htab *table;
+    size_t size, filled;
+};
+int hcreate(size_t count);
+void hdestroy(void);
+ENTRY *hsearch(ENTRY item, ACTION action);
+int hcreate_r(size_t count, struct hsearch_data *table);
+void hdestroy_r(struct hsearch_data *table);
+int hsearch_r(ENTRY item, ACTION action, ENTRY **found, struct hsearch_data *table);
+
+void insque(void *element, void *previous);
+void remque(void *element);
+```
+
+<a id="err-h"></a>
+
+### err.h
+
+`user/include/err.h` (in RitterOS's tree) -- err, warn: messages with the program's name; for apps.
+
+err.h (43a): BSD's messages: "PROGRAM: TEXT: ERROR'S WORDS" on the standard error (warn, vwarn: errno's words; warnx, vwarnx: none); err, errx and their v forms then end the program with status.
+
+```c
+void warn(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void vwarn(const char *format, va_list ap);
+void warnx(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void vwarnx(const char *format, va_list ap);
+__attribute__((noreturn)) void err(int status, const char *format, ...)
+    __attribute__((format(printf, 2, 3)));
+__attribute__((noreturn)) void verr(int status, const char *format, va_list ap);
+__attribute__((noreturn)) void errx(int status, const char *format, ...)
+    __attribute__((format(printf, 2, 3)));
+__attribute__((noreturn)) void verrx(int status, const char *format, va_list ap);
+```
+
+<a id="getopt-h"></a>
+
+### getopt.h
+
+`user/include/getopt.h` (in RitterOS's tree) -- getopt_long: long options; for apps.
+
+getopt.h (43a): GNU's long options beside unistd.h's getopt. getopt_long: options as getopt's, and "--name", "--name=value" or "--name value" from longopts (ended by an all-zero entry; a unique prefix of a name is taken): has_arg no_argument, required_argument or optional_argument (only "=value"); flag 0: the result is val, else *flag = val and the result 0; *longindex (if not 0) the entry's index. getopt_long_only also takes long options after a single '-'.
+
+```c
+struct option {
+    const char *name;
+    int has_arg;
+    int *flag;
+    int val;
+};
+#define no_argument             0
+#define required_argument       1
+#define optional_argument       2
+
+int getopt_long(int argc, char *const argv[], const char *options,
+                const struct option *longopts, int *longindex);
+int getopt_long_only(int argc, char *const argv[], const char *options,
+                     const struct option *longopts, int *longindex);
+```
+
+<a id="fnmatch-h"></a>
+
+### fnmatch.h
+
+`user/include/fnmatch.h` (in RitterOS's tree) -- shell patterns against names; for apps.
+
+fnmatch.h (43a): a name against a shell pattern (*, ?, [...] with ranges, classes such as [:alpha:] and ! or ^ for "not"; \ quotes the next character): 0 when it matches, FNM_NOMATCH when not. Flags: FNM_PATHNAME ('/' only matched by a '/'), FNM_PERIOD (a leading '.', after a '/' too with FNM_PATHNAME, only matched by a '.'), FNM_NOESCAPE (\ is an ordinary character), and GNU's FNM_CASEFOLD (no case) and FNM_LEADING_DIR (the pattern may match a leading folder of the name).
+
+```c
+#define FNM_NOMATCH     1
+#define FNM_NOESCAPE    0x01
+#define FNM_PATHNAME    0x02
+#define FNM_PERIOD      0x04
+#define FNM_LEADING_DIR 0x08
+#define FNM_CASEFOLD    0x10
+#define FNM_FILE_NAME   FNM_PATHNAME
+#define FNM_IGNORECASE  FNM_CASEFOLD
+
+int fnmatch(const char *pattern, const char *name, int flags);
+```
+
+<a id="glob-h"></a>
+
+### glob.h
+
+`user/include/glob.h` (in RitterOS's tree) -- the paths that match a pattern; for apps.
+
+glob.h (43a): the paths that match a shell pattern (fnmatch's, part by part between the '/'s; a leading '.' only matched by a '.'), sorted, into pglob's gl_pathv (gl_pathc of them, then a null pointer; freed by globfree). Flags: GLOB_ERR (stop at a folder that cannot be read), GLOB_MARK (a '/' after folders), GLOB_NOSORT, GLOB_DOOFFS (gl_offs null pointers first), GLOB_NOCHECK (no match: the pattern itself), GLOB_APPEND (add to an earlier glob's result), GLOB_NOESCAPE, and GNU's GLOB_PERIOD (a leading '.' matched by wildcards) and GLOB_TILDE (~ and ~user are home folders). errfunc (or 0) is told of each folder that cannot be read; nonzero stops. 0, GLOB_NOMATCH, GLOB_NOSPACE or GLOB_ABORTED.
+
+```c
+typedef struct {
+    size_t gl_pathc;
+    char **gl_pathv;
+    size_t gl_offs;
+} glob_t;
+
+#define GLOB_ERR        0x0001
+#define GLOB_MARK       0x0002
+#define GLOB_NOSORT     0x0004
+#define GLOB_DOOFFS     0x0008
+#define GLOB_NOCHECK    0x0010
+#define GLOB_APPEND     0x0020
+#define GLOB_NOESCAPE   0x0040
+#define GLOB_PERIOD     0x0080
+#define GLOB_TILDE      0x1000
+#define GLOB_NOSPACE    1
+#define GLOB_ABORTED    2
+#define GLOB_NOMATCH    3
+#define GLOB_NOSYS      4
+
+int glob(const char *pattern, int flags, int (*errfunc)(const char *path, int error), glob_t *pglob);
+void globfree(glob_t *pglob);
+```
+
+<a id="endian-h"></a>
+
+### endian.h
+
+`user/include/endian.h` (in RitterOS's tree) -- the byte order, conversions to big and little endian; for apps.
+
+endian.h (43a): the byte order (both RitterOS architectures are little endian) and the conversions to and from big and little endian of 16, 32 and 64 bits (htobe32: the host's to big endian, be32toh back, ...).
+
+```c
+#define LITTLE_ENDIAN   1234
+#define BIG_ENDIAN      4321
+#define PDP_ENDIAN      3412
+#define BYTE_ORDER      LITTLE_ENDIAN
+#define __LITTLE_ENDIAN LITTLE_ENDIAN
+#define __BIG_ENDIAN    BIG_ENDIAN
+#define __PDP_ENDIAN    PDP_ENDIAN
+#define __BYTE_ORDER    BYTE_ORDER
+
+#define htobe16(x) __builtin_bswap16(x)
+#define htole16(x) ((uint16_t)(x))
+#define be16toh(x) __builtin_bswap16(x)
+#define le16toh(x) ((uint16_t)(x))
+#define htobe32(x) __builtin_bswap32(x)
+#define htole32(x) ((uint32_t)(x))
+#define be32toh(x) __builtin_bswap32(x)
+#define le32toh(x) ((uint32_t)(x))
+#define htobe64(x) __builtin_bswap64(x)
+#define htole64(x) ((uint64_t)(x))
+#define be64toh(x) __builtin_bswap64(x)
+#define le64toh(x) ((uint64_t)(x))
+```
+
+<a id="byteswap-h"></a>
+
+### byteswap.h
+
+`user/include/byteswap.h` (in RitterOS's tree) -- bswap_16, bswap_32, bswap_64; for apps.
+
+byteswap.h (43a): GNU's bswap_16, bswap_32 and bswap_64: a number with its bytes in the other order (the compiler's builtins).
+
+```c
+#define bswap_16(x) __builtin_bswap16(x)
+#define bswap_32(x) __builtin_bswap32(x)
+#define bswap_64(x) __builtin_bswap64(x)
+```
+
+<a id="memory-h"></a>
+
+### memory.h
+
+`user/include/memory.h` (in RitterOS's tree) -- string.h's older name; for apps.
+
+memory.h (43a): the older name of string.h's memory functions.
+
+```c
+
+```
+
+<a id="features-h"></a>
+
+### features.h
+
+`user/include/features.h` (in RitterOS's tree) -- for code written for glibc; for apps.
+
+features.h (43a): included by code written for glibc. RitterOS's headers offer POSIX's and the common GNU and BSD extensions whatever a program defines (_GNU_SOURCE, _POSIX_C_SOURCE...); __RITTEROS__ names the system.
+
+```c
+#define __RITTEROS__ 1
+```
+
+<a id="sys-cdefs-h"></a>
+
+### sys/cdefs.h
+
+`user/include/sys/cdefs.h` (in RitterOS's tree) -- BSD's and glibc's declaration macros; for apps.
+
+sys/cdefs.h (43a): the BSDs' and glibc's helper macros ported headers use: __BEGIN_DECLS/__END_DECLS (extern "C" in C++), __P (a prototype's parameters), __THROW and __wur (nothing here), __restrict, __inline, __unused, __dead2.
+
+```c
+#ifdef __cplusplus
+#define __BEGIN_DECLS extern "C" {
+#define __END_DECLS }
+#else
+#define __BEGIN_DECLS
+#define __END_DECLS
+#endif
+#define __P(params)     params
+#define __THROW
+#define __wur
+#ifndef __cplusplus
+#define __restrict      restrict        /* (C++ compilers know __restrict themselves) */
+#endif
+#define __inline        inline
+#define __unused        __attribute__((unused))
+#define __dead2         __attribute__((noreturn))
+#define __pure2         __attribute__((const))
+#define __printflike(f, a) __attribute__((format(printf, f, a)))
+```
+
+<a id="sys-param-h"></a>
+
+### sys/param.h
+
+`user/include/sys/param.h` (in RitterOS's tree) -- MIN, MAX, howmany, MAXPATHLEN; for apps.
+
+sys/param.h (43a): BSD's helpers: MIN and MAX, howmany (how many y's hold x), roundup, powerof2, NBBY (bits a byte), MAXPATHLEN and MAXHOSTNAMELEN (limits.h's PATH_MAX, HOST_NAME_MAX), the byte order.
+
+```c
+#ifndef MIN
+#define MIN(a, b)       ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+#define MAX(a, b)       ((a) > (b) ? (a) : (b))
+#endif
+#define howmany(x, y)   (((x) + ((y) - 1)) / (y))
+#define roundup(x, y)   ((((x) + ((y) - 1)) / (y)) * (y))
+#define powerof2(x)     ((((x) - 1) & (x)) == 0)
+#define NBBY            8
+#define MAXPATHLEN      PATH_MAX
+#define MAXHOSTNAMELEN  HOST_NAME_MAX
+#define MAXSYMLINKS     SYMLOOP_MAX
+#define NOFILE          OPEN_MAX
+```
+
+<a id="sys-sysmacros-h"></a>
+
+### sys/sysmacros.h
+
+`user/include/sys/sysmacros.h` (in RitterOS's tree) -- a device number's parts; for apps.
+
+sys/sysmacros.h (43a): a device number's parts (major, minor) and makedev, in glibc's layout.
+
+```c
+#define major(dev)      ((unsigned)((((uint64_t)(dev) >> 32) & 0xfffff000u) | (((uint64_t)(dev) >> 8) & 0xfffu)))
+#define minor(dev)      ((unsigned)((((uint64_t)(dev) >> 12) & 0xffffff00u) | ((uint64_t)(dev) & 0xffu)))
+#define makedev(ma, mi) ((((uint64_t)(ma) & 0xfffff000u) << 32) | (((uint64_t)(ma) & 0xfffu) << 8) | \
+                         (((uint64_t)(mi) & 0xffffff00u) << 12) | ((uint64_t)(mi) & 0xffu))
 ```
 
 <a id="thread-h"></a>
@@ -4045,6 +7084,24 @@ struct ritteros_dl_loader {
     int (*close)(void *handle);
 };
 int __ritteros_dl_setup(const struct ritteros_dl_loader *loader);
+/* (43a-4) What ld.so tells about the loaded objects (dl_iterate_phdr,
+ * dladdr), handed over at the start beside the loader: object(i) fills
+ * the i-th (the program first; 0 past the last); address finds the object
+ * and the symbol holding an address (0: none). */
+struct ritteros_dl_object {
+    const char *name;
+    uint64_t base;                      /* what its addresses are moved by */
+    const void *phdr;                   /* its program headers in memory */
+    uint16_t phnum;
+    size_t tls_module;                  /* its per-thread data's module (0: none) */
+    void *tls_data;                     /* the calling thread's block of it */
+};
+struct ritteros_dl_query {
+    int (*object)(int index, struct ritteros_dl_object *out);
+    int (*address)(const void *address, const char **file, void **file_base, const char **symbol,
+                   void **symbol_address);
+};
+int __ritteros_dl_setup2(const struct ritteros_dl_query *query);
 void __ritteros_start(long *sp);
 void *__tls_get_addr(void *index);
 
@@ -4131,8 +7188,9 @@ void pbkdf2_sha256(const void *password, size_t password_length, const uint8_t *
                    size_t salt_length, uint32_t iterations, uint8_t *out, size_t out_length);
 
 /* CRC-32 (IEEE 802.3, as GPT and zlib use it) and CRC-32C (Castagnoli,
- * as RitterFS uses it); common/crc32.c. */
-uint32_t crc32(const void *data, size_t size);
+ * as RitterFS uses it); common/crc32.c. (46a) Not named crc32: that is
+ * zlib's (libz.so.1), with other arguments. */
+uint32_t ritteros_crc32(const void *data, size_t size);
 uint32_t crc32c(const void *data, size_t size);
 
 /* The time: nanoseconds since 1970-01-01 UTC; 0 if the machine has no
@@ -4316,6 +7374,17 @@ int ritteros_local_connect(const char *path);
  * for a server, the user who bound the name for a client (a name says
  * nothing about whose it is). The user ID, or -1 with errno (ENOTCONN). */
 int ritteros_peer_uid(int fd);
+/* (70c) The program at the other end of a connected local socket: the full
+ * path of the file its process ran when it connected (or, for a client, the
+ * server's when it bound the name; a #! script's interpreter), into path
+ * (size bytes, PROGRAM_PATH_MAX holds any). Its length, or -1 with errno
+ * (ENOTCONN, ENAMETOOLONG when size is too small, EBADF). A keyring server
+ * tells programs apart by it (keyringd). */
+int ritteros_peer_program(int fd, char *path, size_t size);
+/* (68z) May the program at the other end of a connected local socket play
+ * sound: root's, or the console user's (the rule /dev/pcmN keeps)? 1 or 0,
+ * or -1 with errno (ENOTCONN, EBADF). For a sound server such as soundd. */
+int ritteros_sound_may_play(int fd);
 /* Shared buffers (SYS_SHARE): create one (a descriptor), map it into this
  * program (its address, or 0 on error), ask its size, and pass it to / take
  * it from another program over a local socket. The buffer lives until every
@@ -4481,7 +7550,10 @@ struct window;
                                  * user's double_click time and 4 pixels (after the second
                                  * press's WINDOW_POINTER); the same rule for every program */
 #define WINDOW_SCROLL   7       /* the mouse wheel turned over the window: y = steps, negative
-                                 * up (away from the user); a list moves 3 rows a step (15o) */
+                                 * up (away from the user); a list moves 3 rows a step (15o);
+                                 * (68m-1) x = steps sideways, positive to the right (a
+                                 * horizontal wheel, two fingers on a touchpad, or Shift with
+                                 * the wheel); either may be 0 */
 #define WINDOW_KEY_DOWN 8       /* a physical key pressed: `key` is its WKEY_* number (the USB
                                  * HID usage ID), modifiers too; once, not repeated (15p) */
 #define WINDOW_KEY_UP   9       /* that key released (also when the window loses the front) */
@@ -4496,6 +7568,9 @@ struct window;
                                  * escape sequence) */
 #define WINDOW_DROP     15      /* (41f-6) a drag was let go over the window at (x, y): its text
                                  * is window_drop_text's */
+#define WINDOW_SETTINGS 16      /* (69b) the window system's settings changed (theme, accent,
+                                 * text size...): window_color and wfont_open(path, 0) give the
+                                 * new ones now; draw again with them */
 
 /* Physical keys (WINDOW_KEY_DOWN/UP): the USB HID usage IDs, the same for
  * every keyboard and layout (where the key is, not what it types: WKEY_A
@@ -4670,6 +7745,11 @@ uint32_t *window_pixels(struct window *win);
 
 /* Show what was drawn (windowd recomposites). */
 void window_flush(struct window *win);
+/* (68s) The same for a w x h rectangle at (x, y) in the window only (clipped
+ * to it; nothing outside it is shown again): a video picture or a cursor
+ * costs windowd its own area, not the whole window's. Rectangles shown
+ * within one frame of the screen are joined into the box around them. */
+void window_flush_rect(struct window *win, int x, int y, int w, int h);
 
 /* Wait for the next event; 1 with *ev filled, or 0 when the window closed. */
 int window_wait(struct window *win, struct window_event *ev);
@@ -4703,6 +7783,12 @@ void window_set_cursor(struct window *win, int shape);
  * keep to: at least min_w x min_h, at most max_w x max_h (0: no limit
  * that way). The window's present size is not changed. */
 void window_set_limits(struct window *win, int min_w, int min_h, int max_w, int max_h);
+
+/* (69b) Ask windowd to read the window system's settings (~/.config/windows)
+ * again, after a program changed them: windowd uses them at once and every
+ * window gets WINDOW_SETTINGS (this one too). 0, or -1 when windowd could not
+ * be told. */
+int window_settings_reload(struct window *win);
 
 /* (41f-6) window_fullscreen(win, 1): the window fills the screen, without
  * its frame and title bar, in front of the other windows and the taskbar
@@ -4746,7 +7832,8 @@ int window_notify(struct window *win, const char *title, const char *text);
 
 /* (41g-5) The user's colours, as 0xRRGGBB (window_rgb takes them apart):
  * `theme = dark` (the default) or `light`, and `accent = RRGGBB`, in
- * ~/.config/windows, else /system/config/windows; read once. The accent,
+ * ~/.config/windows, else /system/config/windows; read once, and (69b) again
+ * after WINDOW_SETTINGS. The accent,
  * when set, is both ACCENT and SELECTION; otherwise each is the theme's.
  * An unknown `which` gives the theme's TEXT. */
 #define WINDOW_COLOR_BACKGROUND   0     /* a window's background */
@@ -5042,6 +8129,10 @@ struct widget *widget_grid(int columns);
  * page (0 the first), changed by a click on a title or by Left/Right
  * while it has the keyboard; it is as large as its largest page. */
 struct widget *widget_tabs(void);
+/* (69c) Pages: as tabs, one child shown at a time, but without the titles
+ * and the keyboard: the program chooses the page (widget_set_value, 0 the
+ * first), e.g. from a list beside it; as large as its largest page. */
+struct widget *widget_pages(void);
 void widget_add(struct widget *parent, struct widget *child);
 void widget_stretch(struct widget *w, int weight);
 
@@ -5068,7 +8159,8 @@ struct widget *widget_progress(int max, int value);
  * triangle, Right/Left or Space/Enter open and close it). widget_value is
  * the chosen row (a table's counted under its header, a tree's line
  * among all of them; -1: none) and widget_text its text (a table's with
- * its tabs); widget_set_text gives new rows (none chosen). A click or
+ * its tabs); widget_set_text gives new rows (none chosen); (69h) a row
+ * chosen by widget_set_value is scrolled into view. A click or
  * Up/Down, Page Up/Down, Home/End choose; the wheel and the scroll bar
  * scroll; the row under the pointer is highlighted. */
 struct widget *widget_list(const char *lines);
@@ -5077,7 +8169,8 @@ struct widget *widget_tree(const char *lines);
 
 /* (41e-4) An editor: text over `lines` lines (wrapped at its width,
  * scrolled with a scroll bar and the wheel), or with 1 a one-line entry
- * (scrolled sideways; newlines become spaces). Typing (WINDOW_TEXT) and
+ * (scrolled sideways, following the cursor and (68m-2) the sideways
+ * wheel; newlines become spaces). Typing (WINDOW_TEXT) and
  * the arrows, Home/End (Ctrl: the text's ends), Page Up/Down, Backspace,
  * Delete and Enter edit; Shift and a drag select, a double click selects
  * a word; Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V go through windowd's clipboard;
@@ -5193,6 +8286,36 @@ uint32_t utf8_next(const char **s);
 int wfont_text(uint32_t *buf, uint32_t stride, uint32_t bw, uint32_t bh,
                const struct font *font, int x, int y, const char *utf8,
                uint32_t fg, uint32_t bg);
+```
+
+<a id="keyring-h"></a>
+
+### keyring.h
+
+`user/include/keyring.h` (in RitterOS's tree) -- secrets kept for the user, encrypted, through keyringd (libkeyring); for apps.
+
+The keyring (70b, item 48; libkeyring.so.1): secrets a program keeps for its user (passwords, tokens), each under a service and an account, encrypted in the user's ~/.config/keyring.db. The elf keyringd holds it open from the user's login (opened with the login password) until the last login ends; these calls ask it, so a program never sees the keyring's password. A service and an account are 1 to KEYRING_NAME_MAX bytes without control characters; a secret is any KEYRING_SECRET_MAX bytes at most. (70c) A program may use the entries it stored; another entry only once the user allowed it (keyringd asks in a window, or `keyring allow`): the call waits for that answer. On failure -1 and errno: ENOENT no such entry, EACCES the keyring is locked (`keyring unlock` opens it), EPERM not allowed to this program, ECONNREFUSED keyringd does not run, EADDRINUSE another user holds keyringd's name, EINVAL a name or size refused, and the reason a change could not be saved (ENOSPC...).
+
+```c
+#define KEYRING_NAME_MAX     255
+#define KEYRING_SECRET_MAX   4096
+
+/* The secret of (service, account) into secret (at most size bytes, not
+ * NUL-terminated): its whole length, which may be more than size. */
+ssize_t keyring_get(const char *service, const char *account, void *secret, size_t size);
+/* Keeps secret (length bytes) under (service, account), a new entry or
+ * the entry's new secret: 0. */
+int keyring_set(const char *service, const char *account, const void *secret, size_t length);
+/* Takes (service, account) out: 0. */
+int keyring_remove(const char *service, const char *account);
+/* Calls each(service, account, arg) for every entry (never a secret):
+ * the number of entries. */
+int keyring_list(void (*each)(const char *service, const char *account, void *arg), void *arg);
+/* (70d) From now on this program's calls use the system keyring (root's
+ * programs', /system/config/keyring.db, kept by the elf `keyringd -s`)
+ * instead of the user's own. Only programs running as root get answers
+ * there (EACCES otherwise); every root program may use every entry. */
+void keyring_system(void);
 ```
 
 <a id="tls-h"></a>
@@ -5712,7 +8835,9 @@ The window protocol between windowd and its clients (step 15e). Clients connect 
                                  * (41g-3) | 1 << 31: after the title a uint8 length
                                  * and the program's name (getprogname: its app) */
 #define WMSG_CREATE_APP (1u << 31)
-#define WMSG_DAMAGE     5       /* the window's pixels changed: please recomposite */
+#define WMSG_DAMAGE     5       /* the window's pixels changed: please recomposite; b = 0 the
+                                 * whole window, else (68s) only a: x | y << 16, b: w | h << 16
+                                 * (in the window; windowd clips it to the window) */
 #define WMSG_BUFFER     7       /* a: width, b: height; a new buffer (sent just before) replaces
                                  * the window's, at the new size (the client's reply to RESIZE) */
 #define WMSG_SET_MENU   9       /* c: length of a menu-bar blob that follows (see below); sets
@@ -5732,8 +8857,10 @@ The window protocol between windowd and its clients (step 15e). Clients connect 
 #define WMSG_MENU       10      /* a: the id of the menu item the user chose */
 #define WMSG_KEYCODE    14      /* a: a physical key's USB HID usage ID, b: 1 pressed, 0 released
                                  * (15p; beside WMSG_KEY's bytes) */
-#define WMSG_SCROLL     13      /* a: wheel steps (int32, negative up), b, c: the pointer in the
-                                 * window: the wheel turned over it (15o) */
+#define WMSG_SCROLL     13      /* a: wheel steps (int16 in bits 15-0, negative up) and (68m-1)
+                                 * the horizontal wheel's (int16 in bits 31-16, positive to the
+                                 * right), b, c: the pointer in the window: the wheel turned
+                                 * over it (15o) */
 #define WMSG_DOUBLE_CLICK 12    /* a: x, b: y in the window: the left button's second press
                                  * there within the double_click time (windowd decides, 15n) */
 #define WMSG_CLIP_TEXT  17      /* c: length of the clipboard's text that follows (the answer
@@ -5773,6 +8900,9 @@ The window protocol between windowd and its clients (step 15e). Clients connect 
                                  * (`wsend wait TITLE`): windowd answers WMSG_WINDOWS (a: how
                                  * many windows, c: the length of the text that follows), then
                                  * their titles, each ending in a newline */
+#define WMSG_SETTINGS   31      /* (69b) client -> windowd: read the window system's settings
+                                 * (~/.config/windows) again and use them; windowd -> each
+                                 * window then: they changed (libwindow: WINDOW_SETTINGS) */
 
 /* A menu-bar blob (WMSG_SET_MENU): uint8 n_menus, then per menu
  *   uint8 title_len, title bytes, uint8 n_items, then per item
@@ -5811,14 +8941,19 @@ System calls: how programs ask the kernel for something. Shared by the kernel (k
 #define SYS_CLOSE       4       /* close(fd): 0 */
 #define SYS_SPAWN       5       /* spawn(path, argv, flags, fds, ids): the new child's ID */
 #define SYS_WAIT        6       /* wait(pid or -1, &status, flags): the ended child's ID */
-#define SYS_KILL        7       /* kill(pid, signal): 0 */
+#define SYS_KILL        7       /* kill(pid, signal): 0 (43b-5: pid 0 the caller's group,
+                                   -1 every process it may signal but itself and process 1,
+                                   below -1 the group -pid; signal 0 only asks: ERR_SRCH,
+                                   ERR_PERM) */
 #define SYS_GETPID      8       /* getpid(): the caller's process ID */
 #define SYS_SLEEP       9       /* sleep(milliseconds): 0 */
 #define SYS_STAT        10      /* stat(path, struct sys_stat *): 0 */
 #define SYS_READDIR     11      /* readdir(fd, struct sys_dirent *): 1, or 0 at the end */
 #define SYS_CHDIR       12      /* chdir(path): 0 */
 #define SYS_GETCWD      13      /* getcwd(buffer, size): length */
-#define SYS_GETPGRP     14      /* getpgrp(): the caller's process group */
+#define SYS_GETPGRP     14      /* getpgrp(pid, session): the caller's process group; (43b-6)
+                                   pid's (0: the caller), with session 1 its session's ID
+                                   (getsid): ERR_SRCH for no such process */
 #define SYS_FOREGROUND  15      /* foreground(group or 0): the terminal's foreground group */
 #define SYS_SIGNAL      16      /* signal(signal, action): 0 */
 #define SYS_SYSINFO     17      /* sysinfo(struct sys_info *): 0 */
@@ -5893,6 +9028,29 @@ System calls: how programs ask the kernel for something. Shared by the kernel (k
                                  * program has a file open there or its directory there */
 #define SYS_TIME        44      /* time(): nanoseconds since 1970-01-01 UTC (0: unknown,
                                  * e.g. with noruntime) */
+
+/* (68p) The clock page: one page of the kernel's, mapped read-only into
+ * every program (its address is the auxiliary vector's AT_RITTEROS_CLOCK),
+ * so the library reads the clock without a system call, as Linux's vDSO
+ * data. The counter read (x86 rdtsc, ARM CNTVCT_EL0) plus `offset` is the
+ * kernel's own; nanoseconds since base_counter are delta / hz * 10^9 +
+ * delta % hz * 10^9 / hz, exactly as SYS_TIME counts them; the wall clock
+ * is base_ns plus that (base_ns 0: unknown), the monotonic clock that alone
+ * (date -s moves only base_ns). The kernel makes `sequence` odd while it
+ * changes the rest (the clock set, the counter carried over a sleep): a
+ * reader reads it, the fields, and it again, and reads again if it was odd
+ * or changed. counter 0: no such counter here; ask SYS_TIME. */
+#define AT_RITTEROS_CLOCK 4096  /* past Linux's AT_* numbers */
+#define SYS_CLOCK_TSC   1       /* x86's time stamp counter */
+#define SYS_CLOCK_CNTVCT 2      /* ARM's virtual counter */
+struct sys_clock {
+    uint32_t sequence;
+    uint32_t counter;           /* SYS_CLOCK_* */
+    uint64_t offset;            /* added to what the counter reads */
+    uint64_t hz;
+    uint64_t base_counter;      /* the counter (with offset) when the clock started */
+    uint64_t base_ns;           /* the wall clock then, in ns since 1970 (0: unknown) */
+};
 /*
  * The network. Addresses are IPv4, in host byte order (10.0.2.15 is
  * 0x0A00020F).
@@ -6011,6 +9169,125 @@ System calls: how programs ask the kernel for something. Shared by the kernel (k
                                    ERR_IO */
 #define SYS_UNAME       116     /* uname(struct sys_utsname *) (68i): 0; the system's name,
                                    release (VERSION), commit and machine */
+/* (43b-2) Passing open files between programs (item 43): a local
+ * socket's bytes with descriptors (SCM_RIGHTS), and a connected pair. */
+#define SYS_SENDMSG     118     /* sendmsg(fd, struct sys_msghdr *, 0): the bytes, with the
+                                   descriptors fds[0..fd_count) passed along (a local socket;
+                                   at most 64; the receiver gets the same open files, as dup
+                                   gives); the bytes sent. Shared buffers (SYS_SHARE) cannot
+                                   go this way: ERR_INVAL */
+#define SYS_RECVMSG     119     /* recvmsg(fd, struct sys_msghdr *, 0): bytes, and the
+                                   descriptors passed with the first of them, as new ones of
+                                   this program (fds[], fd_count set to how many;
+                                   MSGHDR_CLOEXEC: marked FD_CLOEXEC; MSGHDR_CUT: more came
+                                   than fd_count had room for, the rest closed); a read stops
+                                   before the next message carrying descriptors */
+#define SYS_SOCKETPAIR  120     /* socketpair(SOCKET_LOCAL | OPEN_CLOEXEC/OPEN_NONBLOCK,
+                                   int fds[2]): two local sockets connected to each other */
+struct sys_msghdr {
+    uint64_t data;              /* the bytes (the program's address) and their length */
+    uint64_t length;
+    uint64_t fds;               /* an int array: the descriptors */
+    uint32_t fd_count;          /* sendmsg: how many; recvmsg: room, then how many came */
+    uint32_t flags;             /* MSGHDR_* */
+};
+#define MSGHDR_CLOEXEC  1       /* recvmsg: the descriptors received close at exec */
+#define MSGHDR_CUT      2       /* recvmsg (out): descriptors were cut off */
+#define MSGHDR_TRUNC    4       /* (45b) recvmsg (out): a packet socket's message was longer */
+
+/* (43b-3) Memory files (item 43): shared memory with a size, read and
+ * written through descriptors (FILE_MEMORY) and mapped MAP_SHARED by every
+ * program given one (sendmsg, fork). shm_open's are named in /dev/shm
+ * (open, unlink, ls there; owned by their maker, mode as a file's). */
+#define SYS_MEMFD       121     /* memfd(name, OPEN_CLOEXEC): a new, empty, unnamed memory
+                                   file open for reading and writing (name: what it is for, at
+                                   most 249 bytes, kept nowhere) */
+#define SYS_MADVISE     125     /* madvise(addr, length, MADVISE_*): DONTNEED and FREE take the
+                                   pages out (anonymous memory zeroed at the next touch, a
+                                   private file mapping's copies the file's again, shared
+                                   memory's content kept); WILLNEED does nothing */
+#define MADVISE_WILLNEED 3      /* (Linux's numbers) */
+#define MADVISE_DONTNEED 4
+#define MADVISE_FREE    8
+
+/* (43b-4) Waiting on counters, timers and locks (item 43). */
+#define SYS_EVENTFD     122     /* eventfd(initial, OPEN_CLOEXEC/OPEN_NONBLOCK, semaphore): an
+                                   event counter (FILE_EVENT): read takes it (8 bytes; with
+                                   semaphore 1 just 1), waiting while it is 0; write adds a
+                                   uint64_t, waiting while it would pass 2^64 - 2; poll */
+#define SYS_TIMERFD     123     /* timerfd(TIMERFD_*, ...): timers as descriptors (FILE_TIMER) */
+#define TIMERFD_CREATE  0       /* (clock, OPEN_CLOEXEC/OPEN_NONBLOCK): a disarmed timer; clock
+                                   Linux's CLOCK_REALTIME 0, _MONOTONIC 1 or _BOOTTIME 7 (68p:
+                                   1 and 7 the clock page's monotonic clock, 0 the date's) */
+#define TIMERFD_SET     1       /* (fd, value_ns, interval_ns, absolute, uint64_t old[2]): first
+                                   expiry value_ns from now (absolute: at that time of the
+                                   clock), then every interval_ns (0: once); value 0 disarms;
+                                   old: the time left and the interval before */
+#define TIMERFD_GET     2       /* (fd, uint64_t out[2]): the time left (0: disarmed), the interval */
+#define SYS_FLOCK       124     /* flock(fd, op): a whole-file lock held by the open file, op
+                                   Linux's LOCK_SH 1, LOCK_EX 2, LOCK_UN 8 (| LOCK_NB 4:
+                                   ERR_AGAIN instead of waiting) */
+/* FCNTL_GETLK, _SETLK, _SETLKW's struct (record locks, POSIX's: held by
+ * the process; Linux's command and type numbers). */
+#define FCNTL_GETLK     5       /* the first lock in the way of *l, or type FCNTL_UNLCK */
+#define FCNTL_SETLK     6       /* set or (FCNTL_UNLCK) let go of: ERR_AGAIN if in another's way */
+#define FCNTL_SETLKW    7       /* ... waiting until it is not */
+#define FCNTL_RDLCK     0
+#define FCNTL_WRLCK     1
+#define FCNTL_UNLCK     2
+struct sys_flock {
+    uint64_t start;             /* the first byte (absolute: the library works out whence) */
+    uint64_t length;            /* bytes, 0: to the end, however long the file gets */
+    uint32_t type;              /* FCNTL_RDLCK, _WRLCK, _UNLCK */
+    uint32_t pid;               /* (GETLK) the holder */
+};
+
+/* (43b-6) Threads and the system for ported programs (item 43). */
+#define SYS_THREAD_NAME 127     /* thread_name(number, set, buffer, size): a thread of the
+                                   calling program's name, as `threads` lists it: set (1) from
+                                   the string at buffer (at most 15 bytes: ERR_INVAL past), or
+                                   read (0) into buffer (16 bytes room: ERR_INVAL below);
+                                   ERR_SRCH for no such thread */
+
+/* (43b-1) Files for ported programs (item 43). */
+#define SYS_PREAD       128     /* pread(fd, buffer, size, offset): read at offset without
+                                   moving the descriptor's position (a file: ERR_SPIPE for
+                                   pipes, sockets, terminals) */
+#define SYS_PWRITE      129     /* pwrite(fd, buffer, size, offset): write at offset (even
+                                   with O_APPEND), the position unmoved */
+#define SYS_TRUNCATE    130     /* truncate(path, size): the file at path made size bytes long
+                                   (longer: zeros); who may write it */
+#define SYS_FTRUNCATE   131     /* ftruncate(fd, size): the same for a file open for writing */
+#define SYS_FSYNC       132     /* fsync(fd): what was written through fd committed now */
+#define SYS_FCHMOD      133     /* fchmod(fd, mode): chmod of an open file */
+#define SYS_FCHOWN      134     /* fchown(fd, uid, gid): chown of an open file (root) */
+#define SYS_FDPATH      135     /* fdpath(fd, buffer, size): the path the file or folder was
+                                   opened by (resolved: absolute; a rename since is not seen),
+                                   its length; ERR_NOTDIR... for a descriptor without one
+                                   (the library's *at calls start from it) */
+#define SYS_STATVFS     136     /* statvfs(path, struct sys_statvfs *): the file system the
+                                   path is on: its block size, blocks and free blocks */
+#define SYS_SET_TIME    137     /* set_time(ns): (68l) the clock set to ns since 1970 UTC,
+                                   and the firmware's clock (root only): 0, -ERR_PERM */
+#define SYS_SOUND       138     /* sound(fd, op): (68v) on an open /dev/pcmN: SOUND_DELAY the
+                                   bytes written and not yet played (0 once all played),
+                                   SOUND_RESET what is buffered dropped at once (silence; the
+                                   next write starts again, a close does not wait); -ERR_NOTTY
+                                   on any other descriptor or a card that cannot.
+                                   (68z) SOUND_MAY_PLAY on a connected local socket: 1 if
+                                   the program at its other end may play sound (root, or
+                                   the user at the console: /dev/pcmN's rule), else 0;
+                                   for a sound server (soundd) */
+#define SOUND_DELAY     0
+#define SOUND_RESET     1
+#define SOUND_MAY_PLAY  2
+#define SYS_PEER_PROGRAM 139    /* peer_program(fd, buffer, size): (70c) the program at the
+                                   other end of a connected local socket: the full path of
+                                   the file its process ran when it connected (a client) or
+                                   bound the name (a server); a #! script's interpreter. The
+                                   path's length; -ERR_NOTCONN, -ERR_NAMETOOLONG (size too
+                                   small for it and its NUL), -ERR_BADF */
+#define PROGRAM_PATH_MAX 256    /* (70c) a program's path, with its NUL */
 #define SYS_NETINFO6    110     /* netinfo6(struct sys_netinfo6 *): 0; a card's IPv6
                                    addresses, router, DNS server and MTU (64d), by name
                                    or by place as netinfo */
@@ -6089,8 +9366,9 @@ System calls: how programs ask the kernel for something. Shared by the kernel (k
                                  * with an environment (22t: an array of "NAME=value"
                                  * strings ended by a null pointer, on the child's stack
                                  * after its arguments) */
-#define SYS_CPUTIME     75      /* cputime(): the CPU time the calling program has run, all
-                                 * its threads, in nanoseconds (22o: C's clock) */
+#define SYS_CPUTIME     75      /* cputime(which): the CPU time the calling program has run,
+                                 * all its threads, in nanoseconds (22o: C's clock); (43b-6)
+                                 * which 1: the calling thread's alone */
 #define SYS_SIGACTION   76      /* sigaction(signal, struct sys_sigaction *new or 0, *old or 0,
                                  * restorer): a signal's handler (22r; restorer: where a
                                  * handler returns to, the library's call of SYS_SIGRETURN) */
@@ -6153,6 +9431,9 @@ System calls: how programs ask the kernel for something. Shared by the kernel (k
                                  * signal handler (its own stack, all signals blocked) */
 #define THREAD_INTERRUPT_WAKE  0
 #define THREAD_INTERRUPT_ENTER 1
+#define THREAD_INTERRUPT_SIGNAL 2   /* (43b-5, pthread_kill) the signal `entry` to that thread
+                                       alone: its handler runs there; 0 only asks whether it
+                                       is there */
 #define SYS_FCNTL       90      /* fcntl(fd, FCNTL_*, arg): a descriptor's flags (53b): see below */
 #define SYS_SHUTDOWN    87      /* shutdown(fd, SHUTDOWN_*): 0; a connection's sending or
                                  * receiving side ended, the descriptor kept (53a) */
@@ -6283,7 +9564,9 @@ struct sys_pollfd {
 #define INPUT_POINTER   1       /* the pointer moved or a button changed */
 #define INPUT_KEY       2       /* a key: `key` is the byte the terminal would have received */
 #define INPUT_WHEEL     3       /* the mouse wheel turned: `key` holds the steps as a signed byte,
-                                 * negative up (away from the user); x, y the pointer (15o) */
+                                 * negative up (away from the user); x, y the pointer (15o);
+                                 * (68m-1) `buttons` the horizontal wheel's steps as a signed
+                                 * byte, positive to the right; `modifiers` the keys held */
 #define INPUT_KEYCODE   4       /* a physical key pressed (buttons 1) or released (buttons 0):
                                  * `key` is its USB HID usage ID, modifiers too (15p) */
 #define INPUT_SCREEN    5       /* (66b-5) the screen has a new mode (DISPLAY_SET_MODE): x, y
@@ -6376,6 +9659,11 @@ struct sys_display_set_mode {
 #define FCNTL_GETFL     3
 #define FCNTL_SETFL     4
 #define FCNTL_DUPFD_CLOEXEC 1030
+#define FCNTL_ADD_SEALS 1033    /* (43b-3) a memory file's seals, Linux's F_SEAL_* bits: SEAL 1
+                                   (no more), SHRINK 2, GROW 4, WRITE 8 (ERR_BUSY while a
+                                   program maps it writable), FUTURE_WRITE 16; ERR_PERM after
+                                   SEAL, ERR_INVAL on another kind of file */
+#define FCNTL_GET_SEALS 1034
 #define FCNTL_CLOEXEC   1
 #define SOCKET_DONTWAIT 1
 #define SHUTDOWN_READ   0
@@ -6401,6 +9689,9 @@ struct sys_display_set_mode {
 #define SOCKET_INET6    0x100   /* (64c) with SOCKET_UDP or SOCKET_TCP: an IPv6 socket */
 #define SOCKET_LOCAL    3       /* a local (Unix-domain) stream socket, named by a path-like
                                  * string in a kernel registry (not a file on the disk) */
+#define SOCKET_LOCAL_SEQPACKET 4 /* (45b) a local socket that keeps its messages whole
+                                 * (SOCK_SEQPACKET): socket, socketpair and SO_TYPE; its
+                                 * sockname's type is SOCKET_LOCAL */
 #define LOCAL_PATH_MAX  108     /* a local socket's name, with its NUL (like Unix sun_path) */
 
 struct sys_sockname {           /* (53a) sockname's answer */
@@ -6865,6 +10156,8 @@ struct sys_snapshot {
  * standard input, output and error (int32 each; -1: the caller's own fd
  * 0, 1 or 2). Without them the child gets the caller's 0, 1 and 2. */
 #define WAIT_NO_HANG    1       /* wait flag: return 0 at once if no child has ended */
+#define WAIT_UNTRACED   2       /* (44a) also a child stopped since the last report (WUNTRACED) */
+#define WAIT_CONTINUED  8       /* (44a) also a child continued since the last report (WCONTINUED) */
 
 /* signal() actions (SYS_SIGNAL, the call before 22r's SYS_SIGACTION; kept
  * for older programs). SIGNAL_IGNORE (SIGINT and SIGTERM only there): the
@@ -6889,6 +10182,14 @@ struct sys_snapshot {
                                    woken by the RTC's alarm; (37g-7) 0: until woken (the power
                                    button): 0 once awake again, ERR_INVAL for more than a day, ERR_IO when it did not sleep (the kernel's
                                    log says why: a driver that cannot); root only */
+#define POWER_SETTINGS  6       /* (69a) /system/config/power read again and applied at once
+                                   (the power button, the lid, screen_off, screen_dim,
+                                   sleep_after; power settings), what was applied as text
+                                   lines into buffer (args[1], size args[2]): the full length;
+                                   root only */
+#define POWER_CLOCK     7       /* (69a) /system/config/cpu read again and its clock applied on
+                                   every core (power clock); its line as POWER_SETTINGS's; root
+                                   only */
 
 /*
  * foreground(group): make group (of the caller's session) the terminal's
@@ -6915,6 +10216,17 @@ struct sys_stat {
     uint32_t mode;              /* permissions: rwxrwxrwx bits */
     uint32_t device;            /* which file system: 1 the system's, then each volume
                                  * (a mount point differs from its parent); 0 for /dev */
+};
+
+/* (43b-1) SYS_STATVFS's answer: a file system's sizes, in blocks of
+ * block_size bytes (a RitterFS: 4 KiB; the room snapshots hold back counts
+ * as used). */
+struct sys_statvfs {
+    uint64_t block_size;
+    uint64_t blocks, free_blocks;
+    uint64_t name_max;          /* a name's longest */
+    uint32_t read_only;         /* 1: a snapshot's view, a read-only medium */
+    uint32_t device;            /* as sys_stat's */
 };
 
 /* (63m) SYS_UTIMENS's times. */
@@ -6968,7 +10280,24 @@ struct sys_info {
 #define SIGPIPE         13
 #define SIGALRM         14
 #define SIGTERM         15
-#define SIGCHLD         17
+#define SIGSTKFLT       16      /* (43b-5: the rest of Linux's numbers) */
+#define SIGCHLD         17      /* a child ended (43b-5: sent to its parent; ignored unless
+                                   handled) */
+#define SIGCONT         18      /* (44a) a stopped process goes on (also when ignored or
+                                   blocked); its handler runs, if it has one */
+#define SIGSTOP         19      /* (44a) the stop signals: the process stops (its threads */
+#define SIGTSTP         20      /* park until SIGCONT); SIGSTOP cannot be handled, ignored */
+#define SIGTTIN         21      /* or blocked, the others stop it only by default */
+#define SIGTTOU         22
+#define SIGURG          23      /* (ignored unless handled) */
+#define SIGXCPU         24
+#define SIGXFSZ         25
+#define SIGVTALRM       26
+#define SIGPROF         27
+#define SIGWINCH        28      /* (ignored unless handled) */
+#define SIGIO           29
+#define SIGPWR          30
+#define SIGSYS          31
 #define SIGNALS         32      /* signals are 1 to 31 */
 #define SIGMASK_BLOCK   0       /* sigprocmask (52f): add set, take it away, or set it */
 #define SIGMASK_UNBLOCK 1
@@ -6986,8 +10315,50 @@ struct sys_sigaction {
 };
 #define SIGACTION_RESETHAND 1
 #define SIGACTION_NODEFER   2
+#define SIGACTION_ONSTACK   4   /* (43b-5) on the thread's alternate stack (SYS_SIGALTSTACK) */
+#define SIGACTION_SIGINFO   8   /* (43b-5) kept for the program; every handler is given the
+                                   info and the context (rsi/rdx, x1/x2) */
+#define SIGACTION_NOCLDSTOP 16  /* (44a) SIGCHLD's: none for a child's stop or continuing */
+
+/* (43b-5) What a handler is told, its second argument (the third is its
+ * context: the library's ucontext_t, the registers it may read and change
+ * for sigreturn): Linux's siginfo_t layout, 128 bytes. */
+struct sys_siginfo {
+    int32_t signo, error, code, pad;
+    uint64_t a;                 /* si_pid | si_uid << 32 (kill, SIGCHLD); a fault's si_addr */
+    uint64_t b;                 /* SIGCHLD's si_status (the exit code, or the signal) */
+    uint64_t unused[12];
+};
+#define SI_USER         0       /* (si_code) kill */
+#define SI_KERNEL       0x80    /* the system: the terminal, a pipe */
+#define SI_TKILL        (-6)    /* pthread_kill */
+#define CLD_EXITED      1       /* SIGCHLD: it called exit */
+#define CLD_KILLED      2       /* ... a signal ended it */
+#define CLD_STOPPED     5       /* (44a) ... a signal stopped it (si_status: which) */
+#define CLD_CONTINUED   6       /* (44a) ... SIGCONT made it go on */
+#define SEGV_MAPERR     1       /* nothing mapped there */
+#define SEGV_ACCERR     2       /* mapped without that access */
+#define BUS_ADRERR      2       /* past a mapped file's end */
+#define ILL_ILLOPC      1
+#define FPE_INTDIV      1
+
+/* (43b-5) A thread's alternate stack for handlers marked
+ * SIGACTION_ONSTACK: sigaltstack(const struct sys_sigstack *new or 0,
+ * struct sys_sigstack *old or 0); Linux's stack_t layout. */
+#define SYS_SIGALTSTACK 126
+struct sys_sigstack {
+    uint64_t sp;                /* its lowest address */
+    int32_t flags;              /* SIGSTACK_* */
+    int32_t pad;
+    uint64_t size;
+};
+#define SIGSTACK_ONSTACK 1      /* (old) the thread runs on it now */
+#define SIGSTACK_DISABLE 2      /* none */
+#define SIGSTACK_MIN    2048    /* the least size taken (MINSIGSTKSZ) */
 #define STATUS_EXITED(code)     (((code) & 0xFF) << 8)
 #define STATUS_SIGNALED(sig)    ((sig) & 0x7F)
+#define STATUS_STOPPED(sig)     ((((sig) & 0xFF) << 8) | 0x7F)  /* (44a) as Linux's */
+#define STATUS_CONTINUED        0xFFFF
 
 /* open() flags: one of the three access modes, and any of the others. A
  * file that was written is committed when it is closed (also at a
@@ -7002,6 +10373,10 @@ struct sys_sigaction {
 #define OPEN_NONBLOCK   128     /* (53b) reads, writes, accept and connect never wait: EAGAIN
                                  * (connect: EINPROGRESS, then poll for POLLOUT) */
 #define OPEN_EXCLUSIVE  64      /* (52j) with OPEN_CREATE: ERR_EXIST if the name is taken (O_EXCL) */
+#define OPEN_CLOEXEC    512     /* (43b-1) the descriptor closes at exec (FD_CLOEXEC), set as it
+                                 * is made; also taken by SYS_SOCKET (or'd with its kind, with
+                                 * OPEN_NONBLOCK), SYS_ACCEPT (its third argument: accept4) and
+                                 * SYS_PIPE (its second: pipe2) */
 #define OPEN_MODE       32      /* (52b) the third argument is a created file's mode (open's
                                  * own: O_CREAT's mode argument); programs built before it
                                  * passed 0 there and get 0644 */
@@ -7026,7 +10401,8 @@ struct sys_sigaction {
 #define ERR_LOOP        40      /* (57a) more than 40 symbolic links in one path */
 #define ERR_NOTSOCK     88      /* (53a) a socket call on another kind of descriptor */
 #define ERR_DESTADDRREQ 89      /* (53a, the library's) a datagram without an address */
-#define ERR_MSGSIZE     90      /* (53a) a datagram too long */
+#define ERR_MSGSIZE     90      /* (53a) a datagram too long (45b: a packet socket's message) */
+#define ERR_PROTOTYPE   91      /* (45b) a local socket's kind is not its listener's */
 #define ERR_NOPROTOOPT  92      /* (53a) no such socket option */
 #define ERR_PROTONOSUPPORT 93   /* (53a) socket(): no such protocol for the family */
 #define ERR_SOCKTNOSUPPORT 94   /* (53a) socket(): no such type */
@@ -7052,6 +10428,7 @@ struct sys_sigaction {
 #define ERR_INVAL       22      /* an invalid argument */
 #define ERR_MFILE       24      /* too many open files */
 #define ERR_ROFS        30      /* the file system is read-only (for programs, so far) */
+#define ERR_SPIPE       29      /* (43b-1) not a file one can seek in (pread on a pipe) */
 #define ERR_NAMETOOLONG 36      /* a path that is too long */
 #define ERR_NOSYS       38      /* no such system call */
 #define ERR_NOTEMPTY    39      /* removing a directory that is not empty */

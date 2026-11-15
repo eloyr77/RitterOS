@@ -62,6 +62,9 @@ void cpus_print_clock(void);
 /* (65d) A core's answers to what another asked it (cpus_print_clock):
  * called from the reschedule interrupt's handler. */
 void cpus_answer(void);
+/* (69a) Every online core applies the clock setting (cpu_clock_core); how
+ * many did within 100 ms. */
+int cpus_apply_clock(void);
 
 /* (65e) Every core gives the free heap blocks it keeps back to the slabs
  * (heap_trim): this one at once, the others by an interrupt, waited for

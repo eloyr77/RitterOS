@@ -3,11 +3,19 @@
 #ifndef RITTEROS_SYS_UN_H
 #define RITTEROS_SYS_UN_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <sys/socket.h>
 
 struct sockaddr_un {
     sa_family_t sun_family;     /* AF_UNIX */
     char sun_path[108];
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

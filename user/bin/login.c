@@ -9,7 +9,9 @@
  * rescue console follows. On a fresh system, where root has no password
  * yet, it first asks for one. Logins (and refused ones) and logouts go to
  * the log "login" (/system/logs/login.log, written by the elf logd, whose
- * elf file login makes when it is missing).
+ * elf file login makes when it is missing). (70b) At a login it opens the
+ * user's keyring: keyringd (started when it does not run, as the user)
+ * is given the password, and a session held while the shell runs.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -24,6 +26,7 @@
 #include <unistd.h>
 #include "ritteros.h"
 #include "settings_file.h"
+#include "../lib/keyring_wire.h"
 
 PROGRAM_HELP("login", "log in: a user's name and password, then their shell");
 
@@ -217,6 +220,55 @@ static void netnamesd_ready(void)
     printf("login: %s made: the elf netnamesd records new network cards\n", path);
 }
 
+/* (68w, the user's) The elf soundd, the sound server, on every machine:
+ * programs play at once through it, under one master volume. Its file,
+ * made if missing. */
+static void soundd_ready(void)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "%s/soundd", ELVES_DIR);
+    struct stat st;
+    if (stat(path, &st) == 0)
+        return;
+    if (stat(ELVES_DIR, &st) < 0 && mkdir(ELVES_DIR, 0755) < 0)
+        return;
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    static const char text[] = "# The sound server, an elf (login made this file)\n"
+                               "command = soundd\nstart = on\n";
+    if (fd < 0 || write(fd, text, sizeof(text) - 1) != (ssize_t)sizeof(text) - 1) {
+        printf("login: %s: %s\n", path, strerror(errno));
+        if (fd >= 0)
+            close(fd);
+        return;
+    }
+    close(fd);
+    printf("login: %s made: the elf soundd mixes the programs' sound\n", path);
+}
+
+/* (70d, the user's) The elf keyringd -s, the system keyring (root's
+ * programs' secrets), on every machine. Its file, made if missing. */
+static void keyringd_ready(void)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "%s/keyringd", ELVES_DIR);
+    struct stat st;
+    if (stat(path, &st) == 0)
+        return;
+    if (stat(ELVES_DIR, &st) < 0 && mkdir(ELVES_DIR, 0755) < 0)
+        return;
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    static const char text[] = "# The system keyring, an elf (login made this file)\n"
+                               "command = keyringd -s\nstart = on\n";
+    if (fd < 0 || write(fd, text, sizeof(text) - 1) != (ssize_t)sizeof(text) - 1) {
+        printf("login: %s: %s\n", path, strerror(errno));
+        if (fd >= 0)
+            close(fd);
+        return;
+    }
+    close(fd);
+    printf("login: %s made: the elf keyringd keeps the system keyring\n", path);
+}
+
 /* A line for the log "login", with what the terminal is. */
 static void log_line(const char *what)
 {
@@ -268,7 +320,9 @@ static void make_user_config(const char *home, uid_t uid, gid_t gid)
         "          off: clicks exactly where a touchpad's creep moved the pointer;\n"
         "          refresh = auto or frames a second (10-1000).\n"
         "filetypes which program a double click in owl (and open FILE) starts\n"
-        "          for a file, by its ending: png = imageview, txt = edit...\n";
+        "          for a file, by its ending: png = Imageview, txt = edit...\n"
+        "keyring   your keyring's settings: open_at_login, lock_after. Your\n"
+        "          keyring itself is keyring.db, encrypted (man keyring).\n";
     static const char login_file[] =
         "# Commands run when you log in at this machine's screen and keyboard\n"
         "# (not over SSH), one per line, before the first prompt.\n"
@@ -280,6 +334,7 @@ static void make_user_config(const char *home, uid_t uid, gid_t gid)
         { "login", login_file, sizeof(login_file) - 1 },
         { "windows", SETTINGS_USER_WINDOWS_TEXT, sizeof(SETTINGS_USER_WINDOWS_TEXT) - 1 },
         { "filetypes", SETTINGS_USER_FILETYPES_TEXT, sizeof(SETTINGS_USER_FILETYPES_TEXT) - 1 },   /* (42a) */
+        { "keyring", SETTINGS_USER_KEYRING_TEXT, sizeof(SETTINGS_USER_KEYRING_TEXT) - 1 },       /* (70b) */
     };
     char dir[160], path[192];
     snprintf(dir, sizeof(dir), "%s/.config", home);
@@ -301,8 +356,53 @@ static void make_user_config(const char *home, uid_t uid, gid_t gid)
     }
 }
 
+/*
+ * (70b) The user's keyring, unless ~/.config/keyring says open_at_login =
+ * no: a connection to the user's keyringd (started when none runs: as the
+ * user, in a session of its own, nothing of login's open in it), which is
+ * given the password (KW_UNLOCK) and told this is a login (KW_SESSION).
+ * The answers are not waited for (the password's rounds take keyringd a
+ * while; a wrong one leaves the keyring locked, in the log "keyring"). The
+ * connection, held until the shell ends, or -1.
+ */
+static int keyring_open(const struct passwd *pw, const char *home, const char *password)
+{
+    char settings[192], value[16];
+    snprintf(settings, sizeof(settings), "%s/" SETTINGS_USER_KEYRING, home);
+    if (config_get(settings, "open_at_login", value, sizeof(value)) == 1 && !strcmp(value, "no"))
+        return -1;
+    unsigned uid = (unsigned)pw->pw_uid;
+    int fd = kw_connect(uid);
+    if (fd < 0 && errno == ECONNREFUSED) {
+        char program[192];
+        snprintf(program, sizeof(program), "%.*skeyringd", (int)(strlen(shell) - 2), shell);
+        char *argv[] = { "keyringd", 0 };
+        int null = open("/dev/null", O_RDWR);
+        int fds[3] = { null, null, null };
+        int pid = null < 0 ? -1 : ritteros_spawn_as(program, argv, SPAWN_NEW_SESSION, fds, pw->pw_uid,
+                                                    pw->pw_gid);
+        if (null >= 0)
+            close(null);
+        for (int i = 0; pid > 0 && i < 100; i++) {      /* up to 5 s for it to listen */
+            usleep(50000);
+            if ((fd = kw_connect(uid)) >= 0 || errno != ECONNREFUSED)
+                break;
+        }
+    }
+    if (fd < 0) {
+        printf("login: your keyring: %s\n", strerror(errno));
+        return -1;
+    }
+    struct kw_field f = { password, (uint32_t)strlen(password) };
+    if (!kw_send(fd, KW_UNLOCK, &f, 1) || !kw_send(fd, KW_SESSION, 0, 0)) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
 /* Start the user's shell and wait for it to end. */
-static void run_shell(const struct passwd *pw)
+static void run_shell(const struct passwd *pw, char *password)
 {
     char name[USER_NAME_MAX + 1], home[128];
     snprintf(name, sizeof(name), "%s", pw->pw_name);
@@ -315,12 +415,15 @@ static void run_shell(const struct passwd *pw)
             mkdir("/home", 0755);
         mkdir(home, 0700);
     }
+    int keyring = -1;
     if (chdir(home) < 0) {
         printf("login: %s: %s; starting in /\n", home, strerror(errno));
         chdir("/");
     } else {
         make_user_config(home, uid, gid);
+        keyring = keyring_open(pw, home, password);
     }
+    explicit_bzero(password, PASSWORD_LENGTH);
     setenv("HOME", home, 1);                        /* (22t: the session's environment) */
     setenv("USER", name, 1);
     setenv("LOGNAME", name, 1);
@@ -333,6 +436,8 @@ static void run_shell(const struct passwd *pw)
     chdir("/");
     if (pid < 0) {
         printf("login: %s: %s\n", shell, strerror(errno));
+        if (keyring >= 0)
+            close(keyring);
         return;
     }
     printf("[%s logged in]\n", name);
@@ -341,6 +446,10 @@ static void run_shell(const struct passwd *pw)
     log_line(what);
     int status;
     while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    if (keyring >= 0)
+        close(keyring);                             /* (the last login's end locks it) */
+    while (waitpid(-1, &status, WNOHANG) > 0)        /* a keyringd that ended */
         ;
     tcsetpgrp(STDIN_FILENO, getpgrp());             /* the terminal is login's again */
     printf("[%s logged out]\n", name);
@@ -373,6 +482,8 @@ int main(int argc, char **argv)
     settings_make(SETTINGS_SUDO, SETTINGS_SUDO_TEXT);
     logd_ready();
     netnamesd_ready();
+    soundd_ready();
+    keyringd_ready();
     network_up();
     elves_up();
     if (!password_exists("root")) {
@@ -393,8 +504,8 @@ int main(int argc, char **argv)
         struct passwd *pw = user_name_valid(name) ? getpwnam(name) : 0;
         /* Unknown users take as long as wrong passwords. */
         bool ok = password_check(pw ? name : "", password) == 1 && pw;
-        memset(password, 0, sizeof(password));
         if (!ok) {
+            memset(password, 0, sizeof(password));
             printf("Login incorrect.\n");
             char what[96];
             snprintf(what, sizeof(what), "%s refused (a wrong name or password)",
@@ -402,6 +513,6 @@ int main(int argc, char **argv)
             log_line(what);
             continue;
         }
-        run_shell(pw);
+        run_shell(pw, password);                    /* (it zeroes the password) */
     }
 }

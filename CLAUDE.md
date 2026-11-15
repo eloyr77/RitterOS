@@ -83,11 +83,19 @@ ARM `virt` under HVF), and run on real PCs.
   and its notice go beside the content and into the README table.
   Agreed exceptions: Mozilla's root certificates (MPL-2.0, `certs/`),
   redistributable Wi-Fi firmware, the Unicode data, X.org's Adobe bitmap
-  fonts (`fonts/`).
+  fonts (`fonts/`), LLVM's C++ libraries, and (item 46) the system
+  libraries from upstream (zlib, OpenSSL, nghttp2, brotli, libpsl with the Public Suffix List, and curl).
 - **RitterOS's own code is written by us:** compiler, JavaScript engine,
   cryptography, decoders, drivers. GPL code may only be separate programs
   on the disk, never copied into the sources. Facts (register layouts,
-  protocol details) may come from any source; the code is ours.
+  protocol details) may come from any source; the code is ours. The one
+  exception is the system libraries from upstream (item 46), built
+  unchanged from their pinned source archives (`user/upstream/versions`,
+  downloaded by `scripts/setup-toolchain.sh`, never kept in git) for
+  ported programs; RitterOS's own exports must keep off their names (the
+  loader binds a name to the first library defining it), and the standard
+  headers declare only standard names (ritteros.h is included by those
+  who use RitterOS's own calls).
 - **Normal boots never write to the disk.** Writing is opt-in on the
   kernel command line (`disktest`, `fswrite`, `scrub`...) or a program the
   user runs. Exceptions: the first start (root's password, `/home/root`,
@@ -175,7 +183,8 @@ Filter build output with `grep -E "error:|warning:"` (plain `error` matches
   headers in `user/include`); system call numbers in
   `common/syscalls.h` (the kernel returns -ERR_*, wrappers set errno).
   Every program is dynamic (`libritteros.so.1`, `libwindow`, `libimage`,
-  `libaudio`, `libvideo`, `libtls`, started by `ld.so`). Every program in
+  `libaudio`, `libvideo`, `libdraw`, `libwidget`, `libtls`, `libkeyring`,
+  started by `ld.so`). Every program in
   `user/bin` declares `PROGRAM_HELP("usage", "description")`.
 - `sdk/`: how programs are written outside the tree (`sdk/CLAUDE.md`,
   `sdk/ritteros.mk`, `sdk/template/`, `sdk/examples/`, installed as
@@ -232,9 +241,18 @@ Filter build output with `grep -E "error:|warning:"` (plain `error` matches
 - windowd composites, clients draw; windowd never writes to a client from
   its input thread. Colours come from `window_color`; the Open dialog is
   `window_choose`, a file's app is `window_app_for`.
-- iBrowser and the JavaScript engine: every recursive parser has a depth
-  limit; values in C code's own memory are rooted while it calls anything
-  that allocates; the security rules of fetch/XHR live in dom.c.
+  RitterOS's own apps are bundles named with a capital,
+  `apps/Name.program/Name` (Owl, Term, Settings...), typed so and named
+  so in file types; their messages stay lowercase.
+- The keyring (item 48): a program keeps a user's secrets through
+  `libkeyring` (`keyring.h`), never in a file of its own. Its file
+  (`docs/keyring.md`) is written and read only through
+  `user/bin/keyring_db.h` and read on the Mac by `scripts/keyring.py` from
+  the document alone: a format change goes into all three. keyringd's
+  messages are `user/lib/keyring_wire.h`; it tells programs apart by
+  `SYS_PEER_PROGRAM` (`ritteros_peer_program`).
+- The JavaScript engine: every recursive parser has a depth limit; values
+  in C code's own memory are rooted while it calls anything that allocates.
 
 ## Code conventions
 

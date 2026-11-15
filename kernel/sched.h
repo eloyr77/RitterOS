@@ -37,6 +37,8 @@ struct thread {
     struct thread *all_next;        /* in the list of all threads */
     struct wait_queue *waiting_on;  /* while blocked on a queue */
     uint64_t wake_tick;             /* while blocked: wake at this tick (0: never) */
+    uint64_t wake_at;               /* (45a) or at this arch_counter() value (0: never) */
+    int wake_core;                  /* (45a) the core whose timer wakes it for wake_at */
     bool timed_out;
     bool yielding;              /* (64l) in thread_yield: to the queue's end */
     int slice_rest;                 /* (65e-39) put first by a woken one: its slice's rest */
@@ -52,10 +54,21 @@ struct thread {
     uint64_t sig_blocked;           /* signals held back while its handlers run (22r) */
     uint64_t suspend_mask;          /* (52i) sigsuspend: the set to have again afterwards */
     bool suspended;                 /* (52i) ... until the handler it waited for returns */
+    uint64_t sig_pending;           /* (43b-5) signals sent to it alone (pthread_kill) */
+    uint64_t alt_sp, alt_size;      /* (43b-5) its alternate stack for handlers (sigaltstack) */
+    bool alt_set;
+    bool alt_on;                    /* (43b-5) a handler of its runs there now */
     uint64_t enter_at;              /* (54c) run this program address on the way back (0:
                                      * none): pthread_cancel's asynchronous kind */
     bool dont_wait;                 /* (53b) this call: O_NONBLOCK or MSG_DONTWAIT -- a wait
                                      * becomes ERR_AGAIN (what was done so far, if any) */
+    /* (44a) The call its process's stop interrupted (ERR_INTR), made again
+     * after SIGCONT unless a handler runs first: its number and first
+     * argument (the frame holds the others); a sleep's end, to go on to
+     * (Linux's: the time stopped counts). */
+    bool restart;
+    uint64_t restart_number, restart_arg0;
+    uint64_t sleep_end;
     struct process *process;        /* the program it runs, or 0 (a kernel thread) */
     void *fpu;                      /* its program's FP/SIMD registers (64-byte aligned) */
     void *fpu_block;                /* the allocation that holds them */
@@ -93,6 +106,10 @@ struct thread *thread_create(const char *name, void (*fn)(void *arg), void *arg)
 
 /* The same for a program's thread: it runs in process's address space. */
 struct process;
+/* (43b-6) A thread's name (as `threads` lists it), set or read under the
+ * scheduler's lock: at most 15 bytes and the NUL, cut there. */
+void thread_set_name(struct thread *t, const char *name);
+void thread_get_name(struct thread *t, char out[16]);
 struct thread *thread_create_for(const char *name, void (*fn)(void *arg), void *arg,
                                  struct process *process, uint64_t space);
 
@@ -131,6 +148,15 @@ void sched_sleep_until(uint64_t tick);
 void wait_prepare(struct wait_queue *q, uint64_t deadline);
 void wait_cancel(void);
 bool wait_commit(uint64_t deadline);
+/* (45a) The same with a precise deadline: an arch_counter() value (0: no
+ * limit), not a tick. The core it sleeps on arms its timer for it
+ * (arch_timer_wake_at), so it wakes then, not at the next 10 ms tick: the
+ * timed waits programs ask for (nanosleep, futex, poll, timerfd). */
+void wait_prepare_at(struct wait_queue *q, uint64_t at);
+bool wait_commit_at(uint64_t at);
+/* (45a) The arch_counter() value ns nanoseconds from now (0 while the
+ * counter's rate is unknown: callers fall back to ticks). */
+uint64_t sched_counter_after_ns(uint64_t ns);
 
 /* Wake every thread sleeping on q (from interrupt handlers too). */
 void wait_queue_wake_all(struct wait_queue *q);
@@ -153,6 +179,7 @@ struct poll_table *poll_table_new(int entries);
 void poll_table_free(struct poll_table *pt);
 void poll_table_reset(struct poll_table *pt);
 bool poll_table_wait(struct poll_table *pt, uint64_t deadline);
+bool poll_table_wait_at(struct poll_table *pt, uint64_t at);   /* (45a) */
 void poll_watch(struct wait_queue *q);
 void wait_queue_detach(struct wait_queue *q);
 
@@ -221,10 +248,34 @@ void wait_queue_detach(struct wait_queue *q);
         ok_;                                                                \
     })
 
+/* (45a) The same with a precise deadline (wait_prepare_at). */
+#define wait_event_until_at(q, cond, at) ({                                 \
+        uint64_t state_ = arch_irq_save();                                  \
+        bool ok_ = true;                                                    \
+        while (!(cond)) {                                                   \
+            wait_prepare_at((q), (at));                                     \
+            if (cond) {                                                     \
+                wait_cancel();                                              \
+                break;                                                      \
+            }                                                               \
+            if (!wait_commit_at(at)) {                                      \
+                ok_ = (cond);                                               \
+                break;                                                      \
+            }                                                               \
+        }                                                                   \
+        arch_irq_restore(state_);                                           \
+        ok_;                                                                \
+    })
+
 /* --- called by the architecture and timer code -------------------------- */
 
 /* Every timer tick (interrupt context): time slices, sleepers' deadlines. */
 void sched_tick(void);
+
+/* (45a) At every timer interrupt of a core (interrupt context): its
+ * threads whose precise deadline came are woken; the next such deadline
+ * there (0: none), for the architecture to arm the timer for. */
+uint64_t sched_precise_due(void);
 
 /* (65c) A started core becomes its idle thread there (never returns). */
 struct cpu;

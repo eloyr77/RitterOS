@@ -5,6 +5,10 @@
 #ifndef RITTEROS_X509_H
 #define RITTEROS_X509_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -37,5 +41,9 @@ const char *x509_error(int e);
 /* The next certificate of a PEM text (from *text, which moves on): its DER
  * bytes in out (at most size), their length; 0 at the end or if too long. */
 size_t pem_next(const char **text, const char *end, uint8_t *out, size_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

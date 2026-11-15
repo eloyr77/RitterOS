@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 #include "ritteros.h"
 #include <signal.h>
@@ -120,6 +121,8 @@ int main(int argc, char **argv)
     report("take a snapshot", ritteros_snapshot(SNAPSHOT_CREATE, "mine", 0, 0));
     report("back to root", setuid(0));
     report("switch the machine off", ritteros_power(POWER_OFF));
+    struct timespec ts = { 2000000000, 0 };
+    report("set the clock", clock_settime(CLOCK_REALTIME, &ts));   /* (68l) */
     report("remove my file", unlink("/perm/user/mine.txt"));
     return 0;
 }

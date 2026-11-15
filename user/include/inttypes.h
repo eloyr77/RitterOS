@@ -5,6 +5,10 @@
 #ifndef RITTEROS_INTTYPES_H
 #define RITTEROS_INTTYPES_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 #define PRId8  "d"
@@ -43,5 +47,20 @@
 #define SCNu64 "lu"
 #define SCNx32 "x"
 #define SCNx64 "lx"
+
+/* (43a) intmax_t's own abs, div and strto (as long long's here), and
+ * the wide strings' strto. */
+#include <stddef.h>
+typedef struct { intmax_t quot, rem; } imaxdiv_t;
+intmax_t imaxabs(intmax_t v);
+imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator);
+intmax_t strtoimax(const char *s, char **end, int base);
+uintmax_t strtoumax(const char *s, char **end, int base);
+intmax_t wcstoimax(const wchar_t *s, wchar_t **end, int base);
+uintmax_t wcstoumax(const wchar_t *s, wchar_t **end, int base);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef RITTEROS_STDLIB_H
 #define RITTEROS_STDLIB_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 
 #define EXIT_SUCCESS    0
@@ -76,11 +80,14 @@ int at_quick_exit(void (*fn)(void));
 __attribute__((noreturn)) void quick_exit(int code);
 __attribute__((noreturn)) void _Exit(int code);
 
-/* (22p) Multibyte characters in the "C" locale: every byte is a character
- * of its own (MB_CUR_MAX 1; UTF-8 is not decoded here). mblen/mbtowc: the
- * bytes of the character at s (0 for the NUL, -1 for none); wctomb: the
- * bytes written (-1, EILSEQ, for a character above 255). */
-#define MB_CUR_MAX 1
+/* (22p) Multibyte characters: in the "C" locale every byte is a character
+ * of its own (MB_CUR_MAX 1), (43a-2) in C.UTF-8 a character is UTF-8's 1
+ * to 4 bytes (MB_CUR_MAX 4; the calling thread's locale, see locale.h).
+ * mblen/mbtowc: the bytes of the character at s (0 for the NUL, -1 for
+ * none); wctomb: the bytes written (-1, EILSEQ, for a character the
+ * locale has no bytes for). */
+int __ritteros_mb_cur_max(void);
+#define MB_CUR_MAX ((size_t)__ritteros_mb_cur_max())
 int mblen(const char *s, size_t n);
 int mbtowc(wchar_t *wc, const char *s, size_t n);
 int wctomb(char *s, wchar_t wc);
@@ -114,5 +121,87 @@ int mkstemp(char *name);
 /* End the program at once, as a failed assert does: with SIGABRT (22r; a
  * handler may run first, but the program ends even if it returns). */
 __attribute__((noreturn)) void abort(void);
+
+/* (43a) What ported code expects beside C's:
+ * - memory: posix_memalign (aligned_alloc's, into *out: 0 or an error
+ *   number), reallocarray (realloc of count * size, ENOMEM if that
+ *   overflows);
+ * - temporary files: mkostemp (mkstemp with open's O_CLOEXEC/O_APPEND
+ *   flags), mkstemps/mkostemps (XXXXXX followed by suffix_length more
+ *   bytes), mkdtemp (a new folder, 0700: the name, or 0), mktemp (only
+ *   the name: another program may take it first; prefer mkstemp);
+ * - realpath: the path without ., .. or symbolic links (into resolved,
+ *   PATH_MAX bytes, or a new malloc'd string when resolved is 0);
+ * - the environment: secure_getenv (getenv, but 0 in a setuid program),
+ *   clearenv (empties it);
+ * - random numbers: random/srandom/initstate/setstate (the BSD generator
+ *   glibc and macOS share: the same numbers for a seed), the 48-bit
+ *   generators (drand48 ... lcong48, as POSIX defines them), rand_r (a
+ *   generator in *seed: threads may each have one);
+ * - qsort_r: qsort with arg passed to every compare (POSIX 2024's and
+ *   GNU's order);
+ * - getloadavg: -1 (RitterOS keeps no load averages). */
+int posix_memalign(void **out, size_t alignment, size_t size);
+void *reallocarray(void *ptr, size_t count, size_t size);
+int mkostemp(char *name, int flags);
+int mkstemps(char *name, int suffix_length);
+int mkostemps(char *name, int suffix_length, int flags);
+char *mkdtemp(char *name);
+char *mktemp(char *name);
+char *realpath(const char *path, char *resolved);
+char *secure_getenv(const char *name);
+int clearenv(void);
+long random(void);
+void srandom(unsigned int seed);
+char *initstate(unsigned int seed, char *state, size_t size);
+char *setstate(char *state);
+double drand48(void);
+double erand48(unsigned short x[3]);
+long lrand48(void);
+long nrand48(unsigned short x[3]);
+long mrand48(void);
+long jrand48(unsigned short x[3]);
+void srand48(long seed);
+unsigned short *seed48(unsigned short seed[3]);
+void lcong48(unsigned short parameters[7]);
+int rand_r(unsigned int *seed);
+void qsort_r(void *base, size_t count, size_t size,
+             int (*compare)(const void *a, const void *b, void *arg), void *arg);
+int getloadavg(double loads[], int count);
+
+/* (43a-2) glibc's strto*_l (every locale's decimal point is '.'). */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+double strtod_l(const char *s, char **end, locale_t l);
+float strtof_l(const char *s, char **end, locale_t l);
+long double strtold_l(const char *s, char **end, locale_t l);
+long strtol_l(const char *s, char **end, int base, locale_t l);
+unsigned long strtoul_l(const char *s, char **end, int base, locale_t l);
+long long strtoll_l(const char *s, char **end, int base, locale_t l);
+unsigned long long strtoull_l(const char *s, char **end, int base, locale_t l);
+
+/* (43a-4) The C++ ABI's calls (the compiler's and the C++ library's):
+ * __cxa_atexit registers a static object's destructor (fn(arg)) with the
+ * module (dso) that made it, run by exit with atexit's functions, last
+ * first; __cxa_finalize(dso) runs dso's now (0: all);
+ * __cxa_thread_atexit_impl a thread_local object's, run when its thread
+ * ends (or, for the thread calling exit, before the others). */
+int __cxa_atexit(void (*fn)(void *), void *arg, void *dso);
+void __cxa_finalize(void *dso);
+int __cxa_thread_atexit_impl(void (*fn)(void *), void *obj, void *dso);
+int __cxa_thread_atexit(void (*fn)(void *), void *obj, void *dso);
+
+/* (45d) The compiler's __builtin___clear_cache (GCC's and compiler-rt's
+ * name): code just written into [start, end), as a JIT writes it through
+ * a writable mapping of the memory another maps executable, made
+ * runnable. On AArch64 the data cache cleaned and the instruction cache
+ * invalidated over it, line by line; on x86-64 nothing (coherent). */
+void __clear_cache(void *start, void *end);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

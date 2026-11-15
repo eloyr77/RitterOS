@@ -5,6 +5,7 @@
  * Errors are returned, never put in errno.
  */
 #include <errno.h>
+#include <string.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -115,22 +116,57 @@ static int begin(void *data)
     return 0;
 }
 
+/* (43a-4) The attributes every new thread starts from (setattr_default_np). */
+static pthread_attr_t defaults = { PTHREAD_CREATE_JOINABLE, PTHREAD_INHERIT_SCHED, USER_STACK_SIZE, 0,
+                                   4096, SCHED_OTHER, 0, PTHREAD_SCOPE_SYSTEM, 0 };
+
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg)
 {
+    if (!attr)
+        attr = &defaults;
     struct start *s = malloc(sizeof(*s));
     if (!s)
         return EAGAIN;
     s->start = start;
     s->arg = arg;
     thrd_t t;
-    int r = __ritteros_thrd_create_sized(&t, begin, s, attr ? attr->stack_size : 0);
+    int r = __ritteros_thrd_create_sized(&t, begin, s, attr->stack_size == USER_STACK_SIZE ? 0 : attr->stack_size);
     if (r != thrd_success) {
         free(s);
         return EAGAIN;                          /* (all 256 taken, or no memory) */
     }
     *thread = (pthread_t)t;
-    if (attr && attr->detached == PTHREAD_CREATE_DETACHED)
+    if (attr->detached == PTHREAD_CREATE_DETACHED)
         thrd_detach(t);
+    return 0;
+}
+
+/* (43a-4) The attributes of programs built before 43a-4 (detached and the
+ * stack's size at the same places), and their pthread_create and
+ * pthread_attr_init under those names. */
+struct pthread_attr_v1 {
+    int detached;
+    size_t stack_size;
+};
+
+int pthread_create_v1(pthread_t *thread, const struct pthread_attr_v1 *attr, void *(*start)(void *), void *arg)
+    __asm__("pthread_create");
+int pthread_attr_init_v1(struct pthread_attr_v1 *attr) __asm__("pthread_attr_init");
+
+int pthread_create_v1(pthread_t *thread, const struct pthread_attr_v1 *attr, void *(*start)(void *), void *arg)
+{
+    pthread_attr_t a = defaults;
+    if (attr) {
+        a.detached = attr->detached;
+        a.stack_size = attr->stack_size;
+    }
+    return pthread_create(thread, &a, start, arg);
+}
+
+int pthread_attr_init_v1(struct pthread_attr_v1 *attr)
+{
+    attr->detached = PTHREAD_CREATE_JOINABLE;
+    attr->stack_size = USER_STACK_SIZE;
     return 0;
 }
 
@@ -275,8 +311,219 @@ void __pthread_cleanup_pop(struct __pthread_cleanup *c, int execute)
 
 int pthread_attr_init(pthread_attr_t *attr)
 {
-    attr->detached = PTHREAD_CREATE_JOINABLE;
-    attr->stack_size = USER_STACK_SIZE;         /* (54d: the default, 8 MiB) */
+    *attr = defaults;                           /* (54d: the stack 8 MiB by default) */
+    return 0;
+}
+
+int pthread_attr_setstack(pthread_attr_t *attr, void *addr, size_t size)
+{
+    if (size < PTHREAD_STACK_MIN || size > USER_STACK_MAX)
+        return EINVAL;
+    attr->stack_addr = addr;
+    attr->stack_size = size;
+    return 0;
+}
+
+int pthread_attr_getstack(const pthread_attr_t *attr, void **addr, size_t *size)
+{
+    *addr = attr->stack_addr;
+    *size = attr->stack_size;
+    return 0;
+}
+
+int pthread_attr_setguardsize(pthread_attr_t *attr, size_t size)
+{
+    attr->guard_size = size;
+    return 0;
+}
+
+int pthread_attr_getguardsize(const pthread_attr_t *attr, size_t *size)
+{
+    *size = attr->guard_size;
+    return 0;
+}
+
+int pthread_attr_setscope(pthread_attr_t *attr, int scope)
+{
+    if (scope == PTHREAD_SCOPE_PROCESS)
+        return ENOTSUP;
+    if (scope != PTHREAD_SCOPE_SYSTEM)
+        return EINVAL;
+    attr->scope = scope;
+    return 0;
+}
+
+int pthread_attr_getscope(const pthread_attr_t *attr, int *scope)
+{
+    *scope = attr->scope;
+    return 0;
+}
+
+int pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit)
+{
+    if (inherit != PTHREAD_INHERIT_SCHED && inherit != PTHREAD_EXPLICIT_SCHED)
+        return EINVAL;
+    attr->inherit = inherit;
+    return 0;
+}
+
+int pthread_attr_getinheritsched(const pthread_attr_t *attr, int *inherit)
+{
+    *inherit = attr->inherit;
+    return 0;
+}
+
+/* (one policy without priorities: see sched.h) */
+static int sched_ok(int policy, int priority)
+{
+    if (policy == SCHED_FIFO || policy == SCHED_RR)
+        return EPERM;
+    if (policy != SCHED_OTHER && policy != SCHED_BATCH && policy != SCHED_IDLE)
+        return EINVAL;
+    return priority ? EINVAL : 0;
+}
+
+int pthread_attr_setschedpolicy(pthread_attr_t *attr, int policy)
+{
+    int e = sched_ok(policy, 0);
+    if (!e)
+        attr->policy = policy;
+    return e == EPERM ? ENOTSUP : e;
+}
+
+int pthread_attr_getschedpolicy(const pthread_attr_t *attr, int *policy)
+{
+    *policy = attr->policy;
+    return 0;
+}
+
+int pthread_attr_setschedparam(pthread_attr_t *attr, const struct sched_param *param)
+{
+    if (param->sched_priority)
+        return EINVAL;
+    attr->priority = 0;
+    return 0;
+}
+
+int pthread_attr_getschedparam(const pthread_attr_t *attr, struct sched_param *param)
+{
+    param->sched_priority = attr->priority;
+    return 0;
+}
+
+extern uintptr_t __ritteros_main_stack_top;            /* threaddata.c */
+extern size_t __ritteros_stack_sizes[PROCESS_THREADS];  /* syscalls.c */
+
+/* The kernel gives thread n the stack slot n below the main stack's top
+ * (64 MiB each), the stack at the slot's top, as big as was asked. */
+int pthread_getattr_np(pthread_t thread, pthread_attr_t *attr)
+{
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    *attr = defaults;
+    size_t size = thread ? __ritteros_stack_sizes[thread] : 0;
+    if (!size)
+        size = USER_STACK_SIZE;
+    uintptr_t top = __ritteros_main_stack_top - (uintptr_t)thread * USER_STACK_SLOT;
+    attr->stack_size = size;
+    attr->stack_addr = (void *)(top - size);
+    return 0;
+}
+
+int pthread_setattr_default_np(const pthread_attr_t *attr)
+{
+    if (attr->stack_size < PTHREAD_STACK_MIN || attr->stack_size > USER_STACK_MAX)
+        return EINVAL;
+    defaults = *attr;
+    defaults.stack_addr = 0;
+    return 0;
+}
+
+int pthread_getattr_default_np(pthread_attr_t *attr)
+{
+    *attr = defaults;
+    return 0;
+}
+
+int pthread_getschedparam(pthread_t thread, int *policy, struct sched_param *param)
+{
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    *policy = SCHED_OTHER;
+    param->sched_priority = 0;
+    return 0;
+}
+
+int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param *param)
+{
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    return sched_ok(policy, param->sched_priority);
+}
+
+int pthread_setschedprio(pthread_t thread, int priority)
+{
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    return priority ? EINVAL : 0;
+}
+
+int pthread_getaffinity_np(pthread_t thread, size_t size, cpu_set_t *set)
+{
+    (void)thread;
+    return sched_getaffinity(0, size, set) < 0 ? errno : 0;
+}
+
+int pthread_setaffinity_np(pthread_t thread, size_t size, const cpu_set_t *set)
+{
+    (void)thread;
+    return sched_setaffinity(0, size, set) < 0 ? errno : 0;
+}
+
+int pthread_getcpuclockid(pthread_t thread, clockid_t *clock)
+{
+    if (thread != pthread_self())
+        return ENOENT;                          /* (43b-6: only the calling thread's clock) */
+    *clock = CLOCK_THREAD_CPUTIME_ID;
+    return 0;
+}
+
+int pthread_setname_np(pthread_t thread, const char *name)
+{
+    if (strlen(name) > 15)
+        return ERANGE;
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    int64_t r = syscall6(SYS_THREAD_NAME, (int64_t)thread, 1, (int64_t)(uintptr_t)name, 0, 0, 0);
+    return r < 0 ? (int)-r : 0;
+}
+
+int pthread_getname_np(pthread_t thread, char *name, size_t size)
+{
+    char got[16];
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    int64_t r = syscall6(SYS_THREAD_NAME, (int64_t)thread, 0, (int64_t)(uintptr_t)got, sizeof(got), 0, 0);
+    if (r < 0)
+        return (int)-r;
+    if (strlen(got) >= size)
+        return ERANGE;
+    memcpy(name, got, strlen(got) + 1);
+    return 0;
+}
+
+static int concurrency;
+
+int pthread_getconcurrency(void)
+{
+    return concurrency;
+}
+
+int pthread_setconcurrency(int level)
+{
+    if (level < 0)
+        return EINVAL;
+    concurrency = level;
     return 0;
 }
 
@@ -402,6 +649,86 @@ int pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int shared)
     return shared == PTHREAD_PROCESS_PRIVATE ? 0 : shared == PTHREAD_PROCESS_SHARED ? ENOTSUP : EINVAL;
 }
 
+/* (43a-4) Only what the mutexes are: no priorities, not robust, private. */
+static int only(int value, int allowed, int other)
+{
+    return value == allowed ? 0 : value == other ? ENOTSUP : EINVAL;
+}
+
+int pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr, int *shared)
+{
+    (void)attr;
+    *shared = PTHREAD_PROCESS_PRIVATE;
+    return 0;
+}
+
+int pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr, int protocol)
+{
+    (void)attr;
+    return protocol == PTHREAD_PRIO_NONE ? 0
+           : protocol == PTHREAD_PRIO_INHERIT || protocol == PTHREAD_PRIO_PROTECT ? ENOTSUP : EINVAL;
+}
+
+int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr, int *protocol)
+{
+    (void)attr;
+    *protocol = PTHREAD_PRIO_NONE;
+    return 0;
+}
+
+int pthread_mutexattr_setprioceiling(pthread_mutexattr_t *attr, int ceiling)
+{
+    (void)attr;
+    return ceiling ? EINVAL : 0;
+}
+
+int pthread_mutexattr_getprioceiling(const pthread_mutexattr_t *attr, int *ceiling)
+{
+    (void)attr;
+    *ceiling = 0;
+    return 0;
+}
+
+int pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust)
+{
+    (void)attr;
+    return only(robust, PTHREAD_MUTEX_STALLED, PTHREAD_MUTEX_ROBUST);
+}
+
+int pthread_mutexattr_getrobust(const pthread_mutexattr_t *attr, int *robust)
+{
+    (void)attr;
+    *robust = PTHREAD_MUTEX_STALLED;
+    return 0;
+}
+
+int pthread_condattr_setpshared(pthread_condattr_t *attr, int shared)
+{
+    (void)attr;
+    return only(shared, PTHREAD_PROCESS_PRIVATE, PTHREAD_PROCESS_SHARED);
+}
+
+int pthread_condattr_getpshared(const pthread_condattr_t *attr, int *shared)
+{
+    (void)attr;
+    *shared = PTHREAD_PROCESS_PRIVATE;
+    return 0;
+}
+
+int pthread_rwlockattr_setpshared(pthread_rwlockattr_t *attr, int shared)
+{
+    int e = only(shared, PTHREAD_PROCESS_PRIVATE, PTHREAD_PROCESS_SHARED);
+    if (!e)
+        attr->shared = shared;
+    return e;
+}
+
+int pthread_rwlockattr_getpshared(const pthread_rwlockattr_t *attr, int *shared)
+{
+    *shared = attr->shared;
+    return 0;
+}
+
 /* --- condition variables --- */
 
 int pthread_cond_init(pthread_cond_t *c, const pthread_condattr_t *attr)
@@ -502,6 +829,16 @@ int pthread_once(pthread_once_t *once, void (*init)(void))
 int pthread_sigmask(int how, const sigset_t *set, sigset_t *old)
 {
     return sigprocmask(how, set, old) < 0 ? errno : 0;
+}
+
+int pthread_kill(pthread_t thread, int signal)
+{
+    if (signal < 0 || signal >= SIGNALS)
+        return EINVAL;
+    if (thread >= PROCESS_THREADS)
+        return ESRCH;
+    int64_t r = syscall6(SYS_THREAD_INTERRUPT, (int64_t)thread, THREAD_INTERRUPT_SIGNAL, signal, 0, 0, 0);
+    return r < 0 ? (int)-r : 0;
 }
 
 int sched_yield(void)

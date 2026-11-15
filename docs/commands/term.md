@@ -1,13 +1,13 @@
-# term: a terminal in a window (FONT of /system/fonts); with a command, runs it (needs windowd)
+# Term: a terminal in a window (FONT of /system/fonts); with a command, runs it (needs windowd)
 
 ```
-term [-f FONT] [CMD [ARG...]]
+Term [-f FONT] [CMD [ARG...]]
 ```
 
 A terminal in a window of the window system: it runs the shell on a
 pseudo-terminal, shows its output as a grid of characters and sends your
 keys to it, so the whole command line works inside the window system.
-`term` is a windowed app (in `/system/<arch>/apps`) and needs `windowd`
+`Term` is a windowed app (in `/system/<arch>/apps`) and needs `windowd`
 running. It came in step 15g, as the first graphical program.
 
 The window starts with 80 columns and 25 rows; resizing it changes the
@@ -24,9 +24,9 @@ selection to the window system's clipboard (each line without its
 trailing blanks) and **Ctrl+Shift+V** types the clipboard into the
 program, line breaks as Enter. Plain Ctrl+C stays the interrupt.
 
-Without CMD, `term` runs the shell (title `Terminal`) and the window
+Without CMD, `Term` runs the shell (title `Terminal`) and the window
 closes when the shell ends. With CMD it runs that instead (title: CMD's
-name), which is how `owl` opens programs: a bare name is looked up in
+name), which is how `Owl` opens programs: a bare name is looked up in
 `/system/<arch>/bin`, then in `/system/<arch>/apps` (42b: inside an app bundle, `NAME.program/NAME`); a name with a `/` is
 run as it is. The window then stays open after CMD ends, with a line
 `[NAME exited (CODE) - close this window]`, so its output can be read.
@@ -51,13 +51,13 @@ and `term: no font NAME in /system/fonts; using 9x15` for an unknown FONT.
 ## Examples
 
 ```
-ritteros:/$ term
-ritteros:/$ term -f 10x20
-ritteros:/$ term edit notes.txt
-ritteros:/$ term -f 6x13 tail -f /system/logs/kernel.log
+ritteros:/$ Term
+ritteros:/$ Term -f 10x20
+ritteros:/$ Term edit notes.txt
+ritteros:/$ Term -f 6x13 tail -f /system/logs/kernel.log
 ```
 
 ## See also
 
-[`windowd`](windowd.md), [`owl`](owl.md), [`sh`](sh.md), [`edit`](edit.md),
+[`windowd`](windowd.md), [`Owl`](Owl.md), [`sh`](sh.md), [`edit`](edit.md),
 [`clear`](clear.md)

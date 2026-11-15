@@ -51,7 +51,7 @@ void disk_test(struct block_device *part, uint64_t seed)
         panic("disk test: cannot read the boot record");
     memcpy(&prev, in, sizeof(prev));
     bool have_prev = memcmp(prev.magic, RECORD_MAGIC, 8) == 0 &&
-                     crc32(&prev, offsetof(struct boot_record, crc)) == prev.crc;
+                     crc32_ieee(&prev, offsetof(struct boot_record, crc)) == prev.crc;
     if (have_prev)
         kprintf("                 previous boot record: boot #%lu, seed 0x%016lX, at %.31s\n",
                 prev.boot_number, prev.seed, prev.time);
@@ -83,7 +83,7 @@ void disk_test(struct block_device *part, uint64_t seed)
     rec.seed = seed;
     if (!uefi_time_text(rec.time, sizeof(rec.time)))
         memcpy(rec.time, "unknown", 8);
-    rec.crc = crc32(&rec, offsetof(struct boot_record, crc));
+    rec.crc = crc32_ieee(&rec, offsetof(struct boot_record, crc));
     memset(out, 0, bs);
     memcpy(out, &rec, sizeof(rec));
     if (!part->write(part, record_lba, 1, out) || !part->flush(part) ||

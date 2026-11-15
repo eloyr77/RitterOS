@@ -11,6 +11,8 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#include <wctype.h>
+#include "mbconv.h"
 
 /* --- strings --- */
 
@@ -279,12 +281,19 @@ size_t wcsftime(wchar_t *s, size_t size, const wchar_t *format, const struct tm 
 
 wint_t btowc(int c)
 {
-    return c < 0 || c > 255 ? WEOF : (wint_t)c;
+    if (c == EOF || c < -128 || c > 255)
+        return WEOF;
+    unsigned char b = (unsigned char)c;
+    if (b >= 0x80 && mb_utf8())
+        return WEOF;                            /* (43a-2: no character is one such byte) */
+    return (wint_t)b;
 }
 
 int wctob(wint_t wc)
 {
-    return wc == WEOF || (unsigned)wc > 255 ? EOF : (int)wc;
+    if (wc == WEOF || (unsigned)wc > (mb_utf8() ? 0x7Fu : 0xFFu))
+        return EOF;
+    return (int)wc;
 }
 
 int mbsinit(const mbstate_t *state)
@@ -294,70 +303,148 @@ int mbsinit(const mbstate_t *state)
 
 size_t mbrtowc(wchar_t *wc, const char *s, size_t n, mbstate_t *state)
 {
-    (void)state;                                    /* (one byte each: no state) */
-    if (!s)
-        return 0;
-    if (n == 0)
-        return (size_t)-2;
-    if (wc)
-        *wc = (wchar_t)(unsigned char)*s;
-    return *s ? 1 : 0;
+    static mbstate_t own;
+    return mb_decode(wc, s, n, state ? state : &own);
 }
 
 size_t mbrlen(const char *s, size_t n, mbstate_t *state)
 {
-    return mbrtowc(0, s, n, state);
+    static mbstate_t own;
+    return mb_decode(0, s, n, state ? state : &own);
 }
 
 size_t wcrtomb(char *s, wchar_t wc, mbstate_t *state)
 {
-    (void)state;
-    if (!s)
-        return 1;
-    if ((unsigned)wc > 255) {
-        errno = EILSEQ;
-        return (size_t)-1;
+    return mb_encode(s, wc, state);
+}
+
+/* (43a-2) at most nms bytes of *src into at most n wide characters */
+size_t mbsnrtowcs(wchar_t *dst, const char **src, size_t nms, size_t n, mbstate_t *state)
+{
+    static mbstate_t own;
+    if (!state)
+        state = &own;
+    const char *s = *src;
+    size_t count = 0;
+    while (!dst || count < n) {
+        wchar_t wc;
+        size_t k = mb_decode(&wc, s, nms, state);
+        if (k == (size_t)-1) {
+            if (dst)
+                *src = s;
+            return (size_t)-1;
+        }
+        if (k == (size_t)-2) {                  /* (the bytes end inside a character) */
+            if (dst)
+                *src = s + nms;
+            return count;
+        }
+        if (dst)
+            dst[count] = wc;
+        if (k == 0) {
+            if (dst)
+                *src = 0;
+            return count;
+        }
+        s += k, nms -= k, count++;
     }
-    *s = (char)wc;
-    return 1;
+    *src = s;
+    return count;
 }
 
 size_t mbsrtowcs(wchar_t *dst, const char **src, size_t n, mbstate_t *state)
 {
-    (void)state;
-    const char *s = *src;
-    if (!dst)
-        return strlen(s);
-    for (size_t i = 0; i < n; i++) {
-        dst[i] = (wchar_t)(unsigned char)s[i];
-        if (!s[i]) {
-            *src = 0;
-            return i;
+    return mbsnrtowcs(dst, src, (size_t)-1, n, state);
+}
+
+/* (43a-2) at most nwc wide characters of *src into at most n bytes */
+size_t wcsnrtombs(char *dst, const wchar_t **src, size_t nwc, size_t n, mbstate_t *state)
+{
+    const wchar_t *s = *src;
+    size_t count = 0;
+    char bytes[8];
+    for (size_t i = 0; i < nwc; i++) {
+        size_t k = mb_encode(bytes, s[i], state);
+        if (k == (size_t)-1) {
+            if (dst)
+                *src = s + i;
+            return (size_t)-1;
         }
+        if (s[i] == 0) {
+            if (dst) {
+                if (count < n)
+                    dst[count] = 0;
+                *src = 0;
+            }
+            return count;
+        }
+        if (dst) {
+            if (count + k > n) {
+                *src = s + i;
+                return count;
+            }
+            memcpy(dst + count, bytes, k);
+        }
+        count += k;
     }
-    *src = s + n;
-    return n;
+    if (dst)
+        *src = s + nwc;
+    return count;
 }
 
 size_t wcsrtombs(char *dst, const wchar_t **src, size_t n, mbstate_t *state)
 {
-    (void)state;
-    const wchar_t *s = *src;
-    for (size_t i = 0; !dst || i < n; i++) {
-        if ((unsigned)s[i] > 255) {
-            if (dst)
-                *src = s + i;
-            errno = EILSEQ;
-            return (size_t)-1;
-        }
-        if (dst)
-            dst[i] = (char)s[i];
-        if (!s[i]) {
-            if (dst)
-                *src = 0;
-            return i;
-        }
+    return wcsnrtombs(dst, src, (size_t)-1, n, state);
+}
+
+/* (43a) */
+wchar_t *wcsdup(const wchar_t *s)
+{
+    size_t n = wcslen(s) + 1;
+    wchar_t *c = malloc(n * sizeof(wchar_t));
+    if (!c) {
+        errno = ENOMEM;
+        return 0;
     }
-    *src = s + n;
-    return n;
+    return wmemcpy(c, s, n);
+}
+
+size_t wcsnlen(const wchar_t *s, size_t n)
+{
+    size_t k = 0;
+    while (k < n && s[k])
+        k++;
+    return k;
+}
+
+int wcsncasecmp(const wchar_t *a, const wchar_t *b, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        wint_t x = towlower((wint_t)a[i]), y = towlower((wint_t)b[i]);
+        if (x != y)
+            return x < y ? -1 : 1;
+        if (!x)
+            break;
+    }
+    return 0;
+}
+
+int wcscasecmp(const wchar_t *a, const wchar_t *b)
+{
+    return wcsncasecmp(a, b, (size_t)-1);
+}
+
+wchar_t *wcpcpy(wchar_t *dst, const wchar_t *src)
+{
+    size_t n = wcslen(src);
+    wmemcpy(dst, src, n + 1);
+    return dst + n;
+}
+
+wchar_t *wcpncpy(wchar_t *dst, const wchar_t *src, size_t n)
+{
+    size_t k = wcsnlen(src, n);
+    wmemcpy(dst, src, k);
+    wmemset(dst + k, 0, n - k);
+    return dst + k;
 }

@@ -18,14 +18,19 @@
 
 static const struct {
     const char *library;
-    const char *headers[48];
+    const char *headers[96];
 } libraries[] = {
     { "libritteros.so.1",
       { "stdio.h", "stdlib.h", "string.h", "unistd.h", "fcntl.h", "errno.h", "sys/stat.h", "sys/wait.h",
         "sys/mman.h", "dlfcn.h", "dirent.h", "signal.h", "pwd.h", "thread.h", "ritteros.h", "strings.h",
         "ctype.h", "assert.h", "math.h", "fenv.h", "setjmp.h", "locale.h", "time.h", "wchar.h", "wctype.h",
         "uchar.h", "complex.h", "threads.h", "poll.h", "termios.h", "sys/socket.h", "netinet/in.h",
-        "arpa/inet.h", "sys/time.h", "sys/select.h", "netdb.h", "pthread.h", "sched.h", "spawn.h", "regex.h", "utime.h" } },
+        "arpa/inet.h", "sys/time.h", "sys/select.h", "netdb.h", "pthread.h", "sched.h", "spawn.h", "regex.h", "utime.h",
+        "inttypes.h", "malloc.h", "libgen.h", "search.h", "err.h", "getopt.h", "fnmatch.h", "glob.h", "grp.h",
+        "iconv.h", "libintl.h", "langinfo.h",
+        "sys/resource.h", "sys/times.h", "sys/sysinfo.h", "sys/random.h", "sys/ioctl.h", "sys/auxv.h", "syslog.h",
+        "semaphore.h", "link.h", "sys/eventfd.h", "sys/timerfd.h", "sys/file.h", "sys/ucontext.h", "ucontext.h", "net/if.h", "ifaddrs.h",
+        "sys/uio.h", "sys/statvfs.h" } },
     { "libwindow.so.1", { "window.h", "wfont.h" } },
     { "libimage.so.1", { "image.h" } },
     { "libaudio.so.1", { "audio.h" } },
@@ -33,6 +38,7 @@ static const struct {
     { "libdraw.so.1", { "draw.h" } },
     { "libwidget.so.1", { "widget.h" } },
     { "libtls.so.1", { "tls.h" } },
+    { "libkeyring.so.1", { "keyring.h" } },
 };
 
 static _Noreturn void fail(const char *what, const char *where)
@@ -60,6 +66,13 @@ static char *read_file(const char *path)
     }
     fclose(f);
     text[len] = 0;
+    /* (43c) Every header's C++ guard, around its body: blanked out (its
+     * braces would hide every declaration inside them). */
+    static const char *const guards[] = { "#ifdef __cplusplus\nextern \"C\" {\n#endif\n",
+                                          "#ifdef __cplusplus\n}\n#endif\n" };
+    for (int g = 0; g < 2; g++)
+        for (char *at = strstr(text, guards[g]); at; at = strstr(at, guards[g]))
+            memset(at, ' ', strlen(guards[g]));
     return text;
 }
 
@@ -296,10 +309,31 @@ static void statement_done(const char *statement)
             q++;
         if (*q == '(') {
             add_name(p, (size_t)(e - p));
+            /* (43a) a declaration naming another symbol (__asm__("NAME")):
+             * that one is exported too; the C name stays for programs
+             * built before (see sdk/abi) */
+            const char *label = strstr(s.s, "__asm__(\"");
+            if (label) {
+                label += 9;
+                const char *end = strchr(label, '"');
+                if (end)
+                    add_name(label, (size_t)(end - label));
+            }
             break;
         }
         /* (a later start inside the same word can match only if this one did) */
         p = e - 1;
+    }
+    /* (46b) a variable: extern without a parenthesis, its name the last word */
+    if (strncmp(s.s, "extern ", 7) == 0 && !strchr(s.s, '(')) {
+        char *e = s.s + s.n;
+        while (e > s.s && !is_word(e[-1]))
+            e--;
+        char *b = e;
+        while (b > s.s && is_word(b[-1]))
+            b--;
+        if (b < e)
+            add_name(b, (size_t)(e - b));
     }
     free(s.s);
 }
@@ -352,7 +386,7 @@ int main(int argc, char **argv)
         if (strcmp(argv[1], libraries[k].library) == 0)
             lib = (int)k;
     if (lib < 0) {
-        fprintf(stderr, "usage: libexports libaudio.so.1|libdraw.so.1|libimage.so.1|libwidget.so.1|libritteros.so.1|libtls.so.1|"
+        fprintf(stderr, "usage: libexports libaudio.so.1|libdraw.so.1|libimage.so.1|libwidget.so.1|libritteros.so.1|libtls.so.1|libkeyring.so.1|"
                         "libvideo.so.1|libwindow.so.1 OUT\n");
         return 2;
     }

@@ -8,6 +8,10 @@
 #ifndef RITTEROS_NETDB_H
 #define RITTEROS_NETDB_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -96,5 +100,9 @@ int *__h_errno(void);
 #define TRY_AGAIN       2
 #define NO_RECOVERY     3
 #define NO_DATA         4
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

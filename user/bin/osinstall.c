@@ -14,7 +14,8 @@
  *   - \ritteros\cmdline.txt without the options of tests (only noruntime
  *     and video stay);
  *   - /system/<arch> (the kernel and the programs, not the test programs)
- *     and /system/config/README;
+ *     and /system/config/README, (46b) and OpenSSL's cert.pem, a link to
+ *     /system/certs/cacert.pem in /system/config/openssl;
  * No users, passwords, settings, homes or logs: the new system asks for
  * root's password on its first start, and (37e-1b) its settings files are
  * written with their defaults there by whoever reads them (never the
@@ -246,7 +247,7 @@ static bool copy(const char *from, const char *to)
 }
 
 /* A copy keeps only the rwx bits (as cp does): the programs of from that
- * run as root for everyone (setuid, 50b: su, sudo) get their bit back in to. */
+ * run as root for everyone (setuid, 50b: su, sudo; 69f: passwd) get their bit back in to. */
 static bool keep_setuid(const char *from, const char *to)
 {
     DIR *dir = opendir(from);
@@ -370,6 +371,13 @@ static bool fill_system(const char *at)
     snprintf(path, sizeof(path), "%s/system/config/README", at);
     if (stat("/system/config/README", &st) == 0 && !copy("/system/config/README", path))
         return false;
+    /* (46b) OpenSSL's default CA file, as mkdisk makes it: the system's roots */
+    snprintf(path, sizeof(path), "%s/system/config/openssl", at);
+    if (!make_dir(path))
+        return false;
+    snprintf(path, sizeof(path), "%s/system/config/openssl/cert.pem", at);
+    if (symlink("/system/certs/cacert.pem", path) < 0 && errno != EEXIST)
+        return !fail("%s: %s", path, strerror(errno));
     snprintf(path, sizeof(path), "%s/system/fonts", at);
     if (stat("/system/fonts", &st) == 0 && !copy("/system/fonts", path))   /* libwindow's fonts */
         return false;

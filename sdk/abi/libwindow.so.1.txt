@@ -29,6 +29,7 @@ constant	WINDOW_POINTER	1
 constant	WINDOW_RESIZE	4
 constant	WINDOW_SCROLL	7
 constant	WINDOW_SCROLLBAR_W	12
+constant	WINDOW_SETTINGS	16
 constant	WINDOW_TEXT	14
 constant	WINDOW_TIMER	10
 constant	WINDOW_TRANSPARENT	0xFFFFFFFFu
@@ -154,6 +155,7 @@ function	window_field_set_text	void window_field_set_text(struct window_field *f
 function	window_field_text	const char *window_field_text(const struct window_field *f)
 function	window_fill	void window_fill(struct window *win, int x, int y, int w, int h, uint32_t color)
 function	window_flush	void window_flush(struct window *win)
+function	window_flush_rect	void window_flush_rect(struct window *win, int x, int y, int w, int h)
 function	window_fullscreen	void window_fullscreen(struct window *win, int on)
 function	window_height	int window_height(struct window *win)
 function	window_minimize	void window_minimize(struct window *win)
@@ -168,6 +170,7 @@ function	window_scrollbar_hit	int window_scrollbar_hit(int y, int h, int py, int
 function	window_set_cursor	void window_set_cursor(struct window *win, int shape)
 function	window_set_limits	void window_set_limits(struct window *win, int min_w, int min_h, int max_w, int max_h)
 function	window_set_menu	int window_set_menu(struct window *win, const struct window_menu *menus, int count)
+function	window_settings_reload	int window_settings_reload(struct window *win)
 function	window_shifts	void window_shifts(struct window *win, int *red, int *green, int *blue)
 function	window_text	void window_text(struct window *win, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)
 function	window_text_font	void window_text_font(struct window *win, const struct font *font, int x, int y, const char *utf8, uint32_t fg, uint32_t bg)

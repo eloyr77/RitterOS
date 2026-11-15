@@ -16,7 +16,7 @@
 #include "ritteros.h"
 #include "window.h"
 
-PROGRAM_HELP("imageview [FILE]", "show an image (PPM, BMP, PNG, JPEG) in a window");
+PROGRAM_HELP("Imageview [FILE]", "show an image (PPM, BMP, PNG, JPEG) in a window");
 
 #define M_OPEN  1
 #define M_CLOSE 2
@@ -110,7 +110,7 @@ static int load(const char *path)
 int main(int argc, char **argv)
 {
     if (argc > 2) {
-        dprintf(2, "usage: imageview [FILE]\n");
+        dprintf(2, "usage: Imageview [FILE]\n");
         return 2;
     }
     if (argc == 2 && load(argv[1]) < 0)
@@ -123,7 +123,7 @@ int main(int argc, char **argv)
         h = source.h;
         fit(&w, &h);
     }
-    struct window *win = window_open(w, h, argc == 2 ? argv[1] : "imageview");
+    struct window *win = window_open(w, h, argc == 2 ? argv[1] : "Imageview");
     if (!win) {
         if (errno == EACCES)                    /* (another user's windowd, 15k) */
             printf("imageview: cannot open a window: the screen is another user's\n");
@@ -157,6 +157,8 @@ int main(int argc, char **argv)
         }
         if (ev.type == WINDOW_RESIZE) {
             window_resize(win, ev.x, ev.y);
+            render(win);
+        } else if (ev.type == WINDOW_SETTINGS) {    /* (69b) libwindow's parts' new colours */
             render(win);
         }
     }

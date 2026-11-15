@@ -1,0 +1,13 @@
+# libwindow.pc (43d): libwindow.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libwindow
+Description: RitterOS's windows (windowd's clients: events, drawing, fonts)
+Version: 1
+Requires: ritteros
+Cflags: -I${includedir}
+Libs: ${libdir}/libwindow.so.1

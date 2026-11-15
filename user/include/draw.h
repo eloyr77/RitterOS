@@ -16,6 +16,10 @@
 #ifndef RITTEROS_DRAW_H
 #define RITTEROS_DRAW_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include "media.h"                  /* (struct image, for draw_image) */
 
@@ -82,5 +86,9 @@ void draw_gradient(struct draw_canvas *c, float x, float y, float w, float h, fl
  * it is copied exactly. */
 void draw_image(struct draw_canvas *c, const struct image *img, float x, float y, float w, float h,
                 float angle);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

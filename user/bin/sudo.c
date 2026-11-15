@@ -9,7 +9,10 @@
  * folder) and runs in the current folder with the terminal; sudo ends with
  * its exit code. A setuid program (50b-50c): owned by root with mode 4755 it
  * runs as root whoever starts it, getuid() telling who that was. Every
- * attempt goes to the log "login".
+ * attempt goes to the log "login". (69f) `sudo -S COMMAND`: the password
+ * from standard input without a prompt and without the terminal's echo
+ * touched (Linux's -S), for a program that hands it on (the settings app's
+ * Unlock); without -S it is read from standard input too, after a prompt.
  */
 #include <errno.h>
 #include <pwd.h>
@@ -21,7 +24,7 @@
 #include <unistd.h>
 #include "ritteros.h"
 
-PROGRAM_HELP("sudo COMMAND [ARGUMENTS...] | -k",
+PROGRAM_HELP("sudo [-S] COMMAND [ARGUMENTS...] | -k",
              "run a command as root, with your own password (users in /system/config/sudo)");
 
 #define SUDO_FILE "/system/config/sudo"
@@ -35,10 +38,14 @@ PROGRAM_HELP("sudo COMMAND [ARGUMENTS...] | -k",
 
 /* The password: one line, read a byte at a time (68d: from a pipe, what
  * follows the line stays for the command); false if none came. */
+static bool quiet;                      /* (69f) -S: no prompt, the echo left alone */
+
 static bool ask_hidden(const char *prompt, char *out, size_t size)
 {
-    printf("%s", prompt);
-    ritteros_echo(false);
+    if (!quiet) {
+        printf("%s", prompt);
+        ritteros_echo(false);
+    }
     size_t n = 0;
     bool any = false;
     char c;
@@ -49,8 +56,10 @@ static bool ask_hidden(const char *prompt, char *out, size_t size)
         if (n < size - 1)
             out[n++] = c;
     }
-    ritteros_echo(true);
-    printf("\n");
+    if (!quiet) {
+        ritteros_echo(true);
+        printf("\n");
+    }
     if (n && out[n - 1] == '\r')
         n--;
     out[n] = 0;
@@ -92,8 +101,12 @@ static bool listed(const char *key, const char *name)
 
 int main(int argc, char **argv)
 {
+    if (argc >= 2 && !strcmp(argv[1], "-S")) {      /* (69f) */
+        quiet = true;
+        argc--, argv++;
+    }
     if (argc < 2) {
-        dprintf(STDERR_FILENO, "usage: sudo COMMAND [ARGUMENTS...] | -k\n");
+        dprintf(STDERR_FILENO, "usage: sudo [-S] COMMAND [ARGUMENTS...] | -k\n");
         return 2;
     }
     if (argc == 2 && !strcmp(argv[1], "-k")) {      /* (68e) forget: the next one asks */

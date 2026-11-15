@@ -1,13 +1,13 @@
-# imageview: show an image (PPM, BMP, PNG, JPEG) in a window
+# Imageview: show an image (PPM, BMP, PNG, JPEG) in a window
 
 ```
-imageview [FILE]
+Imageview [FILE]
 ```
 
 Shows a picture in a window of the window system: PPM, BMP, PNG or JPEG
 (the libraries' decoders, `libimage.so.1`). It is a windowed app (it lives
 in `/system/<arch>/apps`), so the window server must be running first
-(`windowd &`, or the window system started at login). `owl` opens pictures
+(`windowd &`, or the window system started at login). `Owl` opens pictures
 (`.ppm`, `.bmp`, `.png`, `.jpg`, `.jpeg`) in it.
 
 With FILE the window opens at the picture's size, made smaller if the
@@ -27,7 +27,7 @@ directory); the window then takes the new picture's size. A file it cannot
 read there is reported and the old picture stays. `q`, **File > Close** or
 the window's close box ends it.
 
-`imageview` came with the media suite (PNG since step 25a, JPEG since 25b,
+`Imageview` came with the media suite (PNG since step 25a, JPEG since 25b,
 progressive JPEG 25c, EXIF orientation 25d). It takes no options.
 
 ## Exit status and messages
@@ -43,23 +43,23 @@ Its messages go to the output (the terminal it was started from):
   - `imageview: cannot open a window (is windowd running?)`
   - `imageview: cannot open a window: the screen is another user's`: the
     window server running is another user's.
-- `2`: more than one FILE: `usage: imageview [FILE]`.
+- `2`: more than one FILE: `usage: Imageview [FILE]`.
 
 ## Examples
 
 ```
 ritteros:/$ windowd &
-ritteros:/$ imageview /home/root/photo.jpg &
+ritteros:/$ Imageview /home/root/photo.jpg &
 imageview: showing /home/root/photo.jpg (4032x3024)
-ritteros:/$ imageview /readme.txt
+ritteros:/$ Imageview /readme.txt
 imageview: /readme.txt: Invalid argument
 imageview: exit code 1
-ritteros:/$ imageview
+ritteros:/$ Imageview
 imageview: cannot open a window (is windowd running?)
 imageview: exit code 1
 ```
 
 ## See also
 
-[`windowd`](windowd.md), [`owl`](owl.md), [`reel`](reel.md),
-[`tune`](tune.md), [`term`](term.md), [`ibrowser`](ibrowser.md)
+[`windowd`](windowd.md), [`Owl`](Owl.md), [`Reel`](Reel.md),
+[`tune`](tune.md), [`Term`](Term.md)

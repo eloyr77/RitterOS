@@ -83,7 +83,7 @@ const char *mouse_name(const struct mouse *m)
 
 /* The wheel, the click counting, and handing the pointer to the window server
  * (shared by the relative and absolute entry points). */
-static void notify(struct mouse *m, int wheel, uint8_t buttons)
+static void notify(struct mouse *m, int wheel, int pan, uint8_t buttons)
 {
     if (wheel)
         m->wheel += wheel;
@@ -104,12 +104,12 @@ static void notify(struct mouse *m, int wheel, uint8_t buttons)
     }
     if (winput_captured()) {                    /* the window server wants it */
         winput_pointer(m->x, m->y, buttons);
-        if (wheel)                              /* (drivers: positive up, as USB's) */
-            winput_wheel(m->x, m->y, -wheel);
+        if (wheel || pan)                       /* (drivers: positive up, as USB's) */
+            winput_wheel(m->x, m->y, -wheel, pan);
     }
 }
 
-void mouse_event(struct mouse *m, int dx, int dy, int wheel, uint8_t buttons)
+void mouse_event(struct mouse *m, int dx, int dy, int wheel, int pan, uint8_t buttons)
 {
     if (dx || dy) {
         /* HID y grows downward, like the screen. */
@@ -117,11 +117,11 @@ void mouse_event(struct mouse *m, int dx, int dy, int wheel, uint8_t buttons)
         m->y = clamp(m->y + dy, 0, m->max_y);
         m->moves++;
     }
-    notify(m, wheel, buttons);
+    notify(m, wheel, pan, buttons);
 }
 
 void mouse_absolute(struct mouse *m, int x, int y, int x_range, int y_range, int wheel,
-                    uint8_t buttons)
+                    int pan, uint8_t buttons)
 {
     if (x_range > 0 && y_range > 0 && (m->max_x > 0 || m->max_y > 0)) {
         int nx = clamp((int)((int64_t)x * m->max_x / x_range), 0, m->max_x);
@@ -132,7 +132,7 @@ void mouse_absolute(struct mouse *m, int x, int y, int x_range, int y_range, int
             m->moves++;
         }
     }
-    notify(m, wheel, buttons);
+    notify(m, wheel, pan, buttons);
 }
 
 void mouse_screen(uint32_t width, uint32_t height)

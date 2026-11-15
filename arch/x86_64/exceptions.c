@@ -75,7 +75,7 @@ static void user_exception(struct interrupt_frame *f)
             sched_preempt_point(true);
             return;
         }
-        if (fault == SIGBUS && process_fault_signal(f, SIGBUS))
+        if (fault == SIGBUS && process_fault_signal(f, SIGBUS, BUS_ADRERR, address))
             return;                         /* (22r: its handler runs) */
         if (fault == SIGBUS)
             process_fault("bus error (past the end of a mapped file)", f->rip, address, SIGBUS);
@@ -90,7 +90,16 @@ static void user_exception(struct interrupt_frame *f)
     /* As on Unix: invalid instructions SIGILL, division SIGFPE, the rest
      * (page faults, protection errors) SIGSEGV. */
     int signal = f->vector == 6 ? SIGILL : f->vector == 0 ? SIGFPE : SIGSEGV;
-    if (process_fault_signal(f, signal))
+    /* (43b-5) Linux's info: a page fault's address and kind; else the
+     * instruction's (a protection fault: SI_KERNEL, no address). */
+    int code = signal == SIGILL ? ILL_ILLOPC : signal == SIGFPE ? FPE_INTDIV : SI_KERNEL;
+    if (f->vector == VEC_PAGE_FAULT) {
+        __asm__ volatile ("sti");
+        code = process_fault_code(address);     /* (by the mapping, as Linux's) */
+        __asm__ volatile ("cli");
+    }
+    uint64_t at = f->vector == VEC_PAGE_FAULT ? address : signal == SIGSEGV ? 0 : f->rip;
+    if (process_fault_signal(f, signal, code, at))
         return;                             /* (22r: its handler runs) */
     process_fault(what, f->rip, address, signal);
 }

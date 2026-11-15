@@ -22,7 +22,7 @@ also compiles 9x15 and 9x15B into C tables at build time: the kernel's console
 font, and libwindow's default (the fallback when a font file is missing or
 cannot be read).
 
-Proportional fonts for iBrowser (step 27k; the user's choice on 2026-10-25,
+Proportional fonts, first for iBrowser (step 27k; the user's choice on 2026-10-25,
 an agreed exception to the public-domain rule): X.Org's Adobe bitmap fonts
 at 100 dpi, Helvetica (helv), Times (tim) and Courier (cour), each regular
 (R), bold (B) and oblique or italic (O, I; BO, BI), at 8, 10, 12, 14, 18 and

@@ -8,6 +8,10 @@
 #ifndef RITTEROS_VIDEO_H
 #define RITTEROS_VIDEO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "media.h"
 
 struct video;                           /* opaque: the open file and decode state */
@@ -26,5 +30,9 @@ int video_read_frame(struct video *v, struct image *frame, int64_t *pts_ns);
 int video_audio(struct video *v, struct audio_buffer *out);
 
 void video_close(struct video *v);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

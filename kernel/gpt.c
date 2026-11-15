@@ -66,7 +66,7 @@ static bool read_header(struct block_device *dev, uint64_t lba, uint8_t *sector,
         return false;
     uint32_t stored = h->header_crc;
     memset(sector + 16, 0, 4);                      /* CRC is computed with its field zero */
-    return crc32(sector, h->header_size) == stored;
+    return crc32_ieee(sector, h->header_size) == stored;
 }
 
 bool gpt_report(struct block_device *dev)
@@ -99,7 +99,7 @@ bool gpt_report(struct block_device *dev)
         kfree(entries);
         goto out;
     }
-    bool entries_ok = crc32(entries, array_bytes) == h.entries_crc;
+    bool entries_ok = crc32_ieee(entries, array_bytes) == h.entries_crc;
 
     /* The backup copy at the end of the disk. */
     struct gpt_header backup;
@@ -240,7 +240,7 @@ int partition_table_read(struct block_device *disk, struct partition_info *out, 
         kfree(entries);
         entries = kmalloc((size_t)array_blocks * disk->block_size);
         if (entries && disk->read(disk, h.entries_lba, array_blocks, entries) &&
-            crc32(entries, array_bytes) == h.entries_crc) {
+            crc32_ieee(entries, array_bytes) == h.entries_crc) {
             table->kind = PARTITION_TABLE_GPT;
             table->first_usable = h.first_usable_lba;
             table->last_usable = h.last_usable_lba;

@@ -41,7 +41,7 @@ HEADERS = [
     ('user/include/complex.h', "complex numbers: C99's functions and the compiler's * and / helpers", APPS),
     ('user/include/threads.h', "C11's threads, mutexes, condition variables, call_once, thread-specific storage", APPS),
     ('user/include/setjmp.h', 'setjmp and longjmp: jumping back out of deep calls', APPS),
-    ('user/include/locale.h', 'the C locale (the only one)', APPS),
+    ('user/include/locale.h', 'locales: C and C.UTF-8, a thread\'s own (uselocale)', APPS),
     ('user/include/time.h', 'the clock, CPU time, dates and their text', APPS),
     ('user/include/inttypes.h', 'printf conversions for stdint.h\'s types', APPS),
     ('user/include/unistd.h', 'files, processes, sleeping', APPS),
@@ -71,6 +71,46 @@ HEADERS = [
     ('user/include/dirent.h', 'reading directories', APPS),
     ('user/include/signal.h', 'signals', APPS),
     ('user/include/pwd.h', 'users', APPS),
+    ('user/include/iconv.h', 'converting text between encodings (UTF-8, UTF-16, UTF-32, Latin-1, Windows-1252)', APPS),
+    ('user/include/langinfo.h', "the locale's words and formats (nl_langinfo)", APPS),
+    ('user/include/libintl.h', "gettext's calls (no translations: English only)", APPS),
+    ('user/include/sys/resource.h', 'limits (getrlimit) and use (getrusage)', APPS),
+    ('user/include/sys/times.h', 'times: CPU time in clock ticks', APPS),
+    ('user/include/sys/sysinfo.h', 'sysinfo, get_nprocs: memory and cores', APPS),
+    ('user/include/sys/random.h', 'getrandom: random bytes', APPS),
+    ('user/include/sys/ioctl.h', 'ioctl: a socket non-blocking, close-on-exec', APPS),
+    ('user/include/sys/soundcard.h', "OSS's sound requests: where playing is, dropping what is buffered", APPS),
+    ('user/include/sys/auxv.h', "getauxval: the kernel's vector for a new program", APPS),
+    ('user/include/syslog.h', "syslog: lines for the system's logs", APPS),
+    ('user/include/semaphore.h', "counting semaphores between a program's threads", APPS),
+    ('user/include/link.h', 'dl_iterate_phdr: the loaded objects and their program headers', APPS),
+    ('user/include/elf.h', "the ELF format's types and constants", APPS),
+    ('user/include/sys/uio.h', 'readv, writev: several buffers in one call', APPS),
+    ('user/include/sys/statvfs.h', "a file system's sizes", APPS),
+    ('user/include/sys/eventfd.h', 'event counters as descriptors', APPS),
+    ('user/include/sys/timerfd.h', 'timers as descriptors', APPS),
+    ('user/include/sys/file.h', 'flock: whole-file locks', APPS),
+    ('user/include/sys/ucontext.h', "a signal handler's context: the registers", APPS),
+    ('user/include/ucontext.h', 'ucontext_t (sys/ucontext.h)', APPS),
+    ('user/include/net/if.h', 'network interfaces by name and number', APPS),
+    ('user/include/ifaddrs.h', "getifaddrs: every interface's addresses", APPS),
+    ('user/include/grp.h', "groups (each user's own: no groups file)", APPS),
+    ('user/include/limits.h', "POSIX's limits (PATH_MAX, OPEN_MAX, PIPE_BUF...) beside the compiler's", APPS),
+    ('user/include/malloc.h', 'memalign, valloc, malloc_usable_size', APPS),
+    ('user/include/alloca.h', 'alloca: memory on the stack', APPS),
+    ('user/include/libgen.h', 'basename and dirname', APPS),
+    ('user/include/search.h', 'linear search, binary trees (tsearch), a hash table (hsearch)', APPS),
+    ('user/include/err.h', 'err, warn: messages with the program\'s name', APPS),
+    ('user/include/getopt.h', 'getopt_long: long options', APPS),
+    ('user/include/fnmatch.h', 'shell patterns against names', APPS),
+    ('user/include/glob.h', 'the paths that match a pattern', APPS),
+    ('user/include/endian.h', 'the byte order, conversions to big and little endian', APPS),
+    ('user/include/byteswap.h', 'bswap_16, bswap_32, bswap_64', APPS),
+    ('user/include/memory.h', "string.h's older name", APPS),
+    ('user/include/features.h', 'for code written for glibc', APPS),
+    ('user/include/sys/cdefs.h', 'BSD\'s and glibc\'s declaration macros', APPS),
+    ('user/include/sys/param.h', 'MIN, MAX, howmany, MAXPATHLEN', APPS),
+    ('user/include/sys/sysmacros.h', "a device number's parts", APPS),
     ('user/include/thread.h', 'threads', APPS),
     ('user/include/ritteros.h', 'RitterOS\'s own calls', MIXED),
     ('user/include/window.h', 'windowed apps (libwindow)', APPS),
@@ -81,6 +121,7 @@ HEADERS = [
     ('user/include/draw.h', '2D drawing, anti-aliased, on any pixel buffer (libdraw)', APPS),
     ('user/include/widget.h', 'controls for windowed programs: buttons, check boxes, layouts (libwidget)', APPS),
     ('user/include/wfont.h', 'the windows\' font (cell sizes for laying out text)', APPS),
+    ('user/include/keyring.h', 'secrets kept for the user, encrypted, through keyringd (libkeyring)', APPS),
     ('user/include/tls.h', 'TLS 1.3 connections, OpenBSD\'s libtls interface (libtls)', APPS),
     ('user/include/crypto.h', 'SHA-512, X25519, Ed25519, ChaCha20-Poly1305 (written for SSH); AES-GCM, SHA-384, HKDF, RSA and ECDSA checks (for TLS)', APPS),
     ('user/include/x509.h', 'X.509 certificates: reading, chains to trusted roots, host names (libtls uses it)', SYSTEM),
@@ -125,10 +166,11 @@ Since step 22c RitterOS's own programs use **shared libraries**, each one a
 file in `/system/<arch>/lib` that `ld.so` (the dynamic loader, in the same
 place) maps into a program when it starts: one copy of a library's code in
 memory serves every program, and a library can be updated on its own. There
-are eight: `libritteros.so.1` (the C library, the system calls, the network
+are nine: `libritteros.so.1` (the C library, the system calls, the network
 and DNS helpers, hashes, users and settings), `libwindow.so.1`,
 `libimage.so.1`, `libaudio.so.1`, `libvideo.so.1`, `libdraw.so.1` (2D
-drawing, since 41b), `libwidget.so.1` (controls, since 41e) and `libtls.so.1` (TLS 1.3 connections, since 23d); the Library column
+drawing, since 41b), `libwidget.so.1` (controls, since 41e), `libtls.so.1` (TLS 1.3 connections, since 23d) and
+`libkeyring.so.1` (the user's keyring, since 70b); the Library column
 below says which holds a header's functions. The number after `.so` is the
 major version: it changes only with a change that would break programs
 built before (a new function does not), and such a library would be
@@ -202,10 +244,19 @@ def drop_attributes(text):
         i = k + 1
 
 
+# (43c) Every header's C++ guard, around its body: not part of the API.
+CPLUSPLUS_OPEN = '#ifdef __cplusplus\nextern "C" {\n#endif\n'
+CPLUSPLUS_CLOSE = '#ifdef __cplusplus\n}\n#endif\n'
+
+
+def without_cplusplus(text):
+    return text.replace(CPLUSPLUS_OPEN, '').replace(CPLUSPLUS_CLOSE, '')
+
+
 def split_header(path):
     """(description, body): the header's opening comment as text, and the
     rest without its include guard and #include lines."""
-    lines = open(os.path.join(ROOT, path)).read().split('\n')
+    lines = without_cplusplus(open(os.path.join(ROOT, path)).read()).split('\n')
     description = ''
     i = 0
     while i < len(lines) and not lines[i].strip():
@@ -244,7 +295,8 @@ def split_header(path):
 
 
 def declarations(body):
-    """(name, declaration) for every function and function-like macro."""
+    """(name, declaration) for every function, function-like macro and
+    (46b) variable a library exports (`extern TYPE NAME;`)."""
     found = []
     code = strip_comments(body)
     lines = code.split('\n')
@@ -274,6 +326,11 @@ def declarations(body):
                 if not s or s.startswith('typedef') or '{' in s:
                     continue
                 m = re.search(r'(\w+)\s*\(', s)
+                if m:
+                    found.append((m.group(1), s[:-1].strip()))
+                    continue
+                # (46b) a variable: extern, its name the last word
+                m = re.match(r'extern\s[^(]*?(\w+)\s*;$', s)
                 if m:
                     found.append((m.group(1), s[:-1].strip()))
         statement += '\n'
@@ -310,6 +367,7 @@ def generate():
         part.append('```c\n' + body + '\n```\n')
         parts.append(''.join(part))
 
+    out.extend(upstream_section())
     out.append('\n## Every function and macro\n\n')
     out.append('%d of them, by name. Each links to its header, where its comment says what '
                'it does. "system": the system\'s own (see above); do not use it outside '
@@ -324,6 +382,41 @@ def generate():
     out.append('\n## The headers, as they are\n')
     out.extend(parts)
     return ''.join(out)
+
+
+# (46e) The system libraries from upstream (user/upstream): what a program
+# links and includes; their functions are upstream's to document.
+UPSTREAM = [
+    ('zlib', 'ZLIB', 'libz.so.1', '`zlib.h`', 'zlib', 'ZLIB (ZLIB::ZLIB)', 'https://zlib.net/manual.html'),
+    ('OpenSSL', 'OPENSSL', 'libcrypto.so.3, libssl.so.3', '`openssl/*.h`', 'openssl, libssl, libcrypto',
+     'OpenSSL (OpenSSL::SSL, OpenSSL::Crypto)', 'https://docs.openssl.org/3.5/man3/'),
+    ('nghttp2', 'NGHTTP2', 'libnghttp2.so.14', '`nghttp2/nghttp2.h`', 'libnghttp2', '-',
+     'https://nghttp2.org/documentation/'),
+    ('brotli', 'BROTLI', 'libbrotlicommon.so.1, libbrotlidec.so.1, libbrotlienc.so.1', '`brotli/*.h`',
+     'libbrotlicommon, libbrotlidec, libbrotlienc', '-', 'https://github.com/google/brotli'),
+    ('libpsl', 'LIBPSL', 'libpsl.so.5', '`libpsl.h`', 'libpsl', 'LibPSL (LibPSL::LibPSL)',
+     'https://rockdaboot.github.io/libpsl/'),
+    ('curl', 'CURL', 'libcurl.so.4', '`curl/*.h`', 'libcurl', 'CURL (CURL::libcurl)',
+     'https://curl.se/libcurl/c/'),
+]
+
+
+def upstream_section():
+    versions = dict(line.split('=', 1) for line in open(os.path.join(ROOT, 'user/upstream/versions')).read()
+                    .split('\n') if line and not line.startswith('#'))
+    out = ['\n## System libraries from upstream\n\n',
+           '(46) Built unchanged from their projects\' sources (`user/upstream/`), in `/system/<arch>/lib` '
+           'and their headers in `/system/include` on the machine; for builds on this computer the headers '
+           'are `build/upstream/include` and the link names `build/sdk/<arch>/lib` (`make sdk`), which '
+           '`sdk/ritteros.cmake`, `sdk/ritteros.meson`, `sdk/ritteros-ld` and `ritteros.mk` (`LDLIBS`) use. '
+           'Their interfaces are their projects\' (the documentation named); `sdk/abi/` records the '
+           'symbols each exports.\n\n',
+           '| Library | Version | Files | Headers | pkg-config | CMake find_package | Documentation |\n',
+           '|---|---|---|---|---|---|---|\n']
+    for name, key, files, headers, pc, cmake, doc in UPSTREAM:
+        out.append('| %s | %s | %s | %s | %s | %s | %s |\n' % (name, versions[key + '_VER'], files, headers, pc,
+                                                               cmake, doc))
+    return out
 
 
 def main():

@@ -1,7 +1,7 @@
 # power: what the firmware offers for power management: sleep states, devices
 
 ```
-power [tables DIR | names | eval NAME | sleep [SECONDS]]
+power [tables DIR | names | eval NAME | sleep [SECONDS] | settings | clock]
 ```
 
 Prints the kernel's report on what the machine's firmware offers for power
@@ -201,6 +201,27 @@ port is kept as the same disk when it says it is: `disks` and the
 kernel's log say so), its network (Wi-Fi joins again, the Intel 8265's
 after its firmware starts again), its keyboard and touch pad.
 
+`power settings` (since 69a; root only) reads `/system/config/power` again
+and applies it at once: what the power button and the lid do, and the
+minutes until the screen dims, goes off and the machine sleeps (counted
+from then). It prints what was applied, the lines the kernel's log gets
+too:
+
+```
+ritteros:/$ power settings
+power_button = nothing (/system/config/power)
+lid = nothing (the default: no lid in /system/config/power)
+screen_off = 1, screen_dim = 2 (minutes; /system/config/power): the screen goes off
+sleep_after = 0 (minutes; /system/config/power): it never sleeps by itself
+```
+
+`power clock` (since 69a; root only) reads `/system/config/cpu` again and
+applies its `clock` on every core (AMD processors with CPPC): `clock =
+balanced (/system/config/cpu): CPPC on: ..., on 16 cores`. Elsewhere the
+line says the setting is not used. `clock = firmware` after another mode
+counts only from the next start: CPPC, once switched on, stays on until a
+restart, and the cores keep the mode they have.
+
 ## Example
 
 QEMU's q35 machine:
@@ -221,7 +242,8 @@ methods defined: _CST (processor sleep states) 0, _CPC (CPPC) 0, _PSS (P-states)
 saved (`power: tables: Operation not permitted` for anyone but root;
 `power: names: Operation not permitted` and the same for `eval`; `1`
 too when the object is not there or its evaluation failed, or the machine
-did not sleep); `2` for other arguments.
+did not sleep; `power: settings: only root may` and `power: clock: only
+root may`); `2` for other arguments.
 
 ## See also
 

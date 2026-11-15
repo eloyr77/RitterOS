@@ -8,6 +8,10 @@
 #ifndef RITTEROS_SSH_H
 #define RITTEROS_SSH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -105,5 +109,9 @@ size_t ssh_key_blob(const uint8_t public_key[32], uint8_t out[51]);
  * length (-1 if it is not base64). */
 size_t base64_encode(const uint8_t *in, size_t n, char *out, bool padding);
 long base64_decode(const char *in, size_t n, uint8_t *out, size_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

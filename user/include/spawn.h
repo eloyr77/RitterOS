@@ -14,6 +14,10 @@
 #ifndef RITTEROS_SPAWN_H
 #define RITTEROS_SPAWN_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <signal.h>
 #include <sys/types.h>
 
@@ -50,6 +54,13 @@ int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *actions, int fd
                                      const char *path, int oflag, mode_t mode);
 int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *actions, int fd, int newfd);
 int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *actions, int fd);
+/* (43a-3) The child changes its folder to path there, in the actions'
+ * order (POSIX 2024's name, and glibc's _np one). */
+int posix_spawn_file_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path);
+int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t *actions, const char *path);
+/* (43b-6) The same with a folder's descriptor (open in the child then). */
+int posix_spawn_file_actions_addfchdir(posix_spawn_file_actions_t *actions, int fd);
+int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *actions, int fd);
 
 int posix_spawnattr_init(posix_spawnattr_t *attr);
 int posix_spawnattr_destroy(posix_spawnattr_t *attr);
@@ -61,5 +72,9 @@ int posix_spawnattr_getsigmask(const posix_spawnattr_t *attr, sigset_t *mask);
 int posix_spawnattr_setsigmask(posix_spawnattr_t *attr, const sigset_t *mask);
 int posix_spawnattr_getsigdefault(const posix_spawnattr_t *attr, sigset_t *signals);
 int posix_spawnattr_setsigdefault(posix_spawnattr_t *attr, const sigset_t *signals);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

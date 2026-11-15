@@ -9,6 +9,10 @@
 #ifndef RITTEROS_THREAD_H
 #define RITTEROS_THREAD_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Start fn(arg) in a new thread; its number, or -1 (errno: EAGAIN when all
  * 256 numbers are taken). */
 int thread_create(int (*fn)(void *arg), void *arg);
@@ -23,5 +27,9 @@ __attribute__((noreturn)) void thread_exit(int result);
 
 /* The calling thread's number. */
 int thread_self(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

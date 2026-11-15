@@ -84,5 +84,5 @@ characters at QEMU's 1280x800).
 
 ## See also
 
-[`cat`](cat.md), [`sed`](sed.md) (changes without a screen), [`term`](term.md),
-[`owl`](owl.md) (opens data files in `edit`)
+[`cat`](cat.md), [`sed`](sed.md) (changes without a screen), [`Term`](Term.md),
+[`Owl`](Owl.md) (opens data files in `edit`)

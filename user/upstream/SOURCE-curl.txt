@@ -1,0 +1,21 @@
+RitterOS's curl (46d-2): /system/<arch>/lib/libcurl.so.4, the program
+/system/<arch>/bin/curl and the headers /system/include/curl/.
+
+It is curl 8.23.0 by Daniel Stenberg and many contributors, built
+unchanged from its source archive (https://curl.se/download/
+curl-8.23.0.tar.xz; the project signs it but publishes no hash, so
+user/upstream/versions has the SHA-256 of the one downloaded on
+2026-11-12), which scripts/setup-toolchain.sh downloads into tools/src:
+none of its sources are kept in this repository. Only the build is
+RitterOS's: its own CMake through the SDK's sdk/ritteros.cmake, against
+RitterOS's system libraries OpenSSL (TLS), nghttp2 (HTTP/2), zlib and
+brotli (compressed answers) and libpsl (cookies' public suffixes), with
+the threaded resolver, IPv6, cookies, proxies and WebSockets, the CA
+bundle /system/certs/cacert.pem, no LDAP, SSH, IDN, zstd or HTTP/3; and
+the program's help line (user/upstream/curl-help.c, linked into it). See
+the Makefile's "curl" part.
+
+Licence: curl's licence (MIT-like; user/upstream/LICENCE-curl.txt, curl's
+COPYING; installed as /system/doc/licences/curl.txt), compatible with the
+GPL; taking it in was agreed for item 46 (2026-11-12).
+Upstream: https://curl.se, https://github.com/curl/curl

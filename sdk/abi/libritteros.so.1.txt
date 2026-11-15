@@ -1,5 +1,25 @@
 # libritteros.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
 # changing a line breaks programs built before: that needs a new major version.
+constant	ABDAY_1	0x20000
+constant	ABDAY_2	0x20001
+constant	ABDAY_3	0x20002
+constant	ABDAY_4	0x20003
+constant	ABDAY_5	0x20004
+constant	ABDAY_6	0x20005
+constant	ABDAY_7	0x20006
+constant	ABMON_1	0x2000E
+constant	ABMON_10	0x20017
+constant	ABMON_11	0x20018
+constant	ABMON_12	0x20019
+constant	ABMON_2	0x2000F
+constant	ABMON_3	0x20010
+constant	ABMON_4	0x20011
+constant	ABMON_5	0x20012
+constant	ABMON_6	0x20013
+constant	ABMON_7	0x20014
+constant	ABMON_8	0x20015
+constant	ABMON_9	0x20016
+constant	ACCESSPERMS	0000777
 constant	AF_INET	2
 constant	AF_INET6	10
 constant	AF_LOCAL	AF_UNIX
@@ -12,14 +32,43 @@ constant	AI_NUMERICHOST	0x0004
 constant	AI_NUMERICSERV	0x0400
 constant	AI_PASSIVE	0x0001
 constant	AI_V4MAPPED	0x0008
+constant	ALLPERMS	0007777
+constant	ALT_DIGITS	0x2002F
+constant	AM_STR	0x20026
 constant	ATTR_GET	1
 constant	ATTR_KEY_MAX	63
 constant	ATTR_LIST	4
 constant	ATTR_REMOVE	3
 constant	ATTR_SET	2
 constant	ATTR_VALUE_MAX	1024
+constant	AT_BASE	7
+constant	AT_CLKTCK	17
+constant	AT_EACCESS	0x200
+constant	AT_EGID	14
+constant	AT_EMPTY_PATH	0x1000
+constant	AT_ENTRY	9
+constant	AT_EUID	12
+constant	AT_EXECFD	2
+constant	AT_EXECFN	31
 constant	AT_FDCWD	(-100)
+constant	AT_FLAGS	8
+constant	AT_GID	13
+constant	AT_HWCAP	16
+constant	AT_HWCAP2	26
+constant	AT_IGNORE	1
+constant	AT_NULL	0
+constant	AT_PAGESZ	6
+constant	AT_PHDR	3
+constant	AT_PHENT	4
+constant	AT_PHNUM	5
+constant	AT_PLATFORM	15
+constant	AT_RANDOM	25
+constant	AT_REMOVEDIR	0x200
+constant	AT_RITTEROS_CLOCK	4096
+constant	AT_SECURE	23
+constant	AT_SYMLINK_FOLLOW	0x400
 constant	AT_SYMLINK_NOFOLLOW	0x100
+constant	AT_UID	11
 constant	B0	0
 constant	B115200	115200
 constant	B19200	19200
@@ -30,16 +79,37 @@ constant	BRIDGE_ADD	0
 constant	BRIDGE_REMOVE	1
 constant	BRKINT	TERMIOS_BRKINT
 constant	BUFSIZ	4096
+constant	BUS_ADRERR	2
+constant	CLD_CONTINUED	6
+constant	CLD_EXITED	1
+constant	CLD_KILLED	2
+constant	CLD_STOPPED	5
 constant	CLOCKS_PER_SEC	1000000L
+constant	CLOCK_BOOTTIME	7
 constant	CLOCK_MONOTONIC	1
+constant	CLOCK_MONOTONIC_COARSE	6
+constant	CLOCK_MONOTONIC_RAW	4
 constant	CLOCK_PROCESS_CPUTIME_ID	2
 constant	CLOCK_REALTIME	0
+constant	CLOCK_REALTIME_COARSE	5
+constant	CLOCK_THREAD_CPUTIME_ID	3
+constant	CODESET	14
 constant	CONFIG_DIR	"/system/config"
+constant	CPU_SETSIZE	1024
 constant	CREAD	TERMIOS_CREAD
+constant	CRNCYSTR	0x4000F
 constant	CS8	TERMIOS_CS8
 constant	CSIZE	TERMIOS_CSIZE
+constant	DAY_1	0x20007
+constant	DAY_2	0x20008
+constant	DAY_3	0x20009
+constant	DAY_4	0x2000A
+constant	DAY_5	0x2000B
+constant	DAY_6	0x2000C
+constant	DAY_7	0x2000D
 constant	DEFAULT_ROUTE_ADD	1
 constant	DEFAULT_ROUTE_RESET	0
+constant	DEFFILEMODE	0000666
 constant	DEVICE_EMPTY	4
 constant	DEVICE_PARTITION	1
 constant	DEVICE_READ_ONLY	8
@@ -62,9 +132,15 @@ constant	DISPLAY_SET_MODE	6
 constant	DISPLAY_VBLANK	7
 constant	DNS_NAME_MAX	253
 constant	DT_BLK	6
+constant	DT_CHR	2
 constant	DT_DIR	4
+constant	DT_FIFO	1
 constant	DT_LNK	10
 constant	DT_REG	8
+constant	DT_SOCK	12
+constant	DT_UNKNOWN	0
+constant	D_FMT	0x20029
+constant	D_T_FMT	0x20028
 constant	E2BIG	ERR_2BIG
 constant	EACCES	ERR_ACCES
 constant	EADDRINUSE	ERR_ADDRINUSE
@@ -83,7 +159,10 @@ constant	EAI_SOCKTYPE	(-7)
 constant	EAI_SYSTEM	(-11)
 constant	EALREADY	ERR_ALREADY
 constant	EBADF	ERR_BADF
+constant	EBADFD	77
+constant	EBADMSG	74
 constant	EBUSY	ERR_BUSY
+constant	ECANCELED	125
 constant	ECHILD	ERR_CHILD
 constant	ECHO	TERMIOS_ECHO
 constant	ECHOE	TERMIOS_ECHOE
@@ -93,16 +172,25 @@ constant	ECONNABORTED	ERR_CONNABORTED
 constant	ECONNREFUSED	ERR_CONNREFUSED
 constant	ECONNRESET	ERR_CONNRESET
 constant	EDEADLK	ERR_DEADLK
+constant	EDEADLOCK	EDEADLK
 constant	EDESTADDRREQ	ERR_DESTADDRREQ
+constant	EDOM	33
+constant	EDQUOT	122
 constant	EEXIST	ERR_EXIST
 constant	EFAULT	ERR_FAULT
+constant	EFBIG	27
+constant	EFD_CLOEXEC	OPEN_CLOEXEC
+constant	EFD_NONBLOCK	OPEN_NONBLOCK
+constant	EFD_SEMAPHORE	1
 constant	EFIVAR_BOOT_ACCESS	0x2
 constant	EFIVAR_DATA_MAX	4096
 constant	EFIVAR_GET	1
 constant	EFIVAR_NON_VOLATILE	0x1
 constant	EFIVAR_RUNTIME	0x4
 constant	EFIVAR_SET	2
+constant	EHOSTDOWN	112
 constant	EHOSTUNREACH	ERR_HOSTUNREACH
+constant	EIDRM	43
 constant	EILSEQ	84
 constant	EINPROGRESS	ERR_INPROGRESS
 constant	EINTR	ERR_INTR
@@ -110,34 +198,61 @@ constant	EINVAL	ERR_INVAL
 constant	EIO	ERR_IO
 constant	EISCONN	ERR_ISCONN
 constant	EISDIR	ERR_ISDIR
+constant	ELAST	131
 constant	ELOOP	ERR_LOOP
 constant	ELVES_DIR	"/system/config/elves"
+constant	EMEDIUMTYPE	124
 constant	EMFILE	ERR_MFILE
+constant	EMLINK	31
 constant	EMSGSIZE	ERR_MSGSIZE
+constant	EMULTIHOP	72
 constant	ENAMETOOLONG	ERR_NAMETOOLONG
+constant	ENETDOWN	100
+constant	ENETRESET	102
 constant	ENETUNREACH	ERR_NETUNREACH
+constant	ENFILE	23
+constant	ENOBUFS	105
 constant	ENODATA	ERR_NODATA
 constant	ENODEV	ERR_NODEV
 constant	ENOENT	ERR_NOENT
 constant	ENOEXEC	ERR_NOEXEC
+constant	ENOLCK	37
+constant	ENOLINK	67
+constant	ENOMEDIUM	123
 constant	ENOMEM	ERR_NOMEM
+constant	ENOMSG	42
 constant	ENONAME	ERR_NONAME
+constant	ENONET	64
 constant	ENOPROTOOPT	ERR_NOPROTOOPT
 constant	ENOSPC	ERR_NOSPC
+constant	ENOSR	63
+constant	ENOSTR	60
 constant	ENOSYS	ERR_NOSYS
+constant	ENOTBLK	15
 constant	ENOTCONN	ERR_NOTCONN
 constant	ENOTDIR	ERR_NOTDIR
 constant	ENOTEMPTY	ERR_NOTEMPTY
+constant	ENOTRECOVERABLE	131
 constant	ENOTSOCK	ERR_NOTSOCK
 constant	ENOTSUP	ERR_NOTSUP
 constant	ENOTTY	ERR_NOTTY
 constant	ENXIO	ERR_NXIO
 constant	EOF	(-1)
 constant	EOPNOTSUPP	ENOTSUP
+constant	EOVERFLOW	75
+constant	EOWNERDEAD	130
 constant	EPERM	ERR_PERM
+constant	EPFNOSUPPORT	96
 constant	EPIPE	ERR_PIPE
+constant	EPROTO	71
 constant	EPROTONOSUPPORT	ERR_PROTONOSUPPORT
+constant	EPROTOTYPE	91
+constant	ERA	0x2002C
 constant	ERANGE	34
+constant	ERA_D_FMT	0x2002E
+constant	ERA_D_T_FMT	0x20030
+constant	ERA_T_FMT	0x20031
+constant	EREMOTE	66
 constant	EROFS	ERR_ROFS
 constant	ERR_2BIG	7
 constant	ERR_ACCES	13
@@ -187,25 +302,42 @@ constant	ERR_NXIO	6
 constant	ERR_PERM	1
 constant	ERR_PIPE	32
 constant	ERR_PROTONOSUPPORT	93
+constant	ERR_PROTOTYPE	91
 constant	ERR_ROFS	30
 constant	ERR_SOCKTNOSUPPORT	94
+constant	ERR_SPIPE	29
 constant	ERR_SRCH	3
 constant	ERR_TIMEDOUT	110
 constant	ERR_XDEV	18
+constant	ESHUTDOWN	108
 constant	ESOCKTNOSUPPORT	ERR_SOCKTNOSUPPORT
+constant	ESPIPE	29
 constant	ESRCH	ERR_SRCH
+constant	ESTALE	116
+constant	ETIME	62
 constant	ETIMEDOUT	ERR_TIMEDOUT
+constant	ETOOMANYREFS	109
+constant	ETXTBSY	26
+constant	EUSERS	87
 constant	EWOULDBLOCK	EAGAIN
 constant	EXDEV	ERR_XDEV
 constant	EXIT_FAILURE	1
 constant	EXIT_SUCCESS	0
+constant	FCNTL_ADD_SEALS	1033
 constant	FCNTL_CLOEXEC	1
 constant	FCNTL_DUPFD	0
 constant	FCNTL_DUPFD_CLOEXEC	1030
 constant	FCNTL_GETFD	1
 constant	FCNTL_GETFL	3
+constant	FCNTL_GETLK	5
+constant	FCNTL_GET_SEALS	1034
+constant	FCNTL_RDLCK	0
 constant	FCNTL_SETFD	2
 constant	FCNTL_SETFL	4
+constant	FCNTL_SETLK	6
+constant	FCNTL_SETLKW	7
+constant	FCNTL_UNLCK	2
+constant	FCNTL_WRLCK	1
 constant	FD_CLOEXEC	FCNTL_CLOEXEC
 constant	FD_MAX	256
 constant	FD_SETSIZE	FD_MAX
@@ -223,6 +355,7 @@ constant	FE_TONEAREST	0
 constant	FE_TOWARDZERO	3
 constant	FE_UNDERFLOW	0x08
 constant	FE_UPWARD	1
+constant	FILENAME_MAX	4096
 constant	FILE_TYPE_BLOCK	3
 constant	FILE_TYPE_CHAR	4
 constant	FILE_TYPE_DIR	2
@@ -230,9 +363,23 @@ constant	FILE_TYPE_FIFO	5
 constant	FILE_TYPE_FILE	1
 constant	FILE_TYPE_SOCKET	6
 constant	FILE_TYPE_SYMLINK	7
+constant	FIOCLEX	0x5451
+constant	FIONBIO	0x5421
+constant	FIONCLEX	0x5450
+constant	FNM_CASEFOLD	0x10
+constant	FNM_FILE_NAME	FNM_PATHNAME
+constant	FNM_IGNORECASE	FNM_CASEFOLD
+constant	FNM_LEADING_DIR	0x08
+constant	FNM_NOESCAPE	0x01
+constant	FNM_NOMATCH	1
+constant	FNM_PATHNAME	0x02
+constant	FNM_PERIOD	0x04
+constant	FOPEN_MAX	256
 constant	FORWARD_ASK	2
 constant	FORWARD_OFF	0
 constant	FORWARD_ON	1
+constant	FPE_INTDIV	1
+constant	FPSIMD_MAGIC	0x46508001
 constant	FP_ILOGB0	(-2147483647 - 1)
 constant	FP_ILOGBNAN	(-2147483647 - 1)
 constant	FP_INFINITE	1
@@ -242,12 +389,46 @@ constant	FP_SUBNORMAL	3
 constant	FP_ZERO	2
 constant	FUTEX_WAIT	0
 constant	FUTEX_WAKE	1
+constant	F_ADD_SEALS	FCNTL_ADD_SEALS
 constant	F_DUPFD	FCNTL_DUPFD
 constant	F_DUPFD_CLOEXEC	FCNTL_DUPFD_CLOEXEC
 constant	F_GETFD	FCNTL_GETFD
 constant	F_GETFL	FCNTL_GETFL
+constant	F_GETLK	FCNTL_GETLK
+constant	F_GET_SEALS	FCNTL_GET_SEALS
+constant	F_LOCK	1
+constant	F_OK	0
+constant	F_RDLCK	FCNTL_RDLCK
+constant	F_SEAL_FUTURE_WRITE	0x0010
+constant	F_SEAL_GROW	0x0004
+constant	F_SEAL_SEAL	0x0001
+constant	F_SEAL_SHRINK	0x0002
+constant	F_SEAL_WRITE	0x0008
 constant	F_SETFD	FCNTL_SETFD
 constant	F_SETFL	FCNTL_SETFL
+constant	F_SETLK	FCNTL_SETLK
+constant	F_SETLKW	FCNTL_SETLKW
+constant	F_TEST	3
+constant	F_TLOCK	2
+constant	F_ULOCK	0
+constant	F_UNLCK	FCNTL_UNLCK
+constant	F_WRLCK	FCNTL_WRLCK
+constant	GLOB_ABORTED	2
+constant	GLOB_APPEND	0x0020
+constant	GLOB_DOOFFS	0x0008
+constant	GLOB_ERR	0x0001
+constant	GLOB_MARK	0x0002
+constant	GLOB_NOCHECK	0x0010
+constant	GLOB_NOESCAPE	0x0040
+constant	GLOB_NOMATCH	3
+constant	GLOB_NOSORT	0x0004
+constant	GLOB_NOSPACE	1
+constant	GLOB_NOSYS	4
+constant	GLOB_PERIOD	0x0080
+constant	GLOB_TILDE	0x1000
+constant	GRND_INSECURE	4
+constant	GRND_NONBLOCK	1
+constant	GRND_RANDOM	2
 constant	GUARD_ALLOW	1
 constant	GUARD_ANY_CARD	0xFF
 constant	GUARD_DROP	2
@@ -274,11 +455,46 @@ constant	HOST_NOT_FOUND	1
 constant	HUGE_VAL	__builtin_huge_val()
 constant	HUGE_VALF	__builtin_huge_valf()
 constant	HUGE_VALL	__builtin_huge_vall()
+constant	HWCAP_AES	(1UL << 3)
+constant	HWCAP_ASIMD	(1UL << 1)
+constant	HWCAP_ASIMDDP	(1UL << 20)
+constant	HWCAP_ASIMDFHM	(1UL << 23)
+constant	HWCAP_ASIMDHP	(1UL << 10)
+constant	HWCAP_ASIMDRDM	(1UL << 12)
+constant	HWCAP_ATOMICS	(1UL << 8)
+constant	HWCAP_CPUID	(1UL << 11)
+constant	HWCAP_CRC32	(1UL << 7)
+constant	HWCAP_DCPOP	(1UL << 16)
+constant	HWCAP_EVTSTRM	(1UL << 2)
+constant	HWCAP_FCMA	(1UL << 14)
+constant	HWCAP_FP	(1UL << 0)
+constant	HWCAP_FPHP	(1UL << 9)
+constant	HWCAP_ILRCPC	(1UL << 26)
+constant	HWCAP_JSCVT	(1UL << 13)
+constant	HWCAP_LRCPC	(1UL << 15)
+constant	HWCAP_PMULL	(1UL << 4)
+constant	HWCAP_SHA1	(1UL << 5)
+constant	HWCAP_SHA2	(1UL << 6)
+constant	HWCAP_SHA3	(1UL << 17)
+constant	HWCAP_SHA512	(1UL << 21)
+constant	HWCAP_SM3	(1UL << 18)
+constant	HWCAP_SM4	(1UL << 19)
+constant	HWCAP_SVE	(1UL << 22)
 constant	I	_Complex_I
 constant	ICANON	TERMIOS_ICANON
 constant	ICRNL	TERMIOS_ICRNL
 constant	IEXTEN	TERMIOS_IEXTEN
+constant	IFF_BROADCAST	0x2
+constant	IFF_LOOPBACK	0x8
+constant	IFF_LOWER_UP	0x10000
+constant	IFF_MULTICAST	0x1000
+constant	IFF_RUNNING	0x40
+constant	IFF_UP	0x1
+constant	IFNAMSIZ	IF_NAMESIZE
+constant	IF_LOOPBACK_INDEX	65
+constant	IF_NAMESIZE	16
 constant	IGNCR	TERMIOS_IGNCR
+constant	ILL_ILLOPC	1
 constant	IN6ADDR_ANY_INIT	{ { 0 } }
 constant	IN6ADDR_LOOPBACK_INIT	{ { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } }
 constant	INADDR_ANY	((in_addr_t)0x00000000)
@@ -310,28 +526,92 @@ constant	ISIG	TERMIOS_ISIG
 constant	ISTRIP	TERMIOS_ISTRIP
 constant	IXON	TERMIOS_IXON
 constant	LC_ALL	6
+constant	LC_ALL_MASK	0x3f
 constant	LC_COLLATE	3
+constant	LC_COLLATE_MASK	(1 << LC_COLLATE)
 constant	LC_CTYPE	0
+constant	LC_CTYPE_MASK	(1 << LC_CTYPE)
+constant	LC_GLOBAL_LOCALE	((locale_t)-1)
 constant	LC_MESSAGES	5
+constant	LC_MESSAGES_MASK	(1 << LC_MESSAGES)
 constant	LC_MONETARY	4
+constant	LC_MONETARY_MASK	(1 << LC_MONETARY)
 constant	LC_NUMERIC	1
+constant	LC_NUMERIC_MASK	(1 << LC_NUMERIC)
 constant	LC_TIME	2
+constant	LC_TIME_MASK	(1 << LC_TIME)
 constant	LOCAL_PATH_MAX	108
+constant	LOCK_EX	2
+constant	LOCK_NB	4
+constant	LOCK_SH	1
+constant	LOCK_UN	8
 constant	LOGS_DIR	"/system/logs"
+constant	LOG_ALERT	1
 constant	LOG_AS	1
+constant	LOG_AUTH	(4 << 3)
+constant	LOG_AUTHPRIV	(10 << 3)
+constant	LOG_CONS	0x02
+constant	LOG_CRIT	2
+constant	LOG_CRON	(9 << 3)
+constant	LOG_DAEMON	(3 << 3)
+constant	LOG_DEBUG	7
+constant	LOG_EMERG	0
+constant	LOG_ERR	3
+constant	LOG_FACMASK	0x03f8
+constant	LOG_FTP	(11 << 3)
+constant	LOG_INFO	6
+constant	LOG_KERN	(0 << 3)
+constant	LOG_LOCAL0	(16 << 3)
+constant	LOG_LOCAL1	(17 << 3)
+constant	LOG_LOCAL2	(18 << 3)
+constant	LOG_LOCAL3	(19 << 3)
+constant	LOG_LOCAL4	(20 << 3)
+constant	LOG_LOCAL5	(21 << 3)
+constant	LOG_LOCAL6	(22 << 3)
+constant	LOG_LOCAL7	(23 << 3)
+constant	LOG_LPR	(6 << 3)
+constant	LOG_MAIL	(2 << 3)
 constant	LOG_NAME_SIZE	16
+constant	LOG_NDELAY	0x08
+constant	LOG_NEWS	(7 << 3)
+constant	LOG_NOTICE	5
+constant	LOG_NOWAIT	0x10
+constant	LOG_ODELAY	0x04
+constant	LOG_PERROR	0x20
+constant	LOG_PID	0x01
+constant	LOG_PRIMASK	0x07
+constant	LOG_SYSLOG	(5 << 3)
 constant	LOG_TAKE	3
+constant	LOG_USER	(1 << 3)
+constant	LOG_UUCP	(8 << 3)
+constant	LOG_WARNING	4
 constant	LOG_WRITE	2
+constant	L_ctermid	9
 constant	L_tmpnam	256
+constant	MADVISE_DONTNEED	4
+constant	MADVISE_FREE	8
+constant	MADVISE_WILLNEED	3
+constant	MADV_DONTNEED	MADVISE_DONTNEED
+constant	MADV_FREE	MADVISE_FREE
+constant	MADV_NORMAL	0
+constant	MADV_RANDOM	1
+constant	MADV_SEQUENTIAL	2
+constant	MADV_WILLNEED	MADVISE_WILLNEED
 constant	MAP_ANON	MAP_ANONYMOUS
 constant	MAP_ANONYMOUS	MMAP_ANONYMOUS
 constant	MAP_FAILED	((void *)-1)
 constant	MAP_FIXED	MMAP_FIXED
+constant	MAP_NORESERVE	0x4000
 constant	MAP_PRIVATE	MMAP_PRIVATE
 constant	MAP_SHARED	MMAP_SHARED
 constant	MASQ_ADD	1
 constant	MASQ_RESET	0
-constant	MB_CUR_MAX	1
+constant	MB_CUR_MAX	((size_t)__ritteros_mb_cur_max())
+constant	MCL_CURRENT	1
+constant	MCL_FUTURE	2
+constant	MFD_ALLOW_SEALING	0x0002U
+constant	MFD_CLOEXEC	0x0001U
+constant	MINSIGSTKSZ	SIGSTACK_MIN
 constant	MMAP_ANONYMOUS	0x20
 constant	MMAP_EXEC	4
 constant	MMAP_FIXED	0x10
@@ -341,12 +621,32 @@ constant	MMAP_SHARED	0x01
 constant	MMAP_WINDOW_BASE	0x0000300000000000ULL
 constant	MMAP_WINDOW_TOP	0x0000700000000000ULL
 constant	MMAP_WRITE	2
+constant	MON_1	0x2001A
+constant	MON_10	0x20023
+constant	MON_11	0x20024
+constant	MON_12	0x20025
+constant	MON_2	0x2001B
+constant	MON_3	0x2001C
+constant	MON_4	0x2001D
+constant	MON_5	0x2001E
+constant	MON_6	0x2001F
+constant	MON_7	0x20020
+constant	MON_8	0x20021
+constant	MON_9	0x20022
 constant	MOUSE_LEFT	0x01
 constant	MOUSE_MIDDLE	0x04
 constant	MOUSE_RIGHT	0x02
+constant	MSGHDR_CLOEXEC	1
+constant	MSGHDR_CUT	2
+constant	MSGHDR_TRUNC	4
+constant	MSG_CMSG_CLOEXEC	0x40000000
+constant	MSG_CTRUNC	0x8
 constant	MSG_DONTWAIT	0x40
+constant	MSG_EOR	0x80
 constant	MSG_NOSIGNAL	0x4000
+constant	MSG_OOB	0x1
 constant	MSG_PEEK	0x2
+constant	MSG_TRUNC	0x20
 constant	MSG_WAITALL	0x100
 constant	MSYNC_ASYNC	1
 constant	MSYNC_INVALIDATE	2
@@ -378,6 +678,7 @@ constant	NETSET6_FIXED	2
 constant	NETSET6_OFF	1
 constant	NETSET_LEASED	1
 constant	NETWORK_CONFIG	"/system/config/network"
+constant	NGREG	23
 constant	NI_DGRAM	0x10
 constant	NI_MAXHOST	1025
 constant	NI_MAXSERV	32
@@ -385,13 +686,16 @@ constant	NI_NAMEREQD	0x08
 constant	NI_NOFQDN	0x04
 constant	NI_NUMERICHOST	0x01
 constant	NI_NUMERICSERV	0x02
+constant	NOEXPR	0x50001
 constant	NOFLSH	TERMIOS_NOFLSH
 constant	NO_DATA	4
 constant	NO_RECOVERY	3
+constant	NSIG	SIGNALS
 constant	ONCE_FLAG_INIT	{ 0 }
 constant	ONLCR	TERMIOS_ONLCR
 constant	OPEN_ACCESS	3
 constant	OPEN_APPEND	16
+constant	OPEN_CLOEXEC	512
 constant	OPEN_CREATE	4
 constant	OPEN_EXCLUSIVE	64
 constant	OPEN_MODE	32
@@ -403,11 +707,21 @@ constant	OPEN_WRITE	1
 constant	OPOST	TERMIOS_OPOST
 constant	O_ACCMODE	OPEN_ACCESS
 constant	O_APPEND	OPEN_APPEND
+constant	O_CLOEXEC	OPEN_CLOEXEC
 constant	O_CREAT	OPEN_CREATE
+constant	O_DIRECTORY	0x10000
+constant	O_DSYNC	0
 constant	O_EXCL	OPEN_EXCLUSIVE
+constant	O_LARGEFILE	0
+constant	O_NDELAY	O_NONBLOCK
+constant	O_NOATIME	0
+constant	O_NOCTTY	0
+constant	O_NOFOLLOW	0x20000
 constant	O_NONBLOCK	OPEN_NONBLOCK
 constant	O_RDONLY	OPEN_READ
 constant	O_RDWR	OPEN_READ_WRITE
+constant	O_RSYNC	0
+constant	O_SYNC	0
 constant	O_TRUNC	OPEN_TRUNCATE
 constant	O_WRONLY	OPEN_WRITE
 constant	PARENB	TERMIOS_PARENB
@@ -420,6 +734,7 @@ constant	PF_INET6	AF_INET6
 constant	PF_LOCAL	AF_UNIX
 constant	PF_UNIX	AF_UNIX
 constant	PF_UNSPEC	AF_UNSPEC
+constant	PM_STR	0x20027
 constant	POLLERR	0x008
 constant	POLLHUP	0x010
 constant	POLLIN	0x001
@@ -429,17 +744,64 @@ constant	POLLPRI	0x002
 constant	POLLRDNORM	0x040
 constant	POLLWRNORM	0x100
 constant	POLL_MAX	256
+constant	POSIX_FADV_DONTNEED	4
+constant	POSIX_FADV_NOREUSE	5
+constant	POSIX_FADV_NORMAL	0
+constant	POSIX_FADV_RANDOM	1
+constant	POSIX_FADV_SEQUENTIAL	2
+constant	POSIX_FADV_WILLNEED	3
+constant	POSIX_MADV_DONTNEED	4
+constant	POSIX_MADV_NORMAL	0
+constant	POSIX_MADV_RANDOM	1
+constant	POSIX_MADV_SEQUENTIAL	2
+constant	POSIX_MADV_WILLNEED	3
 constant	POSIX_SPAWN_RESETIDS	1
 constant	POSIX_SPAWN_SETPGROUP	2
 constant	POSIX_SPAWN_SETSIGDEF	4
 constant	POSIX_SPAWN_SETSIGMASK	8
+constant	POWER_CLOCK	7
 constant	POWER_EVAL	4
 constant	POWER_NAMES	3
 constant	POWER_OFF	0
 constant	POWER_REBOOT	1
+constant	POWER_SETTINGS	6
 constant	POWER_SLEEP	5
 constant	POWER_TABLE	2
+constant	PRIO_PGRP	1
+constant	PRIO_PROCESS	0
+constant	PRIO_USER	2
+constant	PRIX16	"X"
+constant	PRIX32	"X"
+constant	PRIX64	"lX"
+constant	PRIX8	"X"
+constant	PRId16	"d"
+constant	PRId32	"d"
+constant	PRId64	"ld"
+constant	PRId8	"d"
+constant	PRIdMAX	"ld"
+constant	PRIdPTR	"ld"
+constant	PRIi16	"i"
+constant	PRIi32	"i"
+constant	PRIi64	"li"
+constant	PRIi8	"i"
+constant	PRIo16	"o"
+constant	PRIo32	"o"
+constant	PRIo64	"lo"
+constant	PRIo8	"o"
+constant	PRIu16	"u"
+constant	PRIu32	"u"
+constant	PRIu64	"lu"
+constant	PRIu8	"u"
+constant	PRIuMAX	"lu"
+constant	PRIuPTR	"lu"
+constant	PRIx16	"x"
+constant	PRIx32	"x"
+constant	PRIx64	"lx"
+constant	PRIx8	"x"
+constant	PRIxMAX	"lx"
+constant	PRIxPTR	"lx"
 constant	PROCESS_THREADS	256
+constant	PROGRAM_PATH_MAX	256
 constant	PROT_EXEC	MMAP_EXEC
 constant	PROT_NONE	0
 constant	PROT_READ	MMAP_READ
@@ -454,20 +816,31 @@ constant	PTHREAD_COND_INITIALIZER	{ { 0 }, CLOCK_REALTIME }
 constant	PTHREAD_CREATE_DETACHED	1
 constant	PTHREAD_CREATE_JOINABLE	0
 constant	PTHREAD_DESTRUCTOR_ITERATIONS	4
+constant	PTHREAD_EXPLICIT_SCHED	1
+constant	PTHREAD_INHERIT_SCHED	0
 constant	PTHREAD_KEYS_MAX	64
 constant	PTHREAD_MUTEX_DEFAULT	PTHREAD_MUTEX_NORMAL
 constant	PTHREAD_MUTEX_ERRORCHECK	2
 constant	PTHREAD_MUTEX_INITIALIZER	{ { 0, 0, 0, 0 }, PTHREAD_MUTEX_NORMAL }
 constant	PTHREAD_MUTEX_NORMAL	0
 constant	PTHREAD_MUTEX_RECURSIVE	1
+constant	PTHREAD_MUTEX_ROBUST	1
+constant	PTHREAD_MUTEX_STALLED	0
 constant	PTHREAD_ONCE_INIT	{ 0 }
+constant	PTHREAD_PRIO_INHERIT	1
+constant	PTHREAD_PRIO_NONE	0
+constant	PTHREAD_PRIO_PROTECT	2
 constant	PTHREAD_PROCESS_PRIVATE	0
 constant	PTHREAD_PROCESS_SHARED	1
 constant	PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP	{ { 0, mtx_recursive, 0, 0 }, PTHREAD_MUTEX_RECURSIVE }
+constant	PTHREAD_SCOPE_PROCESS	1
+constant	PTHREAD_SCOPE_SYSTEM	0
 constant	PTHREAD_STACK_MIN	65536
 constant	PTHREAD_THREADS_MAX	256
 constant	PTY_OPEN	1
 constant	PTY_SIZE	2
+constant	P_tmpdir	"/tmp"
+constant	RADIXCHAR	0x10000
 constant	RAND_MAX	2147483647
 constant	REG_BADBR	10
 constant	REG_BADPAT	2
@@ -501,17 +874,62 @@ constant	REPORT_PROCESSES	1
 constant	REPORT_THREADS	2
 constant	REPORT_USB	4
 constant	RE_DUP_MAX	255
+constant	RLIMIT_AS	9
+constant	RLIMIT_CORE	4
+constant	RLIMIT_CPU	0
+constant	RLIMIT_DATA	2
+constant	RLIMIT_FSIZE	1
+constant	RLIMIT_LOCKS	10
+constant	RLIMIT_MEMLOCK	8
+constant	RLIMIT_MSGQUEUE	12
+constant	RLIMIT_NICE	13
+constant	RLIMIT_NLIMITS	16
+constant	RLIMIT_NOFILE	7
+constant	RLIMIT_NPROC	6
+constant	RLIMIT_RSS	5
+constant	RLIMIT_RTPRIO	14
+constant	RLIMIT_RTTIME	15
+constant	RLIMIT_SIGPENDING	11
+constant	RLIMIT_STACK	3
+constant	RLIM_INFINITY	(~0UL)
+constant	RLIM_SAVED_CUR	RLIM_INFINITY
+constant	RLIM_SAVED_MAX	RLIM_INFINITY
 constant	RTLD_DEFAULT	((void *)0)
 constant	RTLD_GLOBAL	0x100
 constant	RTLD_LAZY	1
 constant	RTLD_LOCAL	0
 constant	RTLD_NOW	2
+constant	RUSAGE_CHILDREN	(-1)
+constant	RUSAGE_SELF	0
+constant	RUSAGE_THREAD	1
+constant	R_OK	4
+constant	SA_NOCLDSTOP	0x00000001
+constant	SA_NOCLDWAIT	0x00000002
 constant	SA_NODEFER	0x40000000
+constant	SA_NOMASK	SA_NODEFER
+constant	SA_ONESHOT	SA_RESETHAND
+constant	SA_ONSTACK	0x08000000
 constant	SA_RESETHAND	0x80000000
 constant	SA_RESTART	0x10000000
+constant	SA_SIGINFO	0x00000004
+constant	SCHED_BATCH	3
+constant	SCHED_FIFO	1
+constant	SCHED_IDLE	5
+constant	SCHED_OTHER	0
+constant	SCHED_RR	2
+constant	SCM_RIGHTS	1
+constant	SCNd32	"d"
+constant	SCNd64	"ld"
+constant	SCNu32	"u"
+constant	SCNu64	"lu"
+constant	SCNx32	"x"
+constant	SCNx64	"lx"
 constant	SEEK_CUR	1
 constant	SEEK_END	2
 constant	SEEK_SET	0
+constant	SEGV_ACCERR	2
+constant	SEGV_MAPERR	1
+constant	SEM_FAILED	((sem_t *)0)
 constant	SERVICES_FILE	"/system/config/services"
 constant	SHA256_SIZE	32
 constant	SHARE_CREATE	0
@@ -527,15 +945,22 @@ constant	SHUT_RD	0
 constant	SHUT_RDWR	2
 constant	SHUT_WR	1
 constant	SIGABRT	6
+constant	SIGACTION_NOCLDSTOP	16
 constant	SIGACTION_NODEFER	2
+constant	SIGACTION_ONSTACK	4
 constant	SIGACTION_RESETHAND	1
+constant	SIGACTION_SIGINFO	8
 constant	SIGALRM	14
 constant	SIGBUS	7
 constant	SIGCHLD	17
+constant	SIGCLD	SIGCHLD
+constant	SIGCONT	18
 constant	SIGFPE	8
 constant	SIGHUP	1
 constant	SIGILL	4
 constant	SIGINT	2
+constant	SIGIO	29
+constant	SIGIOT	SIGABRT
 constant	SIGKILL	9
 constant	SIGMASK_BLOCK	0
 constant	SIGMASK_SET	2
@@ -544,24 +969,46 @@ constant	SIGNALS	32
 constant	SIGNAL_DEFAULT	0
 constant	SIGNAL_IGNORE	1
 constant	SIGPIPE	13
+constant	SIGPOLL	SIGIO
+constant	SIGPROF	27
+constant	SIGPWR	30
 constant	SIGQUIT	3
 constant	SIGSEGV	11
+constant	SIGSTACK_DISABLE	2
+constant	SIGSTACK_MIN	2048
+constant	SIGSTACK_ONSTACK	1
+constant	SIGSTKFLT	16
+constant	SIGSTKSZ	16384
+constant	SIGSTOP	19
+constant	SIGSYS	31
 constant	SIGTERM	15
 constant	SIGTRAP	5
+constant	SIGTSTP	20
+constant	SIGTTIN	21
+constant	SIGTTOU	22
+constant	SIGURG	23
 constant	SIGUSR1	10
 constant	SIGUSR2	12
+constant	SIGVTALRM	26
+constant	SIGWINCH	28
+constant	SIGXCPU	24
+constant	SIGXFSZ	25
 constant	SIG_BLOCK	SIGMASK_BLOCK
 constant	SIG_DFL	((sighandler_t)0)
 constant	SIG_ERR	((sighandler_t)-1)
 constant	SIG_IGN	((sighandler_t)1)
 constant	SIG_SETMASK	SIGMASK_SET
 constant	SIG_UNBLOCK	SIGMASK_UNBLOCK
+constant	SI_KERNEL	0x80
+constant	SI_TKILL	(-6)
+constant	SI_USER	0
 constant	SNAPSHOT_CREATE	1
 constant	SNAPSHOT_DELETE	2
 constant	SNAPSHOT_LIST	3
 constant	SOCKET_DONTWAIT	1
 constant	SOCKET_INET6	0x100
 constant	SOCKET_LOCAL	3
+constant	SOCKET_LOCAL_SEQPACKET	4
 constant	SOCKET_TCP	2
 constant	SOCKET_UDP	1
 constant	SOCKNAME_OWN	0
@@ -579,10 +1026,16 @@ constant	SOCKOPT_SNDBUF	10
 constant	SOCKOPT_SNDTIMEO	2
 constant	SOCKOPT_TYPE	8
 constant	SOCKOPT_V6ONLY	11
+constant	SOCK_CLOEXEC	0x80000
 constant	SOCK_DGRAM	2
+constant	SOCK_NONBLOCK	0x800
+constant	SOCK_SEQPACKET	5
 constant	SOCK_STREAM	1
 constant	SOL_SOCKET	1
 constant	SOMAXCONN	128
+constant	SOUND_DELAY	0
+constant	SOUND_MAY_PLAY	2
+constant	SOUND_RESET	1
 constant	SO_BROADCAST	6
 constant	SO_ERROR	4
 constant	SO_KEEPALIVE	9
@@ -597,12 +1050,17 @@ constant	SPAWN_FOREGROUND	2
 constant	SPAWN_JOIN_GROUP	16
 constant	SPAWN_NEW_GROUP	1
 constant	SPAWN_NEW_SESSION	4
+constant	SS_DISABLE	SIGSTACK_DISABLE
+constant	SS_ONSTACK	SIGSTACK_ONSTACK
 constant	STAMP_AGE	0
 constant	STAMP_FORGET	2
 constant	STAMP_SET	1
+constant	STATUS_CONTINUED	0xFFFF
 constant	STDERR_FILENO	2
 constant	STDIN_FILENO	0
 constant	STDOUT_FILENO	1
+constant	ST_NOSUID	2
+constant	ST_RDONLY	1
 constant	SWAP_OFF	2
 constant	SWAP_ON	1
 constant	SWAP_STATUS	0
@@ -615,6 +1073,8 @@ constant	SYS_BRIDGE	114
 constant	SYS_CHDIR	12
 constant	SYS_CHMOD	36
 constant	SYS_CHOWN	37
+constant	SYS_CLOCK_CNTVCT	2
+constant	SYS_CLOCK_TSC	1
 constant	SYS_CLOSE	4
 constant	SYS_CONNECT	50
 constant	SYS_CONNECT6	103
@@ -626,13 +1086,20 @@ constant	SYS_DISPLAY	64
 constant	SYS_DUP2	79
 constant	SYS_ECHO	39
 constant	SYS_EFIVAR	61
+constant	SYS_EVENTFD	122
 constant	SYS_EXECVE	92
 constant	SYS_EXIT	0
+constant	SYS_FCHMOD	133
+constant	SYS_FCHOWN	134
 constant	SYS_FCNTL	90
+constant	SYS_FDPATH	135
+constant	SYS_FLOCK	124
 constant	SYS_FOREGROUND	15
 constant	SYS_FORK	93
 constant	SYS_FORWARD	56
 constant	SYS_FSTAT	80
+constant	SYS_FSYNC	132
+constant	SYS_FTRUNCATE	131
 constant	SYS_FUTEX	78
 constant	SYS_GETCWD	13
 constant	SYS_GETEUID	73
@@ -648,7 +1115,9 @@ constant	SYS_LINK	98
 constant	SYS_LISTEN	53
 constant	SYS_LOG	60
 constant	SYS_LSTAT	97
+constant	SYS_MADVISE	125
 constant	SYS_MASQUERADE	62
+constant	SYS_MEMFD	121
 constant	SYS_MKDIR	27
 constant	SYS_MMAP	66
 constant	SYS_MOUNT	42
@@ -661,23 +1130,28 @@ constant	SYS_NETLEASE6	111
 constant	SYS_NETSET	45
 constant	SYS_NETSET6	109
 constant	SYS_OPEN	3
+constant	SYS_PEER_PROGRAM	139
 constant	SYS_PEER_UID	72
 constant	SYS_PING	46
 constant	SYS_PING6	108
 constant	SYS_PIPE	65
 constant	SYS_POLL	81
 constant	SYS_POWER	18
+constant	SYS_PREAD	128
 constant	SYS_PTY	55
+constant	SYS_PWRITE	129
 constant	SYS_RANDOM	38
 constant	SYS_READ	2
 constant	SYS_READDIR	11
 constant	SYS_READLINK	96
 constant	SYS_RECVFROM	52
 constant	SYS_RECVFROM6	105
+constant	SYS_RECVMSG	119
 constant	SYS_RENAME	30
 constant	SYS_REPORT	19
 constant	SYS_RMDIR	28
 constant	SYS_SEEK	20
+constant	SYS_SENDMSG	118
 constant	SYS_SENDTO	51
 constant	SYS_SENDTO6	104
 constant	SYS_SESSION_STAMP	115
@@ -685,9 +1159,11 @@ constant	SYS_SETGID	35
 constant	SYS_SETPGID	99
 constant	SYS_SETSID	100
 constant	SYS_SETUID	34
+constant	SYS_SET_TIME	137
 constant	SYS_SHARE	63
 constant	SYS_SHUTDOWN	87
 constant	SYS_SIGACTION	76
+constant	SYS_SIGALTSTACK	126
 constant	SYS_SIGNAL	16
 constant	SYS_SIGPENDING	85
 constant	SYS_SIGPROCMASK	83
@@ -696,12 +1172,15 @@ constant	SYS_SIGSUSPEND	86
 constant	SYS_SLEEP	9
 constant	SYS_SNAPSHOT	25
 constant	SYS_SOCKET	48
+constant	SYS_SOCKETPAIR	120
 constant	SYS_SOCKNAME	88
 constant	SYS_SOCKNAME6	107
 constant	SYS_SOCKOPT	89
+constant	SYS_SOUND	138
 constant	SYS_SPAWN	5
 constant	SYS_SPAWN_ENV	74
 constant	SYS_STAT	10
+constant	SYS_STATVFS	136
 constant	SYS_SWAP	112
 constant	SYS_SYMLINK	95
 constant	SYS_SYSINFO	17
@@ -712,9 +1191,12 @@ constant	SYS_THREAD_CREATE	21
 constant	SYS_THREAD_EXIT	22
 constant	SYS_THREAD_INTERRUPT	91
 constant	SYS_THREAD_JOIN	23
+constant	SYS_THREAD_NAME	127
 constant	SYS_THREAD_POINTER	70
 constant	SYS_THREAD_SELF	24
 constant	SYS_TIME	44
+constant	SYS_TIMERFD	123
+constant	SYS_TRUNCATE	130
 constant	SYS_UMASK	84
 constant	SYS_UNAME	116
 constant	SYS_UNLINK	29
@@ -724,6 +1206,7 @@ constant	SYS_UTSNAME_LENGTH	65
 constant	SYS_WAIT	6
 constant	SYS_WLAN	71
 constant	SYS_WRITE	1
+constant	S_IEXEC	S_IXUSR
 constant	S_IFBLK	0060000
 constant	S_IFCHR	0020000
 constant	S_IFDIR	0040000
@@ -732,8 +1215,23 @@ constant	S_IFLNK	0120000
 constant	S_IFMT	0170000
 constant	S_IFREG	0100000
 constant	S_IFSOCK	0140000
+constant	S_IREAD	S_IRUSR
+constant	S_IRGRP	0000040
+constant	S_IROTH	0000004
+constant	S_IRUSR	0000400
+constant	S_IRWXG	0000070
+constant	S_IRWXO	0000007
+constant	S_IRWXU	0000700
+constant	S_ISGID	0002000
 constant	S_ISUID	0004000
 constant	S_ISVTX	0001000
+constant	S_IWGRP	0000020
+constant	S_IWOTH	0000002
+constant	S_IWRITE	S_IWUSR
+constant	S_IWUSR	0000200
+constant	S_IXGRP	0000010
+constant	S_IXOTH	0000001
+constant	S_IXUSR	0000100
 constant	TAP_ADD	0
 constant	TAP_REMOVE	1
 constant	TCIFLUSH	0
@@ -782,13 +1280,25 @@ constant	TERMIOS_VSTART	8
 constant	TERMIOS_VSTOP	9
 constant	TERMIOS_VSUSP	10
 constant	TERMIOS_VTIME	5
+constant	TFD_CLOEXEC	OPEN_CLOEXEC
+constant	TFD_NONBLOCK	OPEN_NONBLOCK
+constant	TFD_TIMER_ABSTIME	1
+constant	TFD_TIMER_CANCEL_ON_SET	2
+constant	THOUSEP	0x10001
 constant	THREAD_INTERRUPT_ENTER	1
+constant	THREAD_INTERRUPT_SIGNAL	2
 constant	THREAD_INTERRUPT_WAKE	0
+constant	TIMERFD_CREATE	0
+constant	TIMERFD_GET	2
+constant	TIMERFD_SET	1
+constant	TIMER_ABSTIME	1
 constant	TIME_UTC	1
 constant	TMP_MAX	1000000
 constant	TOSTOP	TERMIOS_TOSTOP
 constant	TRY_AGAIN	2
 constant	TSS_DTOR_ITERATIONS	4
+constant	T_FMT	0x2002A
+constant	T_FMT_AMPM	0x2002B
 constant	USERS_FILE	"/system/config/users"
 constant	USER_NAME_MAX	31
 constant	UTIMENS_NOFOLLOW	1
@@ -806,7 +1316,10 @@ constant	VSTART	TERMIOS_VSTART
 constant	VSTOP	TERMIOS_VSTOP
 constant	VSUSP	TERMIOS_VSUSP
 constant	VTIME	TERMIOS_VTIME
+constant	WAIT_CONTINUED	8
 constant	WAIT_NO_HANG	1
+constant	WAIT_UNTRACED	2
+constant	WCONTINUED	8
 constant	WEOF	((wint_t)-1)
 constant	WIFI_DIR	"/system/config/wifi"
 constant	WIFI_NETWORKS	"/system/config/wifi/networks"
@@ -834,26 +1347,111 @@ constant	WLAN_SCAN	9
 constant	WLAN_SEND	3
 constant	WLAN_SIGNAL	11
 constant	WNOHANG	1
+constant	WUNTRACED	2
+constant	W_OK	2
+constant	X_OK	1
+constant	YESEXPR	0x50000
+constant	_CS_PATH	0
 constant	_Complex_I	(__extension__ 1.0iF)
 constant	_IOFBF	0
 constant	_IOLBF	1
 constant	_IONBF	2
+constant	_NSIG	SIGNALS
+constant	_PC_CHOWN_RESTRICTED	6
+constant	_PC_FILESIZEBITS	13
+constant	_PC_LINK_MAX	0
+constant	_PC_MAX_CANON	1
+constant	_PC_MAX_INPUT	2
+constant	_PC_NAME_MAX	3
+constant	_PC_NO_TRUNC	7
+constant	_PC_PATH_MAX	4
+constant	_PC_PIPE_BUF	5
+constant	_PC_SYMLINK_MAX	19
+constant	_PC_VDISABLE	8
+constant	_POSIX2_VERSION	200809L
+constant	_POSIX_FSYNC	200809L
+constant	_POSIX_MAPPED_FILES	200809L
+constant	_POSIX_MONOTONIC_CLOCK	200809L
+constant	_POSIX_SEMAPHORES	200809L
+constant	_POSIX_THREADS	200809L
+constant	_POSIX_TIMEOUTS	200809L
+constant	_POSIX_VERSION	200809L
+constant	_SC_ARG_MAX	0
+constant	_SC_AVPHYS_PAGES	86
+constant	_SC_CHILD_MAX	1
+constant	_SC_CLK_TCK	2
+constant	_SC_FSYNC	15
+constant	_SC_GETGR_R_SIZE_MAX	69
+constant	_SC_GETPW_R_SIZE_MAX	70
+constant	_SC_HOST_NAME_MAX	180
+constant	_SC_IOV_MAX	60
+constant	_SC_JOB_CONTROL	7
+constant	_SC_LEVEL1_DCACHE_LINESIZE	190
+constant	_SC_LINE_MAX	43
+constant	_SC_LOGIN_NAME_MAX	71
+constant	_SC_MAPPED_FILES	16
+constant	_SC_MEMORY_PROTECTION	19
+constant	_SC_MONOTONIC_CLOCK	149
+constant	_SC_NGROUPS_MAX	3
+constant	_SC_NPROCESSORS_CONF	83
+constant	_SC_NPROCESSORS_ONLN	84
+constant	_SC_OPEN_MAX	4
+constant	_SC_PAGESIZE	30
+constant	_SC_PAGE_SIZE	_SC_PAGESIZE
+constant	_SC_PHYS_PAGES	85
+constant	_SC_RE_DUP_MAX	44
+constant	_SC_SAVED_IDS	8
+constant	_SC_SEMAPHORES	21
+constant	_SC_SEM_NSEMS_MAX	32
+constant	_SC_SEM_VALUE_MAX	33
+constant	_SC_STREAM_MAX	5
+constant	_SC_SYMLOOP_MAX	173
+constant	_SC_THREADS	67
+constant	_SC_THREAD_KEYS_MAX	74
+constant	_SC_THREAD_SAFE_FUNCTIONS	68
+constant	_SC_THREAD_STACK_MIN	75
+constant	_SC_THREAD_THREADS_MAX	76
+constant	_SC_TIMERS	11
+constant	_SC_TTY_NAME_MAX	72
+constant	_SC_TZNAME_MAX	6
+constant	_SC_VERSION	29
 constant	_UTSNAME_LENGTH	65
+constant	_XOPEN_VERSION	700
+constant	__NGREG	NGREG
 constant	complex	_Complex
 constant	environ	(*__ritteros_environ())
 constant	errno	(*__errno())
 constant	h_addr	h_addr_list[0]
 constant	h_errno	(*__h_errno())
+constant	ifa_broadaddr	ifa_ifu.ifu_broadaddr
+constant	ifa_dstaddr	ifa_ifu.ifu_dstaddr
 constant	in6addr_any	(*__ritteros_in6addr_any())
 constant	in6addr_loopback	(*__ritteros_in6addr_loopback())
 constant	math_errhandling	0
+constant	no_argument	0
+constant	optional_argument	2
+constant	required_argument	1
+constant	sa_handler	__handler.sa_handler
+constant	sa_sigaction	__handler.sa_sigaction
+constant	si_addr	__fields.si_addr
+constant	si_pid	__fields.__proc.si_pid
+constant	si_status	__fields.__proc.si_status
+constant	si_uid	__fields.__proc.si_uid
+constant	st_atime	st_atim.tv_sec
+constant	st_ctime	st_ctim.tv_sec
+constant	st_mtime	st_mtim.tv_sec
 constant	stderr	(ritteros_stderr())
 constant	stdin	(ritteros_stdin())
 constant	stdout	(ritteros_stdout())
 constant	thread_local	_Thread_local
 function	_Exit	void _Exit(int code)
 function	__addtf3	long double __addtf3(long double a, long double b)
+function	__clear_cache	void __clear_cache(void *start, void *end)
 function	__cmptf2	int __cmptf2(long double a, long double b)
+function	__cxa_atexit	int __cxa_atexit(void (*fn)(void *), void *arg, void *dso)
+function	__cxa_finalize	void __cxa_finalize(void *dso)
+function	__cxa_thread_atexit	int __cxa_thread_atexit(void (*fn)(void *), void *obj, void *dso)
+function	__cxa_thread_atexit_impl	int __cxa_thread_atexit_impl(void (*fn)(void *), void *obj, void *dso)
 function	__divdc3	double _Complex __divdc3(double a, double b, double c, double d)
 function	__divsc3	float _Complex __divsc3(float a, float b, float c, float d)
 function	__divtc3	long double _Complex __divtc3(long double a, long double b, long double c, long double d)
@@ -886,10 +1484,17 @@ function	__netf2	int __netf2(long double a, long double b)
 function	__powitf2	long double __powitf2(long double a, int b)
 function	__pthread_cleanup_pop	void __pthread_cleanup_pop(struct __pthread_cleanup *c, int execute)
 function	__pthread_cleanup_push	void __pthread_cleanup_push(struct __pthread_cleanup *c, void (*fn)(void *), void *arg)
+function	__ritteros_cpu_count	int __ritteros_cpu_count(size_t size, const cpu_set_t *set)
 function	__ritteros_dl_setup	int __ritteros_dl_setup(const struct ritteros_dl_loader *loader)
+function	__ritteros_dl_setup2	int __ritteros_dl_setup2(const struct ritteros_dl_query *query)
 function	__ritteros_environ	char ***__ritteros_environ(void)
 function	__ritteros_in6addr_any	const struct in6_addr *__ritteros_in6addr_any(void)
 function	__ritteros_in6addr_loopback	const struct in6_addr *__ritteros_in6addr_loopback(void)
+function	__ritteros_mb_cur_max	int __ritteros_mb_cur_max(void)
+function	__ritteros_optarg	char **__ritteros_optarg(void)
+function	__ritteros_opterr	int *__ritteros_opterr(void)
+function	__ritteros_optind	int *__ritteros_optind(void)
+function	__ritteros_optopt	int *__ritteros_optopt(void)
 function	__ritteros_start	void __ritteros_start(long *sp)
 function	__ritteros_tls_add	int __ritteros_tls_add(const struct ritteros_tls_module *module)
 function	__ritteros_tls_setup	int __ritteros_tls_setup(const struct ritteros_tls_module *modules, int count)
@@ -899,23 +1504,31 @@ function	__trunctfdf2	double __trunctfdf2(long double a)
 function	__trunctfsf2	float __trunctfsf2(long double a)
 function	__unordtf2	int __unordtf2(long double a, long double b)
 function	_exit	void _exit(int code)
+function	_longjmp	void _longjmp(jmp_buf env, int value)
+function	_setjmp	int _setjmp(jmp_buf env)
 function	abort	void abort(void)
 function	abs	int abs(int v)
 function	accept	int accept(int fd, struct sockaddr *address, socklen_t *length)
+function	accept4	int accept4(int fd, struct sockaddr *address, socklen_t *length, int flags)
+function	access	int access(const char *path, int mode)
 function	acos	double acos(double x)
 function	acosf	float acosf(float x)
 function	acosh	double acosh(double x)
 function	acoshf	float acoshf(float x)
 function	acoshl	long double acoshl(long double x)
 function	acosl	long double acosl(long double x)
+function	alarm	unsigned int alarm(unsigned int seconds)
 function	aligned_alloc	void *aligned_alloc(size_t alignment, size_t size)
+function	alphasort	int alphasort(const struct dirent **a, const struct dirent **b)
 function	asctime	char *asctime(const struct tm *tm)
+function	asctime_r	char *asctime_r(const struct tm *tm, char *buf)
 function	asin	double asin(double x)
 function	asinf	float asinf(float x)
 function	asinh	double asinh(double x)
 function	asinhf	float asinhf(float x)
 function	asinhl	long double asinhl(long double x)
 function	asinl	long double asinl(long double x)
+function	asprintf	int asprintf(char **out, const char *format, ...)
 function	at_quick_exit	int at_quick_exit(void (*fn)(void))
 function	atan	double atan(double x)
 function	atan2	double atan2(double y, double x)
@@ -931,9 +1544,15 @@ function	atof	double atof(const char *s)
 function	atoi	int atoi(const char *s)
 function	atol	long atol(const char *s)
 function	atoll	long long atoll(const char *s)
+function	basename	char *basename(char *path)
+function	bcmp	int bcmp(const void *a, const void *b, size_t n)
+function	bcopy	void bcopy(const void *src, void *dst, size_t n)
 function	bind	int bind(int fd, const struct sockaddr *address, socklen_t length)
+function	bind_textdomain_codeset	char *bind_textdomain_codeset(const char *domain, const char *codeset)
+function	bindtextdomain	char *bindtextdomain(const char *domain, const char *folder)
 function	bsearch	void *bsearch(const void *key, const void *base, size_t count, size_t size, int (*compare)(const void *key, const void *element))
 function	btowc	wint_t btowc(int c)
+function	bzero	void bzero(void *s, size_t n)
 function	c16rtomb	size_t c16rtomb(char *s, char16_t c, mbstate_t *state)
 function	c32rtomb	size_t c32rtomb(char *s, char32_t c, mbstate_t *state)
 function	c8rtomb	size_t c8rtomb(char *s, char8_t c, mbstate_t *state)
@@ -989,14 +1608,20 @@ function	chown	int chown(const char *path, uid_t uid, gid_t gid)
 function	cimag	double cimag(double _Complex z)
 function	cimagf	float cimagf(float _Complex z)
 function	cimagl	long double cimagl(long double _Complex z)
+function	clearenv	int clearenv(void)
 function	clearerr	void clearerr(FILE *f)
+function	clearerr_unlocked	void clearerr_unlocked(FILE *f)
 function	clock	clock_t clock(void)
+function	clock_getres	int clock_getres(clockid_t clock, struct timespec *resolution)
 function	clock_gettime	int clock_gettime(clockid_t clock, struct timespec *ts)
+function	clock_nanosleep	int clock_nanosleep(clockid_t clock, int flags, const struct timespec *request, struct timespec *remain)
+function	clock_settime	int clock_settime(clockid_t clock, const struct timespec *ts)
 function	clog	double _Complex clog(double _Complex z)
 function	clogf	float _Complex clogf(float _Complex z)
 function	clogl	long double _Complex clogl(long double _Complex z)
 function	close	int close(int fd)
 function	closedir	int closedir(DIR *dir)
+function	closelog	void closelog(void)
 function	cnd_broadcast	int cnd_broadcast(cnd_t *c)
 function	cnd_destroy	void cnd_destroy(cnd_t *c)
 function	cnd_init	int cnd_init(cnd_t *c)
@@ -1004,6 +1629,7 @@ function	cnd_signal	int cnd_signal(cnd_t *c)
 function	cnd_timedwait	int cnd_timedwait(cnd_t *c, mtx_t *m, const struct timespec *until)
 function	cnd_wait	int cnd_wait(cnd_t *c, mtx_t *m)
 function	config_get	int config_get(const char *path, const char *key, char *value, size_t size)
+function	confstr	size_t confstr(int name, char *buf, size_t size)
 function	conj	double _Complex conj(double _Complex z)
 function	conjf	float _Complex conjf(float _Complex z)
 function	conjl	long double _Complex conjl(long double _Complex z)
@@ -1023,7 +1649,6 @@ function	cpowl	long double _Complex cpowl(long double _Complex z, long double _C
 function	cproj	double _Complex cproj(double _Complex z)
 function	cprojf	float _Complex cprojf(float _Complex z)
 function	cprojl	long double _Complex cprojl(long double _Complex z)
-function	crc32	uint32_t crc32(const void *data, size_t size)
 function	crc32c	uint32_t crc32c(const void *data, size_t size)
 function	creal	double creal(double _Complex z)
 function	crealf	float crealf(float _Complex z)
@@ -1044,13 +1669,24 @@ function	ctanh	double _Complex ctanh(double _Complex z)
 function	ctanhf	float _Complex ctanhf(float _Complex z)
 function	ctanhl	long double _Complex ctanhl(long double _Complex z)
 function	ctanl	long double _Complex ctanl(long double _Complex z)
+function	ctermid	char *ctermid(char *s)
 function	ctime	char *ctime(const time_t *t)
+function	ctime_r	char *ctime_r(const time_t *t, char *buf)
+function	daemon	int daemon(int nochdir, int noclose)
+function	dcgettext	char *dcgettext(const char *domain, const char *text, int category)
+function	dcngettext	char *dcngettext(const char *domain, const char *singular, const char *plural, unsigned long n, int category)
+function	dgettext	char *dgettext(const char *domain, const char *text)
 function	difftime	double difftime(time_t end, time_t start)
+function	dirfd	int dirfd(DIR *dir)
+function	dirname	char *dirname(char *path)
 function	div	div_t div(int numerator, int denominator)
+function	dl_iterate_phdr	int dl_iterate_phdr(int (*callback)(struct dl_phdr_info *info, size_t size, void *data), void *data)
+function	dladdr	int dladdr(const void *address, Dl_info *info)
 function	dlclose	int dlclose(void *handle)
 function	dlerror	char *dlerror(void)
 function	dlopen	void *dlopen(const char *file, int mode)
 function	dlsym	void *dlsym(void *handle, const char *name)
+function	dngettext	char *dngettext(const char *domain, const char *singular, const char *plural, unsigned long n)
 function	dns_answer	int dns_answer(const uint8_t *m, size_t length, uint32_t *address, uint32_t *ttl)
 function	dns_answer_aaaa	int dns_answer_aaaa(const uint8_t *m, size_t length, uint8_t address[16], uint32_t *ttl)
 function	dns_failure	size_t dns_failure(const uint8_t *query, size_t length, int rcode, uint8_t *out, size_t size)
@@ -1061,22 +1697,34 @@ function	dns_question_type	bool dns_question_type(const uint8_t *m, size_t lengt
 function	dns_reply	size_t dns_reply(const uint8_t *query, size_t length, uint32_t address, uint32_t ttl, uint8_t *out, size_t size)
 function	dns_reply_aaaa	size_t dns_reply_aaaa(const uint8_t *query, size_t length, const uint8_t address[16], uint32_t ttl, uint8_t *out, size_t size)
 function	dprintf	int dprintf(int fd, const char *format, ...)
+function	drand48	double drand48(void)
 function	dup	int dup(int fd)
 function	dup2	int dup2(int fd, int newfd)
+function	dup3	int dup3(int fd, int newfd, int flags)
+function	duplocale	locale_t duplocale(locale_t locale)
 function	elvesd_pid	int elvesd_pid(void)
 function	elvesd_start	int elvesd_start(const char *bin_dir)
+function	endgrent	void endgrent(void)
+function	endpwent	void endpwent(void)
+function	erand48	double erand48(unsigned short x[3])
 function	erf	double erf(double x)
 function	erfc	double erfc(double x)
 function	erfcf	float erfcf(float x)
 function	erfcl	long double erfcl(long double x)
 function	erff	float erff(float x)
 function	erfl	long double erfl(long double x)
+function	err	void err(int status, const char *format, ...)
+function	errx	void errx(int status, const char *format, ...)
+function	eventfd	int eventfd(unsigned int initial, int flags)
+function	eventfd_read	int eventfd_read(int fd, eventfd_t *value)
+function	eventfd_write	int eventfd_write(int fd, eventfd_t value)
 function	execl	int execl(const char *path, const char *arg, ...)
 function	execle	int execle(const char *path, const char *arg, ...)
 function	execlp	int execlp(const char *name, const char *arg, ...)
 function	execv	int execv(const char *path, char *const argv[])
 function	execve	int execve(const char *path, char *const argv[], char *const envp[])
 function	execvp	int execvp(const char *name, char *const argv[])
+function	execvpe	int execvpe(const char *name, char *const argv[], char *const envp[])
 function	exit	void exit(int code)
 function	exp	double exp(double x)
 function	exp2	double exp2(double x)
@@ -1084,38 +1732,57 @@ function	exp2f	float exp2f(float x)
 function	exp2l	long double exp2l(long double x)
 function	expf	float expf(float x)
 function	expl	long double expl(long double x)
+function	explicit_bzero	void explicit_bzero(void *s, size_t n)
 function	expm1	double expm1(double x)
 function	expm1f	float expm1f(float x)
 function	expm1l	long double expm1l(long double x)
 function	fabs	double fabs(double x)
 function	fabsf	float fabsf(float x)
 function	fabsl	long double fabsl(long double x)
+function	faccessat	int faccessat(int dirfd, const char *path, int mode, int flags)
+function	fchdir	int fchdir(int fd)
+function	fchmod	int fchmod(int fd, mode_t mode)
+function	fchmodat	int fchmodat(int dirfd, const char *path, mode_t mode, int flags)
+function	fchown	int fchown(int fd, uid_t uid, gid_t gid)
+function	fchownat	int fchownat(int dirfd, const char *path, uid_t uid, gid_t gid, int flags)
 function	fclose	int fclose(FILE *f)
 function	fcntl	int fcntl(int fd, int command, ...)
+function	fdatasync	int fdatasync(int fd)
 function	fdim	double fdim(double x, double y)
 function	fdimf	float fdimf(float x, float y)
 function	fdiml	long double fdiml(long double x, long double y)
 function	fdopen	FILE *fdopen(int fd, const char *mode)
+function	fdopendir	DIR *fdopendir(int fd)
 function	feclearexcept	int feclearexcept(int excepts)
 function	fegetenv	int fegetenv(fenv_t *env)
 function	fegetexceptflag	int fegetexceptflag(fexcept_t *flags, int excepts)
 function	fegetround	int fegetround(void)
 function	feholdexcept	int feholdexcept(fenv_t *env)
 function	feof	int feof(FILE *f)
+function	feof_unlocked	int feof_unlocked(FILE *f)
 function	feraiseexcept	int feraiseexcept(int excepts)
 function	ferror	int ferror(FILE *f)
+function	ferror_unlocked	int ferror_unlocked(FILE *f)
 function	fesetenv	int fesetenv(const fenv_t *env)
 function	fesetexceptflag	int fesetexceptflag(const fexcept_t *flags, int excepts)
 function	fesetround	int fesetround(int round)
 function	fetestexcept	int fetestexcept(int excepts)
 function	feupdateenv	int feupdateenv(const fenv_t *env)
 function	fflush	int fflush(FILE *f)
+function	fflush_unlocked	int fflush_unlocked(FILE *f)
+function	ffs	int ffs(int v)
+function	ffsl	int ffsl(long v)
+function	ffsll	int ffsll(long long v)
 function	fgetc	int fgetc(FILE *f)
+function	fgetc_unlocked	int fgetc_unlocked(FILE *f)
 function	fgetpos	int fgetpos(FILE *f, fpos_t *pos)
 function	fgets	char *fgets(char *s, int size, FILE *f)
+function	fgets_unlocked	char *fgets_unlocked(char *s, int size, FILE *f)
 function	fgetwc	wint_t fgetwc(FILE *f)
 function	fgetws	wchar_t *fgetws(wchar_t *s, int size, FILE *f)
 function	fileno	int fileno(FILE *f)
+function	fileno_unlocked	int fileno_unlocked(FILE *f)
+function	flock	int flock(int fd, int op)
 function	flockfile	void flockfile(FILE *f)
 function	floor	double floor(double x)
 function	floorf	float floorf(float x)
@@ -1126,66 +1793,121 @@ function	fmal	long double fmal(long double x, long double y, long double z)
 function	fmax	double fmax(double x, double y)
 function	fmaxf	float fmaxf(float x, float y)
 function	fmaxl	long double fmaxl(long double x, long double y)
+function	fmemopen	FILE *fmemopen(void *buf, size_t size, const char *mode)
 function	fmin	double fmin(double x, double y)
 function	fminf	float fminf(float x, float y)
 function	fminl	long double fminl(long double x, long double y)
 function	fmod	double fmod(double x, double y)
 function	fmodf	float fmodf(float x, float y)
 function	fmodl	long double fmodl(long double x, long double y)
+function	fnmatch	int fnmatch(const char *pattern, const char *name, int flags)
 function	fopen	FILE *fopen(const char *path, const char *mode)
+function	fopencookie	FILE *fopencookie(void *cookie, const char *mode, cookie_io_functions_t functions)
 function	fork	pid_t fork(void)
+function	fpathconf	long fpathconf(int fd, int name)
 function	fprintf	int fprintf(FILE *f, const char *format, ...)
 function	fputc	int fputc(int c, FILE *f)
+function	fputc_unlocked	int fputc_unlocked(int c, FILE *f)
 function	fputs	int fputs(const char *s, FILE *f)
+function	fputs_unlocked	int fputs_unlocked(const char *s, FILE *f)
 function	fputwc	wint_t fputwc(wchar_t wc, FILE *f)
 function	fputws	int fputws(const wchar_t *s, FILE *f)
 function	fread	size_t fread(void *buf, size_t size, size_t count, FILE *f)
+function	fread_unlocked	size_t fread_unlocked(void *buf, size_t size, size_t count, FILE *f)
 function	free	void free(void *ptr)
 function	freeaddrinfo	void freeaddrinfo(struct addrinfo *list)
+function	freeifaddrs	void freeifaddrs(struct ifaddrs *list)
+function	freelocale	void freelocale(locale_t locale)
 function	freopen	FILE *freopen(const char *path, const char *mode, FILE *f)
 function	frexp	double frexp(double x, int *e)
 function	frexpf	float frexpf(float x, int *e)
 function	frexpl	long double frexpl(long double x, int *e)
 function	fscanf	int fscanf(FILE *f, const char *format, ...)
 function	fseek	int fseek(FILE *f, long offset, int whence)
+function	fseeko	int fseeko(FILE *f, off_t offset, int whence)
 function	fsetpos	int fsetpos(FILE *f, const fpos_t *pos)
-function	fstat	int fstat(int fd, struct stat *st)
+function	fstat	int fstat(int fd, struct stat *st) __asm__("__ritteros_fstat2")
+function	fstatat	int fstatat(int dirfd, const char *path, struct stat *st, int flags)
+function	fstatvfs	int fstatvfs(int fd, struct statvfs *out)
+function	fsync	int fsync(int fd)
 function	ftell	long ftell(FILE *f)
+function	ftello	off_t ftello(FILE *f)
+function	ftruncate	int ftruncate(int fd, off_t length)
 function	ftrylockfile	int ftrylockfile(FILE *f)
 function	funlockfile	void funlockfile(FILE *f)
 function	futimens	int futimens(int fd, const struct timespec times[2])
 function	fwide	int fwide(FILE *f, int mode)
 function	fwprintf	int fwprintf(FILE *f, const wchar_t *format, ...)
 function	fwrite	size_t fwrite(const void *buf, size_t size, size_t count, FILE *f)
+function	fwrite_unlocked	size_t fwrite_unlocked(const void *buf, size_t size, size_t count, FILE *f)
 function	fwscanf	int fwscanf(FILE *f, const wchar_t *format, ...)
 function	gai_strerror	const char *gai_strerror(int error)
+function	get_avphys_pages	long get_avphys_pages(void)
+function	get_nprocs	int get_nprocs(void)
+function	get_nprocs_conf	int get_nprocs_conf(void)
+function	get_phys_pages	long get_phys_pages(void)
 function	getaddrinfo	int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result)
+function	getauxval	unsigned long getauxval(unsigned long type)
 function	getc	int getc(FILE *f)
 function	getc_unlocked	int getc_unlocked(FILE *f)
 function	getchar	int getchar(void)
 function	getchar_unlocked	int getchar_unlocked(void)
 function	getcwd	char *getcwd(char *buffer, size_t size)
+function	getdelim	ssize_t getdelim(char **line, size_t *size, int delimiter, FILE *f)
+function	getdtablesize	int getdtablesize(void)
+function	getegid	gid_t getegid(void)
+function	getentropy	int getentropy(void *buf, size_t size)
 function	getenv	char *getenv(const char *name)
 function	geteuid	uid_t geteuid(void)
 function	getgid	gid_t getgid(void)
+function	getgrent	struct group *getgrent(void)
+function	getgrgid	struct group *getgrgid(gid_t gid)
+function	getgrgid_r	int getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t size, struct group **result)
+function	getgrnam	struct group *getgrnam(const char *name)
+function	getgrnam_r	int getgrnam_r(const char *name, struct group *grp, char *buf, size_t size, struct group **result)
+function	getgrouplist	int getgrouplist(const char *user, gid_t group, gid_t *groups, int *count)
+function	getgroups	int getgroups(int size, gid_t list[])
 function	gethostbyname	struct hostent *gethostbyname(const char *name)
+function	gethostname	int gethostname(char *name, size_t size)
+function	getifaddrs	int getifaddrs(struct ifaddrs **list)
+function	getline	ssize_t getline(char **line, size_t *size, FILE *f)
+function	getloadavg	int getloadavg(double loads[], int count)
+function	getlogin	char *getlogin(void)
+function	getlogin_r	int getlogin_r(char *name, size_t size)
 function	getnameinfo	int getnameinfo(const struct sockaddr *address, socklen_t length, char *host, socklen_t host_size, char *service, socklen_t service_size, int flags)
+function	getopt	int getopt(int argc, char *const argv[], const char *options)
+function	getopt_long	int getopt_long(int argc, char *const argv[], const char *options, const struct option *longopts, int *longindex)
+function	getopt_long_only	int getopt_long_only(int argc, char *const argv[], const char *options, const struct option *longopts, int *longindex)
+function	getpagesize	int getpagesize(void)
 function	getpeername	int getpeername(int fd, struct sockaddr *address, socklen_t *length)
 function	getpgid	pid_t getpgid(pid_t pid)
 function	getpgrp	pid_t getpgrp(void)
 function	getpid	pid_t getpid(void)
 function	getppid	pid_t getppid(void)
+function	getpriority	int getpriority(int which, id_t who)
 function	getprogname	const char *getprogname(void)
-function	getpwnam	struct passwd *getpwnam(const char *name)
-function	getpwuid	struct passwd *getpwuid(uid_t uid)
+function	getpwent	struct passwd *getpwent(void)
+function	getpwnam	struct passwd *getpwnam(const char *name) __asm__("__ritteros_getpwnam2")
+function	getpwnam_r	int getpwnam_r(const char *name, struct passwd *pwd, char *buf, size_t size, struct passwd **result)
+function	getpwuid	struct passwd *getpwuid(uid_t uid) __asm__("__ritteros_getpwuid2")
+function	getpwuid_r	int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t size, struct passwd **result)
+function	getrandom	ssize_t getrandom(void *buf, size_t size, unsigned flags)
+function	getresgid	int getresgid(gid_t *real, gid_t *effective, gid_t *saved)
+function	getresuid	int getresuid(uid_t *real, uid_t *effective, uid_t *saved)
+function	getrlimit	int getrlimit(int resource, struct rlimit *limit)
+function	getrusage	int getrusage(int who, struct rusage *usage)
 function	getservbyname	struct servent *getservbyname(const char *name, const char *protocol)
 function	getservbyport	struct servent *getservbyport(int port, const char *protocol)
+function	getsid	pid_t getsid(pid_t pid)
 function	getsockname	int getsockname(int fd, struct sockaddr *address, socklen_t *length)
 function	getsockopt	int getsockopt(int fd, int level, int option, void *value, socklen_t *length)
+function	gettext	char *gettext(const char *text)
 function	gettimeofday	int gettimeofday(struct timeval *tv, void *zone)
 function	getuid	uid_t getuid(void)
 function	getwc	wint_t getwc(FILE *f)
 function	getwchar	wint_t getwchar(void)
+function	glob	int glob(const char *pattern, int flags, int (*errfunc)(const char *path, int error), glob_t *pglob)
+function	globfree	void globfree(glob_t *pglob)
 function	gmtime	struct tm *gmtime(const time_t *t)
 function	gmtime_r	struct tm *gmtime_r(const time_t *t, struct tm *result)
 function	guard_format	void guard_format(const struct sys_guard_rule *rule, char *out, size_t size)
@@ -1193,58 +1915,111 @@ function	guard_format6	void guard_format6(const struct sys_guard6_rule *rule, ch
 function	guard_parse	int guard_parse(const char *line, struct sys_guard *g, char *why, size_t size)
 function	guard_read	int guard_read(const char *path, struct sys_guard *g, char *why, size_t size)
 function	guard_read6	int guard_read6(const char *path, struct sys_guard *g, struct sys_guard6 *g6, char *why, size_t size)
+function	hcreate	int hcreate(size_t count)
+function	hcreate_r	int hcreate_r(size_t count, struct hsearch_data *table)
+function	hdestroy	void hdestroy(void)
+function	hdestroy_r	void hdestroy_r(struct hsearch_data *table)
 function	hmac_sha256	void hmac_sha256(const void *key, size_t key_length, const void *data, size_t n, uint8_t out[SHA256_SIZE])
+function	hsearch	ENTRY *hsearch(ENTRY item, ACTION action)
+function	hsearch_r	int hsearch_r(ENTRY item, ACTION action, ENTRY **found, struct hsearch_data *table)
 function	htonl	uint32_t htonl(uint32_t v)
 function	htons	uint16_t htons(uint16_t v)
 function	hypot	double hypot(double x, double y)
 function	hypotf	float hypotf(float x, float y)
 function	hypotl	long double hypotl(long double x, long double y)
+function	iconv	size_t iconv(iconv_t cd, char **in, size_t *in_left, char **out, size_t *out_left)
+function	iconv_close	int iconv_close(iconv_t cd)
+function	iconv_open	iconv_t iconv_open(const char *to, const char *from)
+function	if_freenameindex	void if_freenameindex(struct if_nameindex *list)
+function	if_indextoname	char *if_indextoname(unsigned int index, char *name)
+function	if_nameindex	struct if_nameindex *if_nameindex(void)
+function	if_nametoindex	unsigned int if_nametoindex(const char *name)
 function	ilogb	int ilogb(double x)
 function	ilogbf	int ilogbf(float x)
 function	ilogbl	int ilogbl(long double x)
+function	imaxabs	intmax_t imaxabs(intmax_t v)
+function	imaxdiv	imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator)
+function	index	char *index(const char *s, int c)
 function	inet_addr	in_addr_t inet_addr(const char *text)
 function	inet_aton	int inet_aton(const char *text, struct in_addr *out)
 function	inet_ntoa	char *inet_ntoa(struct in_addr address)
 function	inet_ntop	const char *inet_ntop(int family, const void *address, char *out, socklen_t size)
 function	inet_pton	int inet_pton(int family, const char *text, void *out)
+function	initgroups	int initgroups(const char *user, gid_t group)
+function	initstate	char *initstate(unsigned int seed, char *state, size_t size)
+function	insque	void insque(void *element, void *previous)
+function	ioctl	int ioctl(int fd, unsigned long request, ...)
 function	ip_format	void ip_format(uint32_t ip, char *out, size_t size)
 function	ip_parse	bool ip_parse(const char *text, uint32_t *ip, uint32_t *prefix)
 function	isalnum	int isalnum(int c)
+function	isalnum_l	int isalnum_l(int c, locale_t l)
 function	isalpha	int isalpha(int c)
+function	isalpha_l	int isalpha_l(int c, locale_t l)
+function	isascii	int isascii(int c)
 function	isatty	int isatty(int fd)
 function	isblank	int isblank(int c)
+function	isblank_l	int isblank_l(int c, locale_t l)
 function	iscntrl	int iscntrl(int c)
+function	iscntrl_l	int iscntrl_l(int c, locale_t l)
 function	isdigit	int isdigit(int c)
+function	isdigit_l	int isdigit_l(int c, locale_t l)
 function	isgraph	int isgraph(int c)
+function	isgraph_l	int isgraph_l(int c, locale_t l)
 function	islower	int islower(int c)
+function	islower_l	int islower_l(int c, locale_t l)
 function	isprint	int isprint(int c)
+function	isprint_l	int isprint_l(int c, locale_t l)
 function	ispunct	int ispunct(int c)
+function	ispunct_l	int ispunct_l(int c, locale_t l)
+function	issetugid	int issetugid(void)
 function	isspace	int isspace(int c)
+function	isspace_l	int isspace_l(int c, locale_t l)
 function	isupper	int isupper(int c)
+function	isupper_l	int isupper_l(int c, locale_t l)
 function	iswalnum	int iswalnum(wint_t wc)
+function	iswalnum_l	int iswalnum_l(wint_t c, locale_t l)
 function	iswalpha	int iswalpha(wint_t wc)
+function	iswalpha_l	int iswalpha_l(wint_t c, locale_t l)
 function	iswblank	int iswblank(wint_t wc)
+function	iswblank_l	int iswblank_l(wint_t c, locale_t l)
 function	iswcntrl	int iswcntrl(wint_t wc)
+function	iswcntrl_l	int iswcntrl_l(wint_t c, locale_t l)
 function	iswctype	int iswctype(wint_t wc, wctype_t type)
+function	iswctype_l	int iswctype_l(wint_t c, wctype_t type, locale_t l)
 function	iswdigit	int iswdigit(wint_t wc)
+function	iswdigit_l	int iswdigit_l(wint_t c, locale_t l)
 function	iswgraph	int iswgraph(wint_t wc)
+function	iswgraph_l	int iswgraph_l(wint_t c, locale_t l)
 function	iswlower	int iswlower(wint_t wc)
+function	iswlower_l	int iswlower_l(wint_t c, locale_t l)
 function	iswprint	int iswprint(wint_t wc)
+function	iswprint_l	int iswprint_l(wint_t c, locale_t l)
 function	iswpunct	int iswpunct(wint_t wc)
+function	iswpunct_l	int iswpunct_l(wint_t c, locale_t l)
 function	iswspace	int iswspace(wint_t wc)
+function	iswspace_l	int iswspace_l(wint_t c, locale_t l)
 function	iswupper	int iswupper(wint_t wc)
+function	iswupper_l	int iswupper_l(wint_t c, locale_t l)
 function	iswxdigit	int iswxdigit(wint_t wc)
+function	iswxdigit_l	int iswxdigit_l(wint_t c, locale_t l)
 function	isxdigit	int isxdigit(int c)
+function	isxdigit_l	int isxdigit_l(int c, locale_t l)
+function	jrand48	long jrand48(unsigned short x[3])
 function	kill	int kill(pid_t pid, int signal)
+function	killpg	int killpg(pid_t group, int signal)
 function	labs	long labs(long v)
+function	lchown	int lchown(const char *path, uid_t uid, gid_t gid)
+function	lcong48	void lcong48(unsigned short parameters[7])
 function	ldexp	double ldexp(double x, int n)
 function	ldexpf	float ldexpf(float x, int n)
 function	ldexpl	long double ldexpl(long double x, int n)
 function	ldiv	ldiv_t ldiv(long numerator, long denominator)
+function	lfind	void *lfind(const void *key, const void *base, size_t *count, size_t size, int (*compare)(const void *a, const void *b))
 function	lgamma	double lgamma(double x)
 function	lgammaf	float lgammaf(float x)
 function	lgammal	long double lgammal(long double x)
 function	link	int link(const char *from, const char *to)
+function	linkat	int linkat(int fromfd, const char *from, int tofd, const char *to, int flags)
 function	listen	int listen(int fd, int backlog)
 function	llabs	long long llabs(long long v)
 function	lldiv	lldiv_t lldiv(long long numerator, long long denominator)
@@ -1257,6 +2032,7 @@ function	llroundl	long long llroundl(long double x)
 function	localeconv	struct lconv *localeconv(void)
 function	localtime	struct tm *localtime(const time_t *t)
 function	localtime_r	struct tm *localtime_r(const time_t *t, struct tm *result)
+function	lockf	int lockf(int fd, int command, off_t length)
 function	log	double log(double x)
 function	log10	double log10(double x)
 function	log10f	float log10f(float x)
@@ -1274,15 +2050,19 @@ function	logf	float logf(float x)
 function	logl	long double logl(long double x)
 function	logs_flush	void logs_flush(void)
 function	longjmp	void longjmp(jmp_buf env, int value)
+function	lrand48	long lrand48(void)
 function	lrint	long lrint(double x)
 function	lrintf	long lrintf(float x)
 function	lrintl	long lrintl(long double x)
 function	lround	long lround(double x)
 function	lroundf	long lroundf(float x)
 function	lroundl	long lroundl(long double x)
+function	lsearch	void *lsearch(const void *key, void *base, size_t *count, size_t size, int (*compare)(const void *a, const void *b))
 function	lseek	off_t lseek(int fd, off_t offset, int whence)
-function	lstat	int lstat(const char *path, struct stat *st)
+function	lstat	int lstat(const char *path, struct stat *st) __asm__("__ritteros_lstat2")
+function	madvise	int madvise(void *addr, size_t length, int advice)
 function	malloc	void *malloc(size_t size)
+function	malloc_usable_size	size_t malloc_usable_size(void *ptr)
 function	mblen	int mblen(const char *s, size_t n)
 function	mbrlen	size_t mbrlen(const char *s, size_t n, mbstate_t *state)
 function	mbrtoc16	size_t mbrtoc16(char16_t *c, const char *s, size_t n, mbstate_t *state)
@@ -1290,24 +2070,39 @@ function	mbrtoc32	size_t mbrtoc32(char32_t *c, const char *s, size_t n, mbstate_
 function	mbrtoc8	size_t mbrtoc8(char8_t *c, const char *s, size_t n, mbstate_t *state)
 function	mbrtowc	size_t mbrtowc(wchar_t *wc, const char *s, size_t n, mbstate_t *state)
 function	mbsinit	int mbsinit(const mbstate_t *state)
+function	mbsnrtowcs	size_t mbsnrtowcs(wchar_t *dst, const char **src, size_t nms, size_t n, mbstate_t *state)
 function	mbsrtowcs	size_t mbsrtowcs(wchar_t *dst, const char **src, size_t n, mbstate_t *state)
 function	mbstowcs	size_t mbstowcs(wchar_t *dst, const char *src, size_t n)
 function	mbtowc	int mbtowc(wchar_t *wc, const char *s, size_t n)
+function	memalign	void *memalign(size_t alignment, size_t size)
 function	memccpy	void *memccpy(void *dst, const void *src, int c, size_t n)
 function	memchr	void *memchr(const void *s, int c, size_t n)
 function	memcmp	int memcmp(const void *a, const void *b, size_t n)
 function	memcpy	void *memcpy(void *dst, const void *src, size_t n)
+function	memfd_create	int memfd_create(const char *name, unsigned int flags)
+function	memmem	void *memmem(const void *haystack, size_t n, const void *needle, size_t m)
 function	memmove	void *memmove(void *dst, const void *src, size_t n)
+function	mempcpy	void *mempcpy(void *dst, const void *src, size_t n)
 function	memrchr	void *memrchr(const void *s, int c, size_t n)
 function	memset	void *memset(void *dst, int value, size_t n)
 function	mkdir	int mkdir(const char *path, unsigned int mode)
+function	mkdirat	int mkdirat(int dirfd, const char *path, mode_t mode)
+function	mkdtemp	char *mkdtemp(char *name)
+function	mkfifo	int mkfifo(const char *path, mode_t mode)
+function	mkostemp	int mkostemp(char *name, int flags)
+function	mkostemps	int mkostemps(char *name, int suffix_length, int flags)
 function	mkstemp	int mkstemp(char *name)
+function	mkstemps	int mkstemps(char *name, int suffix_length)
+function	mktemp	char *mktemp(char *name)
 function	mktime	time_t mktime(struct tm *tm)
+function	mlock	int mlock(const void *addr, size_t length)
+function	mlockall	int mlockall(int flags)
 function	mmap	void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 function	modf	double modf(double x, double *whole)
 function	modff	float modff(float x, float *whole)
 function	modfl	long double modfl(long double x, long double *whole)
 function	mprotect	int mprotect(void *addr, size_t length, int prot)
+function	mrand48	long mrand48(void)
 function	msync	int msync(void *addr, size_t length, int flags)
 function	mtx_destroy	void mtx_destroy(mtx_t *m)
 function	mtx_init	int mtx_init(mtx_t *m, int type)
@@ -1315,6 +2110,8 @@ function	mtx_lock	int mtx_lock(mtx_t *m)
 function	mtx_timedlock	int mtx_timedlock(mtx_t *m, const struct timespec *until)
 function	mtx_trylock	int mtx_trylock(mtx_t *m)
 function	mtx_unlock	int mtx_unlock(mtx_t *m)
+function	munlock	int munlock(const void *addr, size_t length)
+function	munlockall	int munlockall(void)
 function	munmap	int munmap(void *addr, size_t length)
 function	nan	double nan(const char *tag)
 function	nanf	float nanf(const char *tag)
@@ -1323,28 +2120,48 @@ function	nanosleep	int nanosleep(const struct timespec *req, struct timespec *re
 function	nearbyint	double nearbyint(double x)
 function	nearbyintf	float nearbyintf(float x)
 function	nearbyintl	long double nearbyintl(long double x)
+function	newlocale	locale_t newlocale(int mask, const char *name, locale_t base)
 function	nextafter	double nextafter(double x, double y)
 function	nextafterf	float nextafterf(float x, float y)
 function	nextafterl	long double nextafterl(long double x, long double y)
 function	nexttoward	double nexttoward(double x, long double y)
 function	nexttowardf	float nexttowardf(float x, long double y)
 function	nexttowardl	long double nexttowardl(long double x, long double y)
+function	ngettext	char *ngettext(const char *singular, const char *plural, unsigned long n)
+function	nice	int nice(int increment)
+function	nl_langinfo	char *nl_langinfo(nl_item item)
+function	nl_langinfo_l	char *nl_langinfo_l(nl_item item, locale_t locale)
+function	nrand48	long nrand48(unsigned short x[3])
 function	ntohl	uint32_t ntohl(uint32_t v)
 function	ntohs	uint16_t ntohs(uint16_t v)
 function	open	int open(const char *path, int flags, ...)
+function	open_memstream	FILE *open_memstream(char **buffer, size_t *size)
+function	openat	int openat(int dirfd, const char *path, int flags, ...)
 function	opendir	DIR *opendir(const char *path)
+function	openlog	void openlog(const char *ident, int options, int facility)
 function	password_check	int password_check(const char *user, const char *password)
 function	password_exists	bool password_exists(const char *user)
 function	password_set	int password_set(const char *user, const char *password)
+function	pathconf	long pathconf(const char *path, int name)
+function	pause	int pause(void)
 function	pbkdf2_sha256	void pbkdf2_sha256(const void *password, size_t password_length, const uint8_t *salt, size_t salt_length, uint32_t iterations, uint8_t *out, size_t out_length)
 function	pclose	int pclose(FILE *stream)
 function	perror	void perror(const char *s)
 function	pipe	int pipe(int fds[2])
+function	pipe2	int pipe2(int fds[2], int flags)
 function	poll	int poll(struct pollfd *fds, nfds_t count, int timeout)
 function	popen	FILE *popen(const char *command, const char *mode)
+function	posix_fadvise	int posix_fadvise(int fd, off_t offset, off_t length, int advice)
+function	posix_fallocate	int posix_fallocate(int fd, off_t offset, off_t length)
+function	posix_madvise	int posix_madvise(void *addr, size_t length, int advice)
+function	posix_memalign	int posix_memalign(void **out, size_t alignment, size_t size)
 function	posix_spawn	int posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *actions, const posix_spawnattr_t *attr, char *const argv[], char *const envp[])
+function	posix_spawn_file_actions_addchdir	int posix_spawn_file_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path)
+function	posix_spawn_file_actions_addchdir_np	int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t *actions, const char *path)
 function	posix_spawn_file_actions_addclose	int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *actions, int fd)
 function	posix_spawn_file_actions_adddup2	int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *actions, int fd, int newfd)
+function	posix_spawn_file_actions_addfchdir	int posix_spawn_file_actions_addfchdir(posix_spawn_file_actions_t *actions, int fd)
+function	posix_spawn_file_actions_addfchdir_np	int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *actions, int fd)
 function	posix_spawn_file_actions_addopen	int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *actions, int fd, const char *path, int oflag, mode_t mode)
 function	posix_spawn_file_actions_destroy	int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *actions)
 function	posix_spawn_file_actions_init	int posix_spawn_file_actions_init(posix_spawn_file_actions_t *actions)
@@ -1362,14 +2179,31 @@ function	posix_spawnp	int posix_spawnp(pid_t *pid, const char *file, const posix
 function	pow	double pow(double x, double y)
 function	powf	float powf(float x, float y)
 function	powl	long double powl(long double x, long double y)
+function	ppoll	int ppoll(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *mask)
+function	pread	ssize_t pread(int fd, void *buffer, size_t size, off_t offset)
+function	preadv	ssize_t preadv(int fd, const struct iovec *parts, int count, off_t offset)
 function	printf	int printf(const char *format, ...)
 function	process_named	int process_named(const char *name)
+function	pselect	int pselect(int count, fd_set *read, fd_set *write, fd_set *except, const struct timespec *timeout, const sigset_t *mask)
+function	psignal	void psignal(int signal, const char *s)
 function	pthread_atfork	int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void))
 function	pthread_attr_destroy	int pthread_attr_destroy(pthread_attr_t *attr)
 function	pthread_attr_getdetachstate	int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *state)
+function	pthread_attr_getguardsize	int pthread_attr_getguardsize(const pthread_attr_t *attr, size_t *size)
+function	pthread_attr_getinheritsched	int pthread_attr_getinheritsched(const pthread_attr_t *attr, int *inherit)
+function	pthread_attr_getschedparam	int pthread_attr_getschedparam(const pthread_attr_t *attr, struct sched_param *param)
+function	pthread_attr_getschedpolicy	int pthread_attr_getschedpolicy(const pthread_attr_t *attr, int *policy)
+function	pthread_attr_getscope	int pthread_attr_getscope(const pthread_attr_t *attr, int *scope)
+function	pthread_attr_getstack	int pthread_attr_getstack(const pthread_attr_t *attr, void **addr, size_t *size)
 function	pthread_attr_getstacksize	int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *size)
-function	pthread_attr_init	int pthread_attr_init(pthread_attr_t *attr)
+function	pthread_attr_init	int pthread_attr_init(pthread_attr_t *attr) __asm__("__ritteros_pthread_attr_init2")
 function	pthread_attr_setdetachstate	int pthread_attr_setdetachstate(pthread_attr_t *attr, int state)
+function	pthread_attr_setguardsize	int pthread_attr_setguardsize(pthread_attr_t *attr, size_t size)
+function	pthread_attr_setinheritsched	int pthread_attr_setinheritsched(pthread_attr_t *attr, int inherit)
+function	pthread_attr_setschedparam	int pthread_attr_setschedparam(pthread_attr_t *attr, const struct sched_param *param)
+function	pthread_attr_setschedpolicy	int pthread_attr_setschedpolicy(pthread_attr_t *attr, int policy)
+function	pthread_attr_setscope	int pthread_attr_setscope(pthread_attr_t *attr, int scope)
+function	pthread_attr_setstack	int pthread_attr_setstack(pthread_attr_t *attr, void *addr, size_t size)
 function	pthread_attr_setstacksize	int pthread_attr_setstacksize(pthread_attr_t *attr, size_t size)
 function	pthread_barrier_destroy	int pthread_barrier_destroy(pthread_barrier_t *b)
 function	pthread_barrier_init	int pthread_barrier_init(pthread_barrier_t *b, const pthread_barrierattr_t *attr, unsigned count)
@@ -1385,16 +2219,26 @@ function	pthread_cond_timedwait	int pthread_cond_timedwait(pthread_cond_t *c, pt
 function	pthread_cond_wait	int pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m)
 function	pthread_condattr_destroy	int pthread_condattr_destroy(pthread_condattr_t *attr)
 function	pthread_condattr_getclock	int pthread_condattr_getclock(const pthread_condattr_t *attr, clockid_t *clock)
+function	pthread_condattr_getpshared	int pthread_condattr_getpshared(const pthread_condattr_t *attr, int *shared)
 function	pthread_condattr_init	int pthread_condattr_init(pthread_condattr_t *attr)
 function	pthread_condattr_setclock	int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock)
-function	pthread_create	int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg)
+function	pthread_condattr_setpshared	int pthread_condattr_setpshared(pthread_condattr_t *attr, int shared)
+function	pthread_create	int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg) __asm__("__ritteros_pthread_create2")
 function	pthread_detach	int pthread_detach(pthread_t thread)
 function	pthread_equal	int pthread_equal(pthread_t a, pthread_t b)
 function	pthread_exit	void pthread_exit(void *value)
+function	pthread_getaffinity_np	int pthread_getaffinity_np(pthread_t thread, size_t size, cpu_set_t *set)
+function	pthread_getattr_default_np	int pthread_getattr_default_np(pthread_attr_t *attr)
+function	pthread_getattr_np	int pthread_getattr_np(pthread_t thread, pthread_attr_t *attr)
+function	pthread_getconcurrency	int pthread_getconcurrency(void)
+function	pthread_getcpuclockid	int pthread_getcpuclockid(pthread_t thread, clockid_t *clock)
+function	pthread_getname_np	int pthread_getname_np(pthread_t thread, char *name, size_t size)
+function	pthread_getschedparam	int pthread_getschedparam(pthread_t thread, int *policy, struct sched_param *param)
 function	pthread_getspecific	void *pthread_getspecific(pthread_key_t key)
 function	pthread_join	int pthread_join(pthread_t thread, void **value)
 function	pthread_key_create	int pthread_key_create(pthread_key_t *key, void (*destructor)(void *value))
 function	pthread_key_delete	int pthread_key_delete(pthread_key_t key)
+function	pthread_kill	int pthread_kill(pthread_t thread, int signal)
 function	pthread_mutex_destroy	int pthread_mutex_destroy(pthread_mutex_t *m)
 function	pthread_mutex_init	int pthread_mutex_init(pthread_mutex_t *m, const pthread_mutexattr_t *attr)
 function	pthread_mutex_lock	int pthread_mutex_lock(pthread_mutex_t *m)
@@ -1402,9 +2246,16 @@ function	pthread_mutex_timedlock	int pthread_mutex_timedlock(pthread_mutex_t *m,
 function	pthread_mutex_trylock	int pthread_mutex_trylock(pthread_mutex_t *m)
 function	pthread_mutex_unlock	int pthread_mutex_unlock(pthread_mutex_t *m)
 function	pthread_mutexattr_destroy	int pthread_mutexattr_destroy(pthread_mutexattr_t *attr)
+function	pthread_mutexattr_getprioceiling	int pthread_mutexattr_getprioceiling(const pthread_mutexattr_t *attr, int *ceiling)
+function	pthread_mutexattr_getprotocol	int pthread_mutexattr_getprotocol(const pthread_mutexattr_t *attr, int *protocol)
+function	pthread_mutexattr_getpshared	int pthread_mutexattr_getpshared(const pthread_mutexattr_t *attr, int *shared)
+function	pthread_mutexattr_getrobust	int pthread_mutexattr_getrobust(const pthread_mutexattr_t *attr, int *robust)
 function	pthread_mutexattr_gettype	int pthread_mutexattr_gettype(const pthread_mutexattr_t *attr, int *kind)
 function	pthread_mutexattr_init	int pthread_mutexattr_init(pthread_mutexattr_t *attr)
+function	pthread_mutexattr_setprioceiling	int pthread_mutexattr_setprioceiling(pthread_mutexattr_t *attr, int ceiling)
+function	pthread_mutexattr_setprotocol	int pthread_mutexattr_setprotocol(pthread_mutexattr_t *attr, int protocol)
 function	pthread_mutexattr_setpshared	int pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int shared)
+function	pthread_mutexattr_setrobust	int pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust)
 function	pthread_mutexattr_settype	int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int kind)
 function	pthread_once	int pthread_once(pthread_once_t *once, void (*init)(void))
 function	pthread_rwlock_destroy	int pthread_rwlock_destroy(pthread_rwlock_t *l)
@@ -1417,10 +2268,18 @@ function	pthread_rwlock_trywrlock	int pthread_rwlock_trywrlock(pthread_rwlock_t 
 function	pthread_rwlock_unlock	int pthread_rwlock_unlock(pthread_rwlock_t *l)
 function	pthread_rwlock_wrlock	int pthread_rwlock_wrlock(pthread_rwlock_t *l)
 function	pthread_rwlockattr_destroy	int pthread_rwlockattr_destroy(pthread_rwlockattr_t *attr)
+function	pthread_rwlockattr_getpshared	int pthread_rwlockattr_getpshared(const pthread_rwlockattr_t *attr, int *shared)
 function	pthread_rwlockattr_init	int pthread_rwlockattr_init(pthread_rwlockattr_t *attr)
+function	pthread_rwlockattr_setpshared	int pthread_rwlockattr_setpshared(pthread_rwlockattr_t *attr, int shared)
 function	pthread_self	pthread_t pthread_self(void)
+function	pthread_setaffinity_np	int pthread_setaffinity_np(pthread_t thread, size_t size, const cpu_set_t *set)
+function	pthread_setattr_default_np	int pthread_setattr_default_np(const pthread_attr_t *attr)
 function	pthread_setcancelstate	int pthread_setcancelstate(int state, int *old)
 function	pthread_setcanceltype	int pthread_setcanceltype(int type, int *old)
+function	pthread_setconcurrency	int pthread_setconcurrency(int level)
+function	pthread_setname_np	int pthread_setname_np(pthread_t thread, const char *name)
+function	pthread_setschedparam	int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param *param)
+function	pthread_setschedprio	int pthread_setschedprio(pthread_t thread, int priority)
 function	pthread_setspecific	int pthread_setspecific(pthread_key_t key, const void *value)
 function	pthread_sigmask	int pthread_sigmask(int how, const sigset_t *set, sigset_t *old)
 function	pthread_spin_destroy	int pthread_spin_destroy(pthread_spinlock_t *s)
@@ -1437,16 +2296,28 @@ function	putenv	int putenv(char *string)
 function	puts	int puts(const char *s)
 function	putwc	wint_t putwc(wchar_t wc, FILE *f)
 function	putwchar	wint_t putwchar(wchar_t wc)
+function	pvalloc	void *pvalloc(size_t size)
+function	pwrite	ssize_t pwrite(int fd, const void *buffer, size_t size, off_t offset)
+function	pwritev	ssize_t pwritev(int fd, const struct iovec *parts, int count, off_t offset)
 function	qsort	void qsort(void *base, size_t count, size_t size, int (*compare)(const void *a, const void *b))
+function	qsort_r	void qsort_r(void *base, size_t count, size_t size, int (*compare)(const void *a, const void *b, void *arg), void *arg)
 function	quick_exit	void quick_exit(int code)
 function	raise	int raise(int signal)
 function	rand	int rand(void)
+function	rand_r	int rand_r(unsigned int *seed)
+function	random	long random(void)
 function	read	ssize_t read(int fd, void *buffer, size_t size)
 function	readdir	struct dirent *readdir(DIR *dir)
+function	readdir_r	int readdir_r(DIR *dir, struct dirent *entry, struct dirent **result)
 function	readlink	ssize_t readlink(const char *path, char *buffer, size_t size)
+function	readlinkat	ssize_t readlinkat(int dirfd, const char *path, char *buffer, size_t size)
+function	readv	ssize_t readv(int fd, const struct iovec *parts, int count)
 function	realloc	void *realloc(void *ptr, size_t size)
+function	reallocarray	void *reallocarray(void *ptr, size_t count, size_t size)
+function	realpath	char *realpath(const char *path, char *resolved)
 function	recv	ssize_t recv(int fd, void *data, size_t size, int flags)
 function	recvfrom	ssize_t recvfrom(int fd, void *data, size_t size, int flags, struct sockaddr *from, socklen_t *length)
+function	recvmsg	ssize_t recvmsg(int fd, struct msghdr *message, int flags)
 function	regcomp	int regcomp(regex_t *re, const char *pattern, int flags)
 function	regerror	size_t regerror(int error, const regex_t *re, char *buffer, size_t size)
 function	regexec	int regexec(const regex_t *re, const char *string, size_t nmatch, regmatch_t pmatch[], int flags)
@@ -1455,11 +2326,15 @@ function	remainder	double remainder(double x, double y)
 function	remainderf	float remainderf(float x, float y)
 function	remainderl	long double remainderl(long double x, long double y)
 function	remove	int remove(const char *path)
+function	remque	void remque(void *element)
 function	remquo	double remquo(double x, double y, int *quo)
 function	remquof	float remquof(float x, float y, int *quo)
 function	remquol	long double remquol(long double x, long double y, int *quo)
 function	rename	int rename(const char *from, const char *to)
+function	renameat	int renameat(int fromfd, const char *from, int tofd, const char *to)
 function	rewind	void rewind(FILE *f)
+function	rewinddir	void rewinddir(DIR *dir)
+function	rindex	char *rindex(const char *s, int c)
 function	rint	double rint(double x)
 function	rintf	float rintf(float x)
 function	rintl	long double rintl(long double x)
@@ -1474,6 +2349,7 @@ function	ritteros_connect	int ritteros_connect(int fd, uint32_t ip, uint16_t por
 function	ritteros_connect_local	int ritteros_connect_local(int fd, const char *path)
 function	ritteros_copy	int ritteros_copy(const char *from, const char *to)
 function	ritteros_copy_bytes	int ritteros_copy_bytes(const char *from, const char *to, char *failed, size_t size)
+function	ritteros_crc32	uint32_t ritteros_crc32(const void *data, size_t size)
 function	ritteros_default_route	int ritteros_default_route(int op, const char *card)
 function	ritteros_device	int ritteros_device(int index, struct sys_device *out)
 function	ritteros_display_acquire	int ritteros_display_acquire(void)
@@ -1507,6 +2383,7 @@ function	ritteros_netinfo6	int ritteros_netinfo6(struct sys_netinfo6 *info)
 function	ritteros_netlease6	int ritteros_netlease6(const struct sys_netlease6 *lease)
 function	ritteros_netset	int ritteros_netset(const struct sys_netset *settings)
 function	ritteros_netset6	int ritteros_netset6(const struct sys_netset6 *settings)
+function	ritteros_peer_program	int ritteros_peer_program(int fd, char *path, size_t size)
 function	ritteros_peer_uid	int ritteros_peer_uid(int fd)
 function	ritteros_ping	int64_t ritteros_ping(uint32_t ip, uint16_t id, uint16_t seq, size_t size, uint32_t timeout_ms)
 function	ritteros_ping6	int64_t ritteros_ping6(const struct sys_inaddr *to, uint16_t id, uint16_t seq, size_t size, uint32_t timeout_ms)
@@ -1534,6 +2411,7 @@ function	ritteros_share_send	int ritteros_share_send(int socket_fd, int buffer_f
 function	ritteros_share_size	long ritteros_share_size(int fd)
 function	ritteros_snapshot	int64_t ritteros_snapshot(int op, const char *name, struct sys_snapshot *buffer, size_t size)
 function	ritteros_socket	int ritteros_socket(int type)
+function	ritteros_sound_may_play	int ritteros_sound_may_play(int fd)
 function	ritteros_spawn	int ritteros_spawn(const char *path, char *const argv[], int flags, const int fds[3])
 function	ritteros_spawn_as	int ritteros_spawn_as(const char *path, char *const argv[], int flags, const int fds[3], uid_t uid, gid_t gid)
 function	ritteros_spawn_env	int ritteros_spawn_env(const char *path, char *const argv[], char *const envp[], int flags, const int fds[3])
@@ -1559,35 +2437,78 @@ function	scalblnl	long double scalblnl(long double x, long n)
 function	scalbn	double scalbn(double x, int n)
 function	scalbnf	float scalbnf(float x, int n)
 function	scalbnl	long double scalbnl(long double x, int n)
+function	scandir	int scandir(const char *path, struct dirent ***list, int (*filter)(const struct dirent *), int (*compare)(const struct dirent **, const struct dirent **))
 function	scanf	int scanf(const char *format, ...)
+function	sched_get_priority_max	int sched_get_priority_max(int policy)
+function	sched_get_priority_min	int sched_get_priority_min(int policy)
+function	sched_getaffinity	int sched_getaffinity(pid_t pid, size_t size, cpu_set_t *set)
+function	sched_getcpu	int sched_getcpu(void)
+function	sched_getparam	int sched_getparam(pid_t pid, struct sched_param *param)
+function	sched_getscheduler	int sched_getscheduler(pid_t pid)
+function	sched_rr_get_interval	int sched_rr_get_interval(pid_t pid, struct timespec *interval)
+function	sched_setaffinity	int sched_setaffinity(pid_t pid, size_t size, const cpu_set_t *set)
+function	sched_setparam	int sched_setparam(pid_t pid, const struct sched_param *param)
+function	sched_setscheduler	int sched_setscheduler(pid_t pid, int policy, const struct sched_param *param)
 function	sched_yield	int sched_yield(void)
+function	secure_getenv	char *secure_getenv(const char *name)
+function	seed48	unsigned short *seed48(unsigned short seed[3])
+function	seekdir	void seekdir(DIR *dir, long place)
 function	select	int select(int count, fd_set *read, fd_set *write, fd_set *except, struct timeval *timeout)
+function	sem_close	int sem_close(sem_t *s)
+function	sem_destroy	int sem_destroy(sem_t *s)
+function	sem_getvalue	int sem_getvalue(sem_t *s, int *value)
+function	sem_init	int sem_init(sem_t *s, int pshared, unsigned int value)
+function	sem_open	sem_t *sem_open(const char *name, int flags, ...)
+function	sem_post	int sem_post(sem_t *s)
+function	sem_timedwait	int sem_timedwait(sem_t *s, const struct timespec *until)
+function	sem_trywait	int sem_trywait(sem_t *s)
+function	sem_unlink	int sem_unlink(const char *name)
+function	sem_wait	int sem_wait(sem_t *s)
 function	send	ssize_t send(int fd, const void *data, size_t size, int flags)
 function	sendto	ssize_t sendto(int fd, const void *data, size_t size, int flags, const struct sockaddr *to, socklen_t length)
 function	setbuf	void setbuf(FILE *f, char *buf)
+function	setbuffer	void setbuffer(FILE *f, char *buf, size_t size)
 function	setenv	int setenv(const char *name, const char *value, int overwrite)
 function	setgid	int setgid(gid_t gid)
+function	setgrent	void setgrent(void)
+function	setgroups	int setgroups(size_t count, const gid_t *groups)
 function	setjmp	int setjmp(jmp_buf env)
+function	setlinebuf	void setlinebuf(FILE *f)
 function	setlocale	char *setlocale(int category, const char *locale)
+function	setlogmask	int setlogmask(int mask)
 function	setpgid	int setpgid(pid_t pid, pid_t group)
+function	setpgrp	int setpgrp(void)
+function	setpriority	int setpriority(int which, id_t who, int priority)
+function	setpwent	void setpwent(void)
+function	setrlimit	int setrlimit(int resource, const struct rlimit *limit)
 function	setsid	pid_t setsid(void)
 function	setsockopt	int setsockopt(int fd, int level, int option, const void *value, socklen_t length)
+function	setstate	char *setstate(char *state)
+function	settimeofday	int settimeofday(const struct timeval *tv, const void *zone)
 function	setuid	int setuid(uid_t uid)
 function	setvbuf	int setvbuf(FILE *f, char *buf, int mode, size_t size)
 function	sha256	void sha256(const void *data, size_t n, uint8_t out[SHA256_SIZE])
 function	sha256_final	void sha256_final(struct sha256 *s, uint8_t out[SHA256_SIZE])
 function	sha256_init	void sha256_init(struct sha256 *s)
 function	sha256_update	void sha256_update(struct sha256 *s, const void *data, size_t n)
+function	shm_open	int shm_open(const char *name, int flags, mode_t mode)
+function	shm_unlink	int shm_unlink(const char *name)
 function	shutdown	int shutdown(int fd, int how)
 function	sigaction	int sigaction(int signal, const struct sigaction *action, struct sigaction *old)
 function	sigaddset	int sigaddset(sigset_t *set, int signal)
+function	sigaltstack	int sigaltstack(const stack_t *stack, stack_t *old)
+function	sigandset	int sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
 function	sigdelset	int sigdelset(sigset_t *set, int signal)
 function	sigemptyset	int sigemptyset(sigset_t *set)
 function	sigfillset	int sigfillset(sigset_t *set)
+function	sigisemptyset	int sigisemptyset(const sigset_t *set)
 function	sigismember	int sigismember(const sigset_t *set, int signal)
+function	siglongjmp	void siglongjmp(sigjmp_buf env, int value)
 function	signal	sighandler_t signal(int signal, sighandler_t action)
+function	sigorset	int sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
 function	sigpending	int sigpending(sigset_t *set)
 function	sigprocmask	int sigprocmask(int how, const sigset_t *set, sigset_t *old)
+function	sigsetjmp	int sigsetjmp(sigjmp_buf env, int save)
 function	sigsuspend	int sigsuspend(const sigset_t *mask)
 function	sin	double sin(double x)
 function	sinf	float sinf(float x)
@@ -1598,6 +2519,7 @@ function	sinl	long double sinl(long double x)
 function	sleep	unsigned int sleep(unsigned int seconds)
 function	snprintf	int snprintf(char *buffer, size_t size, const char *format, ...)
 function	socket	int socket(int family, int type, int protocol)
+function	socketpair	int socketpair(int domain, int type, int protocol, int fds[2])
 function	spawn	pid_t spawn(const char *path, char *const argv[])
 function	spawn_new_group	pid_t spawn_new_group(const char *path, char *const argv[])
 function	sprintf	int sprintf(char *buffer, const char *format, ...)
@@ -1605,43 +2527,77 @@ function	sqrt	double sqrt(double x)
 function	sqrtf	float sqrtf(float x)
 function	sqrtl	long double sqrtl(long double x)
 function	srand	void srand(unsigned int seed)
+function	srand48	void srand48(long seed)
+function	srandom	void srandom(unsigned int seed)
 function	sscanf	int sscanf(const char *text, const char *format, ...)
-function	stat	int stat(const char *path, struct stat *st)
+function	stat	int stat(const char *path, struct stat *st) __asm__("__ritteros_stat2")
+function	statvfs	int statvfs(const char *path, struct statvfs *out)
 function	stpcpy	char *stpcpy(char *dst, const char *src)
+function	stpncpy	char *stpncpy(char *dst, const char *src, size_t n)
 function	strcasecmp	int strcasecmp(const char *a, const char *b)
+function	strcasecmp_l	int strcasecmp_l(const char *a, const char *b, locale_t l)
+function	strcasestr	char *strcasestr(const char *haystack, const char *needle)
 function	strcat	char *strcat(char *dst, const char *src)
 function	strchr	char *strchr(const char *s, int c)
+function	strchrnul	char *strchrnul(const char *s, int c)
 function	strcmp	int strcmp(const char *a, const char *b)
 function	strcoll	int strcoll(const char *a, const char *b)
+function	strcoll_l	int strcoll_l(const char *a, const char *b, locale_t l)
 function	strcpy	char *strcpy(char *dst, const char *src)
 function	strcspn	size_t strcspn(const char *s, const char *reject)
 function	strdup	char *strdup(const char *s)
-function	strerror	const char *strerror(int error)
+function	strerror	char *strerror(int error)
+function	strerror_l	char *strerror_l(int error, locale_t l)
+function	strerror_r	int strerror_r(int error, char *buf, size_t size)
 function	strftime	size_t strftime(char *s, size_t max, const char *format, const struct tm *tm)
+function	strftime_l	size_t strftime_l(char *s, size_t max, const char *format, const struct tm *tm, locale_t l)
+function	strlcat	size_t strlcat(char *dst, const char *src, size_t size)
+function	strlcpy	size_t strlcpy(char *dst, const char *src, size_t size)
 function	strlen	size_t strlen(const char *s)
 function	strncasecmp	int strncasecmp(const char *a, const char *b, size_t n)
+function	strncasecmp_l	int strncasecmp_l(const char *a, const char *b, size_t n, locale_t l)
 function	strncat	char *strncat(char *dst, const char *src, size_t n)
 function	strncmp	int strncmp(const char *a, const char *b, size_t n)
 function	strncpy	char *strncpy(char *dst, const char *src, size_t n)
 function	strndup	char *strndup(const char *s, size_t n)
 function	strnlen	size_t strnlen(const char *s, size_t n)
 function	strpbrk	char *strpbrk(const char *s, const char *breaks)
+function	strptime	char *strptime(const char *text, const char *format, struct tm *tm)
 function	strrchr	char *strrchr(const char *s, int c)
+function	strsep	char *strsep(char **s, const char *delimiters)
+function	strsignal	char *strsignal(int signal)
 function	strspn	size_t strspn(const char *s, const char *accept)
 function	strstr	char *strstr(const char *haystack, const char *needle)
 function	strtod	double strtod(const char *s, char **end)
+function	strtod_l	double strtod_l(const char *s, char **end, locale_t l)
 function	strtof	float strtof(const char *s, char **end)
+function	strtof_l	float strtof_l(const char *s, char **end, locale_t l)
+function	strtoimax	intmax_t strtoimax(const char *s, char **end, int base)
 function	strtok	char *strtok(char *s, const char *delimiters)
+function	strtok_r	char *strtok_r(char *s, const char *delimiters, char **save)
 function	strtol	long strtol(const char *s, char **end, int base)
+function	strtol_l	long strtol_l(const char *s, char **end, int base, locale_t l)
 function	strtold	long double strtold(const char *s, char **end)
+function	strtold_l	long double strtold_l(const char *s, char **end, locale_t l)
 function	strtoll	long long strtoll(const char *s, char **end, int base)
+function	strtoll_l	long long strtoll_l(const char *s, char **end, int base, locale_t l)
 function	strtoul	unsigned long strtoul(const char *s, char **end, int base)
+function	strtoul_l	unsigned long strtoul_l(const char *s, char **end, int base, locale_t l)
 function	strtoull	unsigned long long strtoull(const char *s, char **end, int base)
+function	strtoull_l	unsigned long long strtoull_l(const char *s, char **end, int base, locale_t l)
+function	strtoumax	uintmax_t strtoumax(const char *s, char **end, int base)
+function	strverscmp	int strverscmp(const char *a, const char *b)
 function	strxfrm	size_t strxfrm(char *dst, const char *src, size_t n)
+function	strxfrm_l	size_t strxfrm_l(char *dst, const char *src, size_t n, locale_t l)
 function	swprintf	int swprintf(wchar_t *s, size_t size, const wchar_t *format, ...)
 function	swscanf	int swscanf(const wchar_t *s, const wchar_t *format, ...)
 function	symlink	int symlink(const char *target, const char *path)
+function	symlinkat	int symlinkat(const char *target, int dirfd, const char *path)
+function	sync	void sync(void)
 function	syscall6	int64_t syscall6(int64_t number, int64_t a, int64_t b, int64_t c, int64_t d, int64_t e, int64_t f)
+function	sysconf	long sysconf(int name)
+function	sysinfo	int sysinfo(struct sysinfo *info)
+function	syslog	void syslog(int priority, const char *format, ...)
 function	system	int system(const char *command)
 function	tan	double tan(double x)
 function	tanf	float tanf(float x)
@@ -1655,6 +2611,12 @@ function	tcgetattr	int tcgetattr(int fd, struct termios *t)
 function	tcgetpgrp	pid_t tcgetpgrp(int fd)
 function	tcsetattr	int tcsetattr(int fd, int when, const struct termios *t)
 function	tcsetpgrp	int tcsetpgrp(int fd, pid_t group)
+function	tdelete	void *tdelete(const void *key, void **root, int (*compare)(const void *a, const void *b))
+function	tdestroy	void tdestroy(void *root, void (*free_key)(void *key))
+function	telldir	long telldir(DIR *dir)
+function	tempnam	char *tempnam(const char *dir, const char *prefix)
+function	textdomain	char *textdomain(const char *domain)
+function	tfind	void *tfind(const void *key, void *const *root, int (*compare)(const void *a, const void *b))
 function	tgamma	double tgamma(double x)
 function	tgammaf	float tgammaf(float x)
 function	tgammal	long double tgammal(long double x)
@@ -1671,34 +2633,60 @@ function	thread_exit	void thread_exit(int result)
 function	thread_join	int thread_join(int number, int *result)
 function	thread_self	int thread_self(void)
 function	time	time_t time(time_t *t)
+function	timegm	time_t timegm(struct tm *tm)
+function	timerfd_create	int timerfd_create(int clock, int flags)
+function	timerfd_gettime	int timerfd_gettime(int fd, struct itimerspec *value)
+function	timerfd_settime	int timerfd_settime(int fd, int flags, const struct itimerspec *value, struct itimerspec *old)
+function	times	clock_t times(struct tms *t)
 function	timespec_get	int timespec_get(struct timespec *ts, int base)
 function	tmpfile	FILE *tmpfile(void)
 function	tmpnam	char *tmpnam(char *s)
+function	toascii	int toascii(int c)
 function	tolower	int tolower(int c)
+function	tolower_l	int tolower_l(int c, locale_t l)
 function	toupper	int toupper(int c)
+function	toupper_l	int toupper_l(int c, locale_t l)
 function	towctrans	wint_t towctrans(wint_t wc, wctrans_t mapping)
+function	towctrans_l	wint_t towctrans_l(wint_t c, wctrans_t t, locale_t l)
 function	towlower	wint_t towlower(wint_t wc)
+function	towlower_l	wint_t towlower_l(wint_t c, locale_t l)
 function	towupper	wint_t towupper(wint_t wc)
+function	towupper_l	wint_t towupper_l(wint_t c, locale_t l)
 function	trunc	double trunc(double x)
+function	truncate	int truncate(const char *path, off_t length)
 function	truncf	float truncf(float x)
 function	truncl	long double truncl(long double x)
+function	tsearch	void *tsearch(const void *key, void **root, int (*compare)(const void *a, const void *b))
 function	tss_create	int tss_create(tss_t *key, tss_dtor_t dtor)
 function	tss_delete	void tss_delete(tss_t key)
 function	tss_get	void *tss_get(tss_t key)
 function	tss_set	int tss_set(tss_t key, void *value)
+function	ttyname	char *ttyname(int fd)
+function	ttyname_r	int ttyname_r(int fd, char *name, size_t size)
+function	twalk	void twalk(const void *root, void (*action)(const void *node, VISIT visit, int depth))
+function	tzset	void tzset(void)
+function	ualarm	useconds_t ualarm(useconds_t microseconds, useconds_t interval)
 function	umask	mode_t umask(mode_t mask)
 function	uname	int uname(struct utsname *name)
 function	ungetc	int ungetc(int c, FILE *f)
 function	ungetwc	wint_t ungetwc(wint_t wc, FILE *f)
 function	unlink	int unlink(const char *path)
+function	unlinkat	int unlinkat(int dirfd, const char *path, int flags)
 function	unsetenv	int unsetenv(const char *name)
+function	uselocale	locale_t uselocale(locale_t locale)
 function	user_file_set	int user_file_set(const char *path, const char *user, const char *line, unsigned mode)
 function	user_name_valid	bool user_name_valid(const char *name)
 function	usleep	int usleep(useconds_t microseconds)
 function	utime	int utime(const char *path, const struct utimbuf *times)
 function	utimensat	int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags)
 function	utimes	int utimes(const char *path, const struct timeval times[2])
+function	valloc	void *valloc(size_t size)
+function	vasprintf	int vasprintf(char **out, const char *format, va_list ap)
 function	vdprintf	int vdprintf(int fd, const char *format, va_list ap)
+function	verr	void verr(int status, const char *format, va_list ap)
+function	verrx	void verrx(int status, const char *format, va_list ap)
+function	versionsort	int versionsort(const struct dirent **a, const struct dirent **b)
+function	vfork	pid_t vfork(void)
 function	vfprintf	int vfprintf(FILE *f, const char *format, va_list ap)
 function	vfscanf	int vfscanf(FILE *f, const char *format, va_list ap)
 function	vfwprintf	int vfwprintf(FILE *f, const wchar_t *format, va_list ap)
@@ -1710,22 +2698,40 @@ function	vsprintf	int vsprintf(char *buffer, const char *format, va_list ap)
 function	vsscanf	int vsscanf(const char *text, const char *format, va_list ap)
 function	vswprintf	int vswprintf(wchar_t *s, size_t size, const wchar_t *format, va_list ap)
 function	vswscanf	int vswscanf(const wchar_t *s, const wchar_t *format, va_list ap)
+function	vsyslog	void vsyslog(int priority, const char *format, va_list ap)
+function	vwarn	void vwarn(const char *format, va_list ap)
+function	vwarnx	void vwarnx(const char *format, va_list ap)
 function	vwprintf	int vwprintf(const wchar_t *format, va_list ap)
 function	vwscanf	int vwscanf(const wchar_t *format, va_list ap)
 function	wait	pid_t wait(int *status)
+function	wait3	pid_t wait3(int *status, int options, struct rusage *usage)
+function	wait4	pid_t wait4(pid_t pid, int *status, int options, struct rusage *usage)
 function	waitpid	pid_t waitpid(pid_t pid, int *status, int flags)
+function	warn	void warn(const char *format, ...)
+function	warnx	void warnx(const char *format, ...)
+function	wcpcpy	wchar_t *wcpcpy(wchar_t *dst, const wchar_t *src)
+function	wcpncpy	wchar_t *wcpncpy(wchar_t *dst, const wchar_t *src, size_t n)
 function	wcrtomb	size_t wcrtomb(char *s, wchar_t wc, mbstate_t *state)
+function	wcscasecmp	int wcscasecmp(const wchar_t *a, const wchar_t *b)
+function	wcscasecmp_l	int wcscasecmp_l(const wchar_t *a, const wchar_t *b, locale_t l)
 function	wcscat	wchar_t *wcscat(wchar_t *dst, const wchar_t *src)
 function	wcschr	wchar_t *wcschr(const wchar_t *s, wchar_t c)
 function	wcscmp	int wcscmp(const wchar_t *a, const wchar_t *b)
 function	wcscoll	int wcscoll(const wchar_t *a, const wchar_t *b)
+function	wcscoll_l	int wcscoll_l(const wchar_t *a, const wchar_t *b, locale_t l)
 function	wcscpy	wchar_t *wcscpy(wchar_t *dst, const wchar_t *src)
 function	wcscspn	size_t wcscspn(const wchar_t *s, const wchar_t *reject)
+function	wcsdup	wchar_t *wcsdup(const wchar_t *s)
 function	wcsftime	size_t wcsftime(wchar_t *s, size_t size, const wchar_t *format, const struct tm *tm)
+function	wcsftime_l	size_t wcsftime_l(wchar_t *s, size_t max, const wchar_t *format, const struct tm *tm, locale_t l)
 function	wcslen	size_t wcslen(const wchar_t *s)
+function	wcsncasecmp	int wcsncasecmp(const wchar_t *a, const wchar_t *b, size_t n)
+function	wcsncasecmp_l	int wcsncasecmp_l(const wchar_t *a, const wchar_t *b, size_t n, locale_t l)
 function	wcsncat	wchar_t *wcsncat(wchar_t *dst, const wchar_t *src, size_t n)
 function	wcsncmp	int wcsncmp(const wchar_t *a, const wchar_t *b, size_t n)
 function	wcsncpy	wchar_t *wcsncpy(wchar_t *dst, const wchar_t *src, size_t n)
+function	wcsnlen	size_t wcsnlen(const wchar_t *s, size_t n)
+function	wcsnrtombs	size_t wcsnrtombs(char *dst, const wchar_t **src, size_t nwc, size_t n, mbstate_t *state)
 function	wcspbrk	wchar_t *wcspbrk(const wchar_t *s, const wchar_t *accept)
 function	wcsrchr	wchar_t *wcsrchr(const wchar_t *s, wchar_t c)
 function	wcsrtombs	size_t wcsrtombs(char *dst, const wchar_t **src, size_t n, mbstate_t *state)
@@ -1733,6 +2739,7 @@ function	wcsspn	size_t wcsspn(const wchar_t *s, const wchar_t *accept)
 function	wcsstr	wchar_t *wcsstr(const wchar_t *haystack, const wchar_t *needle)
 function	wcstod	double wcstod(const wchar_t *s, wchar_t **end)
 function	wcstof	float wcstof(const wchar_t *s, wchar_t **end)
+function	wcstoimax	intmax_t wcstoimax(const wchar_t *s, wchar_t **end, int base)
 function	wcstok	wchar_t *wcstok(wchar_t *s, const wchar_t *delimiters, wchar_t **place)
 function	wcstol	long wcstol(const wchar_t *s, wchar_t **end, int base)
 function	wcstold	long double wcstold(const wchar_t *s, wchar_t **end)
@@ -1740,11 +2747,17 @@ function	wcstoll	long long wcstoll(const wchar_t *s, wchar_t **end, int base)
 function	wcstombs	size_t wcstombs(char *dst, const wchar_t *src, size_t n)
 function	wcstoul	unsigned long wcstoul(const wchar_t *s, wchar_t **end, int base)
 function	wcstoull	unsigned long long wcstoull(const wchar_t *s, wchar_t **end, int base)
+function	wcstoumax	uintmax_t wcstoumax(const wchar_t *s, wchar_t **end, int base)
+function	wcswidth	int wcswidth(const wchar_t *s, size_t n)
 function	wcsxfrm	size_t wcsxfrm(wchar_t *dst, const wchar_t *src, size_t n)
+function	wcsxfrm_l	size_t wcsxfrm_l(wchar_t *dst, const wchar_t *src, size_t n, locale_t l)
 function	wctob	int wctob(wint_t wc)
 function	wctomb	int wctomb(char *s, wchar_t wc)
 function	wctrans	wctrans_t wctrans(const char *name)
+function	wctrans_l	wctrans_t wctrans_l(const char *name, locale_t l)
 function	wctype	wctype_t wctype(const char *name)
+function	wctype_l	wctype_t wctype_l(const char *name, locale_t l)
+function	wcwidth	int wcwidth(wchar_t wc)
 function	wmemchr	wchar_t *wmemchr(const wchar_t *s, wchar_t c, size_t n)
 function	wmemcmp	int wmemcmp(const wchar_t *a, const wchar_t *b, size_t n)
 function	wmemcpy	wchar_t *wmemcpy(wchar_t *dst, const wchar_t *src, size_t n)
@@ -1752,26 +2765,51 @@ function	wmemmove	wchar_t *wmemmove(wchar_t *dst, const wchar_t *src, size_t n)
 function	wmemset	wchar_t *wmemset(wchar_t *s, wchar_t c, size_t n)
 function	wprintf	int wprintf(const wchar_t *format, ...)
 function	write	ssize_t write(int fd, const void *buffer, size_t size)
+function	writev	ssize_t writev(int fd, const struct iovec *parts, int count)
 function	wscanf	int wscanf(const wchar_t *format, ...)
 type	struct __pthread_cleanup	struct __pthread_cleanup { void (*fn)(void *); void *arg; struct __pthread_cleanup *next; }
+type	struct _aarch64_ctx	struct _aarch64_ctx { uint32_t magic; uint32_t size; }
+type	struct _libc_fpstate	struct _libc_fpstate { uint16_t cwd, swd, ftw, fop; uint64_t rip, rdp; uint32_t mxcsr, mxcr_mask; struct _libc_fpxreg _st[8]; struct _libc_xmmreg _xmm[16]; uint32_t __reserved[24]; }
+type	struct _libc_fpxreg	struct _libc_fpxreg { unsigned short significand[4]; unsigned short exponent; unsigned short __pad[3]; }
+type	struct _libc_xmmreg	struct _libc_xmmreg { uint32_t element[4]; }
 type	struct addrinfo	struct addrinfo { int ai_flags; int ai_family; int ai_socktype; int ai_protocol; socklen_t ai_addrlen; struct sockaddr *ai_addr; char *ai_canonname; struct addrinfo *ai_next; }
+type	struct cmsghdr	struct cmsghdr { size_t cmsg_len; int cmsg_level; int cmsg_type; }
 type	struct dirent	struct dirent { uint64_t d_ino; unsigned char d_type; char d_name[256]; }
+type	struct dl_phdr_info	struct dl_phdr_info { Elf64_Addr dlpi_addr; const char *dlpi_name; const Elf64_Phdr *dlpi_phdr; Elf64_Half dlpi_phnum; unsigned long long dlpi_adds; unsigned long long dlpi_subs; size_t dlpi_tls_modid; void *dlpi_tls_data; }
+type	struct entry	struct entry { char *key; void *data; }
+type	struct flock	struct flock { short l_type; short l_whence; off_t l_start; off_t l_len; pid_t l_pid; }
+type	struct fpsimd_context	struct fpsimd_context { struct _aarch64_ctx head; uint32_t fpsr; uint32_t fpcr; unsigned __int128 vregs[32]; }
+type	struct group	struct group { char *gr_name; char *gr_passwd; gid_t gr_gid; char **gr_mem; }
 type	struct hostent	struct hostent { char *h_name; char **h_aliases; int h_addrtype; int h_length; char **h_addr_list; }
+type	struct hsearch_data	struct hsearch_data { struct ritteros_htab *table; size_t size, filled; }
+type	struct if_nameindex	struct if_nameindex { unsigned int if_index; char *if_name; }
+type	struct ifaddrs	struct ifaddrs { struct ifaddrs *ifa_next; char *ifa_name; unsigned int ifa_flags; struct sockaddr *ifa_addr; struct sockaddr *ifa_netmask; union { struct sockaddr *ifu_broadaddr; struct sockaddr *ifu_dstaddr; } ifa_ifu; void *ifa_data; }
 type	struct in6_addr	struct in6_addr { uint8_t s6_addr[16]; }
 type	struct in_addr	struct in_addr { in_addr_t s_addr; }
+type	struct iovec	struct iovec { void *iov_base; size_t iov_len; }
+type	struct itimerspec	struct itimerspec { struct timespec it_interval; struct timespec it_value; }
 type	struct lconv	struct lconv { char *decimal_point; char *thousands_sep; char *grouping; char *int_curr_symbol; char *currency_symbol; char *mon_decimal_point; char *mon_thousands_sep; char *mon_grouping; char *positive_sign; char *negative_sign; char int_frac_digits; char frac_digits; char p_cs_precedes; char p_sep_by_space; char n_cs_precedes; char n_sep_by_space; char p_sign_posn; char n_sign_posn; char int_p_cs_precedes; char int_p_sep_by_space; char int_n_cs_precedes; char int_n_sep_by_space; char int_p_sign_posn; char int_n_sign_posn; }
-type	struct passwd	struct passwd { char *pw_name; uid_t pw_uid; gid_t pw_gid; char *pw_dir; }
+type	struct msghdr	struct msghdr { void *msg_name; socklen_t msg_namelen; struct iovec *msg_iov; size_t msg_iovlen; void *msg_control; size_t msg_controllen; int msg_flags; }
+type	struct option	struct option { const char *name; int has_arg; int *flag; int val; }
+type	struct passwd	struct passwd { char *pw_name; char *pw_passwd; uid_t pw_uid; gid_t pw_gid; char *pw_gecos; char *pw_dir; char *pw_shell; }
 type	struct pollfd	struct pollfd { int fd; short events; short revents; }
 type	struct ritteros_dl_loader	struct ritteros_dl_loader { void *(*open)(const char *file, int flags, char *error, size_t size); void *(*symbol)(void *handle, const char *name, char *error, size_t size); int (*close)(void *handle); }
+type	struct ritteros_dl_object	struct ritteros_dl_object { const char *name; uint64_t base; const void *phdr; uint16_t phnum; size_t tls_module; void *tls_data; }
+type	struct ritteros_dl_query	struct ritteros_dl_query { int (*object)(int index, struct ritteros_dl_object *out); int (*address)(const void *address, const char **file, void **file_base, const char **symbol, void **symbol_address); }
 type	struct ritteros_tls_module	struct ritteros_tls_module { const void *image; size_t filesz, memsz, align; long tpoff; }
+type	struct rlimit	struct rlimit { rlim_t rlim_cur; rlim_t rlim_max; }
+type	struct rusage	struct rusage { struct timeval ru_utime, ru_stime; long ru_maxrss, ru_ixrss, ru_idrss, ru_isrss, ru_minflt, ru_majflt, ru_nswap, ru_inblock, ru_oublock, ru_msgsnd, ru_msgrcv, ru_nsignals, ru_nvcsw, ru_nivcsw; }
+type	struct sched_param	struct sched_param { int sched_priority; }
 type	struct servent	struct servent { char *s_name; char **s_aliases; int s_port; char *s_proto; }
 type	struct sha256	struct sha256 { uint32_t h[8]; uint64_t length; uint8_t block[64]; size_t used; }
-type	struct sigaction	struct sigaction { sighandler_t sa_handler; sigset_t sa_mask; int sa_flags; }
+type	struct sigaction	struct sigaction { union { sighandler_t sa_handler; void (*sa_sigaction)(int, siginfo_t *, void *); } __handler; sigset_t sa_mask; int sa_flags; }
 type	struct sockaddr	struct sockaddr { sa_family_t sa_family; char sa_data[14]; }
 type	struct sockaddr_in	struct sockaddr_in { sa_family_t sin_family; in_port_t sin_port; struct in_addr sin_addr; unsigned char sin_zero[8]; }
 type	struct sockaddr_in6	struct sockaddr_in6 { sa_family_t sin6_family; in_port_t sin6_port; uint32_t sin6_flowinfo; struct in6_addr sin6_addr; uint32_t sin6_scope_id; }
 type	struct sockaddr_storage	struct sockaddr_storage { sa_family_t ss_family; char ss_padding[118]; uint64_t ss_align; }
-type	struct stat	struct stat { uint32_t st_dev; uint64_t st_ino; unsigned int st_mode; uid_t st_uid; gid_t st_gid; unsigned int st_nlink; int64_t st_size; int64_t st_ctime, st_mtime; }
+type	struct stat	struct stat { dev_t st_dev; ino_t st_ino; mode_t st_mode; nlink_t st_nlink; uid_t st_uid; gid_t st_gid; dev_t st_rdev; off_t st_size; blksize_t st_blksize; blkcnt_t st_blocks; struct timespec st_atim, st_mtim, st_ctim; }
+type	struct statvfs	struct statvfs { unsigned long f_bsize, f_frsize; fsblkcnt_t f_blocks, f_bfree, f_bavail; fsfilcnt_t f_files, f_ffree, f_favail; unsigned long f_fsid, f_flag, f_namemax; }
+type	struct sys_clock	struct sys_clock { uint32_t sequence; uint32_t counter; uint64_t offset; uint64_t hz; uint64_t base_counter; uint64_t base_ns; }
 type	struct sys_device	struct sys_device { char name[32]; char disk[32]; char kind[16]; char model[48]; uint64_t block_size, block_count; uint32_t flags; uint32_t number; uint32_t table; uint32_t partitions; uint64_t first_usable; uint64_t last_usable; uint64_t first_block; uint8_t type_guid[16]; uint32_t mbr_type; char type_name[32]; char part_name[40]; char filesystem[16]; char label[65]; uint64_t generation; char mounted_at[64]; }
 type	struct sys_dirent	struct sys_dirent { uint64_t id; uint32_t type; uint32_t name_length; char name[256]; }
 type	struct sys_display	struct sys_display { uint32_t width, height; uint32_t stride; uint8_t bytes_per_pixel; uint8_t red_shift, green_shift, blue_shift; }
@@ -1781,6 +2819,7 @@ type	struct sys_display_mode	struct sys_display_mode { uint32_t width, height, r
 type	struct sys_display_modes	struct sys_display_modes { struct sys_display_mode now; struct sys_display_mode native; char name[14]; uint16_t edid_size; uint32_t mode_count; struct sys_display_mode modes[DISPLAY_MODES_MAX]; uint8_t edid[DISPLAY_EDID_MAX]; }
 type	struct sys_display_set_mode	struct sys_display_set_mode { char output[8]; uint32_t width, height; uint32_t refresh_mhz; char said[128]; }
 type	struct sys_efivar	struct sys_efivar { char name[64]; uint8_t guid[16]; uint32_t attributes; uint32_t size; uint8_t data[EFIVAR_DATA_MAX]; }
+type	struct sys_flock	struct sys_flock { uint64_t start; uint64_t length; uint32_t type; uint32_t pid; }
 type	struct sys_guard	struct sys_guard { uint32_t state; uint8_t in_default, out_default; uint16_t count; uint64_t in_allowed, in_dropped, out_allowed, out_dropped; uint64_t connection_packets; uint64_t fwd_allowed, fwd_dropped; uint32_t drop_count; uint8_t forward_default; uint8_t reserved[3]; struct sys_guard_rule rules[GUARD_RULES]; struct sys_guard_drop drops[GUARD_DROPS]; }
 type	struct sys_guard6	struct sys_guard6 { uint16_t count; uint16_t reserved; uint32_t drop_count; uint64_t in_allowed, in_dropped, out_allowed, out_dropped; struct sys_guard6_rule rules[GUARD_RULES]; struct sys_guard6_drop drops[GUARD_DROPS]; }
 type	struct sys_guard6_drop	struct sys_guard6_drop { uint64_t time; uint8_t from[16], to[16]; uint16_t port; uint8_t direction, protocol, card; uint8_t rule; uint16_t card_kind; }
@@ -1791,6 +2830,7 @@ type	struct sys_inaddr	struct sys_inaddr { uint16_t family; uint16_t port; uint3
 type	struct sys_info	struct sys_info { uint64_t ticks; uint64_t ticks_per_second; uint64_t free_pages, usable_pages, page_size; }
 type	struct sys_input_event	struct sys_input_event { uint8_t type; uint8_t buttons; uint8_t key; uint8_t modifiers; uint16_t x, y; }
 type	struct sys_log_record	struct sys_log_record { char name[LOG_NAME_SIZE]; uint32_t length; uint32_t lost; }
+type	struct sys_msghdr	struct sys_msghdr { uint64_t data; uint64_t length; uint64_t fds; uint32_t fd_count; uint32_t flags; }
 type	struct sys_netinfo	struct sys_netinfo { char name[8]; uint8_t mac[6]; uint16_t index; uint32_t link_speed; uint32_t address, prefix, gateway, dns, dns_port; uint32_t lease; }
 type	struct sys_netinfo6	struct sys_netinfo6 { char name[8]; uint16_t index; uint16_t mode; uint32_t count; struct { uint8_t address[16]; uint8_t prefix; uint8_t state; uint8_t origin; uint8_t reserved; uint32_t valid, preferred; } addresses[4]; uint8_t router[16]; uint8_t dns[16]; uint32_t dns_port; uint32_t mtu; }
 type	struct sys_netlease6	struct sys_netlease6 { char name[8]; uint32_t flags; uint32_t valid, preferred; uint8_t address[16]; uint8_t dns[16]; }
@@ -1798,9 +2838,12 @@ type	struct sys_netset	struct sys_netset { char name[8]; uint32_t address, prefi
 type	struct sys_netset6	struct sys_netset6 { char name[8]; uint32_t mode; uint32_t prefix; uint8_t address[16]; uint8_t gateway[16]; uint8_t dns[16]; uint32_t dns_port; }
 type	struct sys_pollfd	struct sys_pollfd { int32_t fd; int16_t events, revents; }
 type	struct sys_sigaction	struct sys_sigaction { uint64_t handler; uint64_t mask; uint32_t flags; uint32_t reserved; }
+type	struct sys_siginfo	struct sys_siginfo { int32_t signo, error, code, pad; uint64_t a; uint64_t b; uint64_t unused[12]; }
+type	struct sys_sigstack	struct sys_sigstack { uint64_t sp; int32_t flags; int32_t pad; uint64_t size; }
 type	struct sys_snapshot	struct sys_snapshot { char name[64]; uint64_t generation; uint64_t created; }
 type	struct sys_sockname	struct sys_sockname { uint32_t type; uint32_t address; uint16_t port; uint16_t reserved; char name[LOCAL_PATH_MAX]; }
 type	struct sys_stat	struct sys_stat { uint64_t id; uint64_t size; uint32_t type; uint32_t links; uint64_t created, modified; uint32_t uid, gid; uint32_t mode; uint32_t device; }
+type	struct sys_statvfs	struct sys_statvfs { uint64_t block_size; uint64_t blocks, free_blocks; uint64_t name_max; uint32_t read_only; uint32_t device; }
 type	struct sys_swap	struct sys_swap { uint64_t on; uint64_t pages; uint64_t used; uint64_t written, read; }
 type	struct sys_termios	struct sys_termios { uint32_t iflag, oflag, cflag, lflag; uint8_t cc[TERMIOS_NCCS]; uint32_t ispeed, ospeed; }
 type	struct sys_timespec	struct sys_timespec { int64_t sec; int64_t nsec; }
@@ -1809,9 +2852,17 @@ type	struct sys_wlan_frame	struct sys_wlan_frame { uint16_t kind; uint16_t lengt
 type	struct sys_wlan_info	struct sys_wlan_info { uint8_t mac[6]; uint8_t joined; uint8_t channel; uint8_t bssid[6]; uint16_t aid; uint8_t channels; uint8_t reserved[3]; uint8_t channel_list[WLAN_CHANNELS_MAX]; uint32_t rx_management, rx_eapol, rx_data, rx_replayed, rx_bad_mic, rx_dropped; uint32_t tx_data, tx_management; }
 type	struct sys_wlan_join	struct sys_wlan_join { uint8_t bssid[6]; uint16_t aid; uint8_t channel; uint8_t flags; uint8_t reserved[2]; }
 type	struct sys_wlan_key	struct sys_wlan_key { uint8_t kind; uint8_t index; uint8_t length; uint8_t reserved; uint8_t rsc[8]; uint8_t key[32]; }
+type	struct sysinfo	struct sysinfo { long uptime; unsigned long loads[3]; unsigned long totalram, freeram, sharedram, bufferram, totalswap, freeswap; unsigned short procs, pad; unsigned long totalhigh, freehigh; unsigned int mem_unit; char reserved[256]; }
 type	struct termios	struct termios { tcflag_t c_iflag, c_oflag, c_cflag, c_lflag; cc_t c_cc[NCCS]; speed_t c_ispeed, c_ospeed; }
 type	struct timespec	struct timespec { time_t tv_sec; long tv_nsec; }
 type	struct timeval	struct timeval { time_t tv_sec; suseconds_t tv_usec; }
 type	struct tm	struct tm { int tm_sec; int tm_min; int tm_hour; int tm_mday; int tm_mon; int tm_year; int tm_wday; int tm_yday; int tm_isdst; long tm_gmtoff; const char *tm_zone; }
+type	struct tms	struct tms { clock_t tms_utime, tms_stime, tms_cutime, tms_cstime; }
+type	struct ucontext_t	struct ucontext_t { unsigned long uc_flags; struct ucontext_t *uc_link; stack_t uc_stack; sigset_t uc_sigmask; mcontext_t uc_mcontext; }
 type	struct utimbuf	struct utimbuf { time_t actime; time_t modtime; }
 type	struct utsname	struct utsname { char sysname[_UTSNAME_LENGTH]; char nodename[_UTSNAME_LENGTH]; char release[_UTSNAME_LENGTH]; char version[_UTSNAME_LENGTH]; char machine[_UTSNAME_LENGTH]; }
+type	union sigval	union sigval { int sival_int; void *sival_ptr; }
+variable	optarg	extern char *optarg
+variable	opterr	extern int opterr
+variable	optind	extern int optind
+variable	optopt	extern int optopt

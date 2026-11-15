@@ -6,6 +6,10 @@
 #ifndef RITTEROS_NETINET_IN_H
 #define RITTEROS_NETINET_IN_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <sys/socket.h>
 
@@ -78,5 +82,9 @@ uint32_t htonl(uint32_t v);
 uint16_t htons(uint16_t v);
 uint32_t ntohl(uint32_t v);
 uint16_t ntohs(uint16_t v);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

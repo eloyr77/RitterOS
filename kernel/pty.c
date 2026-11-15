@@ -10,7 +10,8 @@
  * shows the prompt and the line again on an empty screen, escape
  * sequences (cursor keys) are skipped, Ctrl-D ends the input on an empty
  * line, Ctrl-C stops the foreground job if it takes SIGINT, else it
- * interrupts the reader (the shell then says "^C").
+ * interrupts the reader (the shell then says "^C"); (44b) Ctrl-Z stops
+ * it if it takes SIGTSTP, else it is a byte as typed.
  */
 #include "pty.h"
 #include "blank.h"
@@ -221,6 +222,11 @@ static void type_byte(struct pty *t, uint8_t c)
             wait_queue_wake_all(&t->readers);
             return;
         }
+    }
+    if (c == 0x1A && t->isig && t->foreground && process_signal_group(t->foreground, SIGTSTP)) {
+        t->edit_length = 0;                         /* (44b) Ctrl-Z: the job stops, as Ctrl-C */
+        t->pending = 0;
+        return;
     }
     if (t->raw) {
         char b = (char)c;

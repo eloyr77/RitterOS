@@ -6,12 +6,19 @@
  * Since 22h: four threads allocating and freeing at once keep every block
  * intact (the heap's lock), and freed memory goes back to the kernel (32 MiB
  * of small blocks and a 16 MiB one: free memory is back after free, but for
- * the one arena kept and page tables).
+ * the one arena kept and page tables). (68o) Blocks of 2-120 KiB, the
+ * arenas' own (lists by size, neighbours joined by their marks), replaced
+ * in random slots, aligned ones among them, keep their contents. (68r)
+ * `contention`: four threads each make and free 200,000 blocks (64 bytes
+ * and 16 KiB in turn) at once; the time is printed (the lock's spin), and
+ * each thread's own (for the eye: with two cores the threads hardly overlap
+ * in QEMU, so even a starving lock showed no spread there).
  */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "ritteros.h"
 #include "thread.h"
 
@@ -110,6 +117,64 @@ static int test_big(void)
     return 0;
 }
 
+/* (68o) The arenas' blocks: 2-120 KiB, one replaced at a time in a random
+ * slot, every eighth aligned (64 bytes to 8 KiB); each holds a pattern in
+ * its first and last 32 bytes and every 256th, checked before it goes. */
+#define MID 1200
+#define MID_ROUNDS 12000
+
+static uint8_t mpat(uint32_t mark, size_t k)
+{
+    return (uint8_t)(mark * 151 + k * 11 + (k >> 8));
+}
+
+static size_t mstep(size_t k, size_t size)
+{
+    if (k < 32 || k + 33 >= size)
+        return k + 1;
+    return k + 256 < size - 32 ? k + 256 : size - 32;
+}
+
+static int test_mid(void)
+{
+    static uint8_t *p[MID];
+    static size_t size[MID];
+    static uint32_t mark[MID];
+    uint32_t seed = 68u;
+    for (uint32_t r = 0; r < MID_ROUNDS + MID; r++) {
+        seed = seed * 1103515245u + 12345u;
+        int i = r < MID ? (int)r : (int)((seed >> 8) % MID);
+        if (p[i]) {
+            for (size_t k = 0; k < size[i]; k = mstep(k, size[i]))
+                if (p[i][k] != mpat(mark[i], k)) {
+                    printf("malloctest: FAIL mid block %d changed at %lu\n", i, (unsigned long)k);
+                    return 1;
+                }
+            free(p[i]);
+        }
+        seed = seed * 1103515245u + 12345u;
+        size[i] = 2048 + (seed >> 4) % (120 * 1024 - 2048);
+        size_t align = 0;
+        if (r % 8 == 0) {
+            align = (size_t)64 << (seed % 8);
+            p[i] = aligned_alloc(align, size[i]);
+        } else {
+            p[i] = malloc(size[i]);
+        }
+        if (!p[i] || (align && (uintptr_t)p[i] % align)) {
+            printf("malloctest: FAIL mid malloc %u (%lu bytes)\n", r, (unsigned long)size[i]);
+            return 1;
+        }
+        mark[i] = r;
+        for (size_t k = 0; k < size[i]; k = mstep(k, size[i]))
+            p[i][k] = mpat(r, k);
+    }
+    for (int i = 0; i < MID; i++)
+        free(p[i]);
+    printf("malloctest: mid ok (%d blocks of 2-120 KiB, %d replaced)\n", MID, MID_ROUNDS);
+    return 0;
+}
+
 #define THREADS 4
 #define ROUNDS 6000
 #define LIVE 48
@@ -152,6 +217,71 @@ static int worker(void *arg)
     for (int i = 0; i < LIVE; i++)
         free(slot[i]);
     return bad;
+}
+
+/* (68r) Four threads on the heap's lock at once, timed. */
+#define PAIRS 200000
+
+static volatile int contend_go;
+static long contend_ms[THREADS];
+
+static long ms_since(const struct timespec *t0)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (long)(t.tv_sec - t0->tv_sec) * 1000 + (t.tv_nsec - t0->tv_nsec) / 1000000;
+}
+
+static int contend(void *arg)
+{
+    int me = (int)(intptr_t)arg, bad = 0;
+    while (!contend_go)
+        ;
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (int i = 0; i < PAIRS; i++) {
+        size_t size = i % 2 ? 16384 : 64;
+        uint8_t *p = malloc(size);
+        if (!p) {
+            bad = 1;
+            break;
+        }
+        p[0] = (uint8_t)i;
+        p[size - 1] = (uint8_t)i;
+        if (p[0] != (uint8_t)i)
+            bad = 1;
+        free(p);
+    }
+    contend_ms[me] = ms_since(&t0);
+    return bad;
+}
+
+static int test_contention(void)
+{
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    int number[THREADS], bad = 0;
+    for (int t = 0; t < THREADS; t++)
+        number[t] = thread_create(contend, (void *)(intptr_t)t);
+    contend_go = 1;
+    for (int t = 0; t < THREADS; t++) {
+        int result = 1;
+        if (number[t] < 0 || thread_join(number[t], &result) != 0 || result)
+            bad++;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    long ms = (long)(t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+    long fastest = contend_ms[0], slowest = contend_ms[0];
+    for (int t = 1; t < THREADS; t++) {
+        if (contend_ms[t] < fastest)
+            fastest = contend_ms[t];
+        if (contend_ms[t] > slowest)
+            slowest = contend_ms[t];
+    }
+    printf("malloctest: contention: %d threads x %d blocks %s in %ld ms\n", THREADS, PAIRS,
+           bad ? "FAILED" : "ok", ms);
+    printf("malloctest: contention: each thread %ld-%ld ms\n", fastest, slowest);
+    return bad != 0;
 }
 
 static int test_threads(void)
@@ -214,7 +344,7 @@ static int test_give_back(void)
 
 int main(void)
 {
-    if (test_many() || test_calloc_realloc() || test_big() || test_threads() || test_give_back())
+    if (test_many() || test_calloc_realloc() || test_big() || test_mid() || test_threads() || test_contention() || test_give_back())
         return 1;
     printf("malloctest: all ok\n");
     return 0;

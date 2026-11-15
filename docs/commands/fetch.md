@@ -89,4 +89,4 @@ fetch: exit code 1
 ## See also
 
 [`net`](net.md), [`ping`](ping.md), [`dnsd`](dnsd.md),
-[`ibrowser`](ibrowser.md), [`ssh`](ssh.md), [`guard`](guard.md)
+[`ssh`](ssh.md), [`guard`](guard.md)

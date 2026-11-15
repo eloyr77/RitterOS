@@ -35,7 +35,7 @@ static void details(const struct stat *st)
         m[3] = m[3] == 'x' ? 's' : 'S';
     if (st->st_mode & S_ISVTX)                  /* (57b) sticky: t, or T without x */
         m[9] = m[9] == 'x' ? 't' : 'T';
-    printf("%s %3u %5u %5u ", m, st->st_nlink, st->st_uid, st->st_gid);
+    printf("%s %3u %5u %5u ", m, (unsigned)st->st_nlink, st->st_uid, st->st_gid);
 }
 
 /* A symbolic link's line: <link> (or its length, with -l) and its target. */

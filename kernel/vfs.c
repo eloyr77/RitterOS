@@ -7,6 +7,10 @@
 #include "fat.h"
 #include "ritterfs.h"
 #include "kprintf.h"
+#include "pmm.h"
+#include "paging.h"
+#include "memory.h"
+#include "heap.h"
 #include "string.h"
 
 struct ritterfs *vfs_ritterfs(struct vfs *v)
@@ -276,4 +280,78 @@ void vfs_abort(struct vfs *v)
     struct ritterfs *fs = vfs_ritterfs(v);
     if (fs)
         ritterfs_abort(fs);
+}
+
+/* (43b-1) see vfs.h */
+int vfs_set_size(struct vfs *v, uint64_t id, uint64_t size)
+{
+    struct rfs_inode ino;
+    if (!vfs_get_inode(v, id, &ino))
+        return RFS_ERR_NOT_FOUND;
+    if (ino.type != RFS_TYPE_FILE)
+        return RFS_ERR_IS_DIR;
+    uint64_t old = ino.size;
+    if (size == old)
+        return RFS_OK;
+    if (size == 0)
+        return vfs_truncate(v, id);
+    if (size > old) {                           /* zeros after the end, a page at a time */
+        uint64_t page = pmm_alloc_page();
+        if (!page)
+            return RFS_ERR_IO;
+        uint8_t *zeros = phys_to_virt(page);
+        memset(zeros, 0, PAGE_SIZE);
+        int r = RFS_OK;
+        for (uint64_t at = old; at < size && r == RFS_OK;) {
+            uint64_t n = size - at < PAGE_SIZE ? size - at : PAGE_SIZE;
+            r = vfs_write(v, id, at, zeros, n);
+            at += n;
+        }
+        pmm_free_page(page);
+        return r;
+    }
+    /* shorter: the first size bytes into pages, the file cut, written back */
+    uint64_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint64_t *kept = kmalloc(pages * sizeof(uint64_t));
+    if (!kept)
+        return RFS_ERR_IO;
+    uint64_t have = 0;
+    int r = RFS_OK;
+    for (; have < pages; have++) {
+        kept[have] = pmm_alloc_page();
+        if (!kept[have]) {
+            r = RFS_ERR_IO;
+            break;
+        }
+        uint64_t at = have * PAGE_SIZE, n = size - at < PAGE_SIZE ? size - at : PAGE_SIZE;
+        if (vfs_read(v, id, &ino, at, phys_to_virt(kept[have]), n) != (int64_t)n) {
+            r = RFS_ERR_IO;
+            have++;
+            break;
+        }
+    }
+    if (r == RFS_OK)
+        r = vfs_truncate(v, id);
+    for (uint64_t i = 0; r == RFS_OK && i < pages; i++) {
+        uint64_t at = i * PAGE_SIZE, n = size - at < PAGE_SIZE ? size - at : PAGE_SIZE;
+        r = vfs_write(v, id, at, phys_to_virt(kept[i]), n);
+    }
+    for (uint64_t i = 0; i < have; i++)
+        pmm_free_page(kept[i]);
+    kfree(kept);
+    return r;
+}
+
+bool vfs_space(struct vfs *v, uint64_t *block_size, uint64_t *blocks, uint64_t *free_blocks)
+{
+    struct ritterfs *fs = vfs_ritterfs(v);
+    if (!fs || vfs_fat(v) || vfs_exfat(v))
+        return false;
+    uint64_t since = rfs_read_lock(fs);
+    *block_size = fs->vol.sb.block_size;
+    *blocks = fs->vol.sb.block_count;
+    uint64_t used = fs->vol.sb.used_blocks;     /* (frees held back for snapshots stay used) */
+    *free_blocks = used < *blocks ? *blocks - used : 0;
+    rfs_read_unlock(fs, since);
+    return true;
 }

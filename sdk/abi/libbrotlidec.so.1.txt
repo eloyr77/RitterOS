@@ -1,0 +1,16 @@
+# libbrotlidec.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+symbol	BrotliDecoderAttachDictionary	exported
+symbol	BrotliDecoderCreateInstance	exported
+symbol	BrotliDecoderDecompress	exported
+symbol	BrotliDecoderDecompressStream	exported
+symbol	BrotliDecoderDestroyInstance	exported
+symbol	BrotliDecoderErrorString	exported
+symbol	BrotliDecoderGetErrorCode	exported
+symbol	BrotliDecoderHasMoreOutput	exported
+symbol	BrotliDecoderIsFinished	exported
+symbol	BrotliDecoderIsUsed	exported
+symbol	BrotliDecoderSetMetadataCallbacks	exported
+symbol	BrotliDecoderSetParameter	exported
+symbol	BrotliDecoderTakeOutput	exported
+symbol	BrotliDecoderVersion	exported

@@ -45,6 +45,7 @@
 #include "acpi.h"
 #include "arch.h"
 #include "cpu.h"
+#include "cpuclock.h"
 #include "cpus.h"
 #include "gdt.h"
 #include "io.h"
@@ -53,6 +54,7 @@
 #include "percpu.h"
 #include "pmm.h"
 #include "string.h"
+#include "uefi.h"
 
 #define MSR_FS_BASE         0xC0000100
 #define MSR_KERNEL_GS_BASE  0xC0000102
@@ -241,6 +243,7 @@ static void take_back(struct cpu *c, struct kept_core *k)
     arch_fpu_restore(k->fpu);
     apic_init_core();
     write_cr3(k->cr3);
+    cpu_clock_core();                               /* (69a) CPPC's request is gone after S3 */
 }
 
 static void clflush(const volatile void *p)
@@ -329,6 +332,7 @@ void x86_wake_first(struct cpu *c)
     uint32_t now = rtc_seconds();
     slept_s = (now + 86400 - rtc_before) % 86400;
     x86_counter_continue(counter_before + (uint64_t)slept_s * arch_counter_hz());
+    uefi_clock_publish();               /* (68p) the programs' clock: the new offset */
     x86_serial_wake();
     cores_back = 1 + restart_others(c);
     x86_context_restore(&k->ctx, &k->back);

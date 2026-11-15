@@ -2387,8 +2387,9 @@ static struct node *call_args(struct token **rest, struct token *t, int count)
     return head.next;
 }
 
-/* A function the library provides, declared if the program did not. */
-static struct obj *library_function(const char *name, struct type *ret, struct type *arg)
+/* A function the library provides, declared if the program did not (one
+ * parameter, or (46b) two when arg2 is given). */
+static struct obj *library_function(const char *name, struct type *ret, struct type *arg, struct type *arg2)
 {
     struct token fake = { .kind = TK_IDENT, .text = name, .len = (int)strlen(name) };
     for (struct scope *s = &file_scope; s; s = 0) {
@@ -2400,6 +2401,10 @@ static struct obj *library_function(const char *name, struct type *ret, struct t
     fn->has_prototype = true;
     fn->params = arena_alloc(sizeof(struct param));
     fn->params->type = arg;
+    if (arg2) {
+        fn->params->next = arena_alloc(sizeof(struct param));
+        fn->params->next->type = arg2;
+    }
     struct obj *o = arena_alloc(sizeof(*o));
     o->name = arena_strndup(name, strlen(name));
     o->type = fn;
@@ -2415,7 +2420,7 @@ static struct obj *library_function(const char *name, struct type *ret, struct t
 
 static struct node *call_library(const char *name, struct type *ty, struct node *arg, struct token *tok)
 {
-    struct obj *fn = library_function(name, ty, ty);
+    struct obj *fn = library_function(name, ty, ty, 0);
     struct node *call = new_node(ND_CALL, tok);
     call->lhs = value(new_var_node(fn, tok));
     call->func_type = fn->type;
@@ -2675,6 +2680,23 @@ static struct node *builtin(struct token **rest, struct token *t)
         struct node *n = builtin_node(B_COMPLEX, complex_of(rt), tok);
         n->args = a;
         return n;
+    }
+    if (equal(t, "__builtin___clear_cache")) {
+        /* (46b) GCC's and clang's: the library's __clear_cache(start, end)
+         * (stdlib.h), which cleans ARM's caches for code just written and
+         * does nothing on x86 */
+        struct node *args = call_args(rest, t->next, 2), *a = args, *b = args->next;
+        struct type *vp = pointer_to(ty_void);
+        struct obj *fn = library_function("__clear_cache", ty_void, vp, vp);
+        a->next = 0;
+        a = new_cast(a, vp);
+        a->next = new_cast(b, vp);
+        struct node *call = new_node(ND_CALL, tok);
+        call->lhs = value(new_var_node(fn, tok));
+        call->func_type = fn->type;
+        call->args = a;
+        call->type = ty_void;
+        return call;
     }
     if (equal(t, "__builtin_expect")) {
         struct node *args = call_args(rest, t->next, 2);
@@ -4397,6 +4419,13 @@ static struct map symbols;                      /* every file-scope object by na
 static struct obj *declare_global(struct token *name, struct type *ty, struct var_attr *va, struct attributes *attr)
 {
     char *sym = attr->asm_name ? attr->asm_name : name_of(name);
+    /* (43a) A later declaration (or the definition) without __asm__ of a
+     * name declared with one is that symbol still, as in GCC and clang: a
+     * header's label holds for the calls and the library's definition. */
+    struct name_entry *seen = attr->asm_name ? 0 : find_name(name);
+    if (seen && seen->var && seen->var->is_function == (ty->kind == TY_FUNC) &&
+        map_get(&symbols, seen->var->name, (int)strlen(seen->var->name)) == seen->var)
+        sym = seen->var->name;
     struct obj *o = map_get(&symbols, sym, (int)strlen(sym));
     if (o) {
         if (o->is_function != (ty->kind == TY_FUNC))

@@ -1,6 +1,10 @@
 /*
  * reel [FILE]: play a video (RVID so far) in a window -- the frames at the
- * video's rate, and its audio track (if any) through /dev/pcm0 on a thread.
+ * video's rate, and its audio track (if any) on a thread: (68y) through the
+ * sound server soundd (/run/sound) when it runs, as tune does (beside
+ * other programs' sound, under the master volume; at most AHEAD bytes
+ * ahead of what is heard, so a stop drops the rest at once: its message
+ * 3), else through /dev/pcm0 itself.
  * Without a file it opens an empty window; File > Open... picks one with the
  * shared dialog (window_choose_file), which also stops what is playing and
  * plays the new one. The window keeps the last frame when a video ends. 'q',
@@ -22,12 +26,14 @@
 #include "video.h"
 #include "window.h"
 
-PROGRAM_HELP("reel [FILE]", "play a video (RVID) in a window");
+PROGRAM_HELP("Reel [FILE]", "play a video (RVID) in a window");
 
 #define M_OPEN  1
 #define M_CLOSE 2
 
 #define RATE 48000
+#define PIECE 8192                      /* bytes written at a time (so a stop is quick) */
+#define AHEAD (RATE * 4 / 5)            /* (68y) bytes sent to soundd ahead of what is heard */
 
 static struct audio_buffer track;       /* the decoded audio, for the player thread */
 static volatile int stop_audio;
@@ -69,7 +75,56 @@ static int event_thread(void *arg)
     return 0;
 }
 
-/* Stream the audio track to /dev/pcm0 (48 kHz stereo). */
+static int write_all(int fd, const void *p, long n)
+{
+    const char *b = p;
+    while (n > 0) {
+        ssize_t w = write(fd, b, (size_t)n);
+        if (w <= 0)
+            return -1;
+        b += w, n -= w;
+    }
+    return 0;
+}
+
+static int message(int sock, uint32_t type, const void *p, uint32_t n)
+{
+    uint32_t h[2] = { type, n };
+    if (write_all(sock, h, sizeof(h)) < 0)
+        return -1;
+    return n ? write_all(sock, p, n) : 0;
+}
+
+/* Our bytes soundd has not played yet (message 2), or -1. */
+static long delay(int sock)
+{
+    uint32_t d;
+    size_t got = 0;
+    if (message(sock, 2, 0, 0) < 0)
+        return -1;
+    while (got < sizeof(d)) {
+        ssize_t r = read(sock, (char *)&d + got, sizeof(d) - got);
+        if (r <= 0)
+            return -1;
+        got += (size_t)r;
+    }
+    return (long)d;
+}
+
+/* (68y) soundd's: a connection speaking its messages, or -1: none runs,
+ * or (68z) it refused us (it plays for root and the console's user only;
+ * /dev/pcm0 then says why). */
+static int server(void)
+{
+    int sock = ritteros_local_connect("/run/sound");
+    if (sock >= 0 && (write_all(sock, "RSND", 4) < 0 || delay(sock) < 0)) {
+        close(sock);
+        sock = -1;
+    }
+    return sock;
+}
+
+/* Stream the audio track (48 kHz stereo) to soundd, else /dev/pcm0. */
 static int audio_thread(void *arg)
 {
     (void)arg;
@@ -77,8 +132,9 @@ static int audio_thread(void *arg)
     struct audio_buffer r;
     if (a.rate != RATE && audio_resample(&a, RATE, &r) == 0)
         a = r;
-    int fd = open("/dev/pcm0", O_WRONLY);
-    if (fd < 0)
+    int sock = access("/dev/pcm0", F_OK) == 0 ? server() : -1;
+    int fd = sock < 0 ? open("/dev/pcm0", O_WRONLY) : -1;
+    if (sock < 0 && fd < 0)
         return 0;
     int16_t *st = a.channels == 2 ? a.samples : malloc((size_t)a.frames * 4);
     if (a.channels == 1 && st) {
@@ -86,15 +142,37 @@ static int audio_thread(void *arg)
         for (long i = 0; i < a.frames; i++)
             st[i * 2] = st[i * 2 + 1] = m[i];
     }
-    long total = a.frames * 4, off = 0;
-    while (off < total && !stop_audio) {                /* write in small pieces so we can stop */
-        long n = total - off < 8192 ? total - off : 8192;
+    long total = st ? a.frames * 4 : 0, off = 0;
+    /* In small pieces so we can stop: at the video's end, or (68y) at once
+     * when quitting or another video comes (the frames look only between
+     * frames). */
+    while (off < total && !stop_audio && !quit && !next_ready) {
+        long n = total - off < PIECE ? total - off : PIECE;
+        if (sock >= 0) {
+            long d = delay(sock);
+            if (d < 0)
+                break;
+            if (d > AHEAD) {
+                usleep(10000);
+                continue;
+            }
+            if (message(sock, 1, (uint8_t *)st + off, (uint32_t)n) < 0)
+                break;
+            off += n;
+            continue;
+        }
         ssize_t w = write(fd, (uint8_t *)st + off, (size_t)n);
         if (w <= 0)
             break;
         off += w;
     }
-    close(fd);                                          /* drains the rest */
+    if (sock >= 0) {
+        if (quit || next_ready)
+            message(sock, 3, 0, 0);     /* stopped: what is not heard yet goes */
+        close(sock);                    /* (otherwise the rest plays on in soundd) */
+    } else {
+        close(fd);                      /* drains the rest */
+    }
     if (a.channels == 1)
         free(st);
     return 0;
@@ -217,7 +295,7 @@ static int play(struct window *win, const char *path)
 int main(int argc, char **argv)
 {
     if (argc > 2) {
-        dprintf(2, "usage: reel [FILE]\n");
+        dprintf(2, "usage: Reel [FILE]\n");
         return 2;
     }
     int w = 480, h = 320;                       /* empty until a video plays */
@@ -233,7 +311,7 @@ int main(int argc, char **argv)
     } else if (getcwd(folder, sizeof(folder)) == 0) {
         snprintf(folder, sizeof(folder), "/");
     }
-    struct window *win = window_open(w, h, argc == 2 ? argv[1] : "reel");
+    struct window *win = window_open(w, h, argc == 2 ? argv[1] : "Reel");
     if (!win) {
         if (errno == EACCES)                    /* (another user's windowd, 15k) */
             printf("reel: cannot open a window: the screen is another user's\n");

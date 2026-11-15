@@ -16,7 +16,7 @@
 #define SETTINGS_CPU "/system/config/cpu"
 #define SETTINGS_CPU_TEXT \
     "# The processor's clock (AMD processors with CPPC; read at the start,\n" \
-    "# so a change counts from the next start):\n" \
+    "# and `power clock` applies a change at once on every core):\n" \
     "#\n" \
     "#   clock = performance  the processor chooses its clock itself,\n" \
     "#                        favouring speed (the default)\n" \
@@ -37,8 +37,8 @@
 /* /system/config/power: written by the kernel (acpi_events_settings) */
 #define SETTINGS_POWER "/system/config/power"
 #define SETTINGS_POWER_TEXT \
-    "# Power management, read by the kernel at the start (a change counts from\n" \
-    "# the next start; `power` shows the settings in use):\n" \
+    "# Power management, read by the kernel at the start (`power settings`\n" \
+    "# applies a change at once; `power` shows the settings in use):\n" \
     "#\n" \
     "#   power_button = off      a press of the power button switches the\n" \
     "#                           machine off, as typing poweroff does (the default)\n" \
@@ -104,8 +104,8 @@
     "# /system/config/windows). Remove the # from a line to change it.\n" \
     "#\n" \
     "# What windowd opens when it starts: a program and its arguments;\n" \
-    "# owl (the file browser) if not set, nothing if empty.\n" \
-    "# startup = owl\n" \
+    "# Owl (the file browser) if not set, nothing if empty.\n" \
+    "# startup = Owl\n" \
     "#\n" \
     "# A double click: two presses within this many milliseconds\n" \
     "# (100-5000; 500 if not set).\n" \
@@ -124,13 +124,30 @@
     "# text_size = 15\n" \
     "#\n" \
     "# The colours of windows, menus and programs: dark or light; dark if\n" \
-    "# not set. Programs read it when they start (windowd too).\n" \
+    "# not set. Programs read it when they start (windowd too), and again\n" \
+    "# when the settings app tells windowd.\n" \
     "# theme = dark\n" \
     "#\n" \
     "# The colour of what is in front and chosen (the window in front's\n" \
     "# title bar, menus, selections, focus), as RRGGBB; the theme's if not\n" \
     "# set (5E81AC, a blue).\n" \
     "# accent = 5E81AC\n"
+
+/* (70b, item 48) ~/.config/keyring, a user's own: read by login
+ * (open_at_login) and keyringd (lock_after), both writing it when missing.
+ * Every key is a comment showing its default. */
+#define SETTINGS_USER_KEYRING ".config/keyring"
+#define SETTINGS_USER_KEYRING_TEXT \
+    "# Your keyring's settings (~/.config/keyring.db, the passwords programs\n" \
+    "# keep for you). Remove the # from a line to change it.\n" \
+    "#\n" \
+    "# Open the keyring with your password when you log in at the machine\n" \
+    "# (yes or no; yes if not set). With no, `keyring unlock` opens it.\n" \
+    "# open_at_login = yes\n" \
+    "#\n" \
+    "# Lock it (keyringd forgets its key) after this many minutes without\n" \
+    "# use; 0, the default, keeps it open until your last login ends.\n" \
+    "# lock_after = 0\n"
 
 /* (42a) ~/.config/filetypes, a user's own: which program a double click in
  * owl (and `open FILE`) starts for a file, by its ending. Written by login
@@ -139,19 +156,19 @@
  * wins over /system/config/filetypes (optional, an administrator's). */
 #define SETTINGS_USER_FILETYPES ".config/filetypes"
 #define SETTINGS_USER_FILETYPES_TEXT \
-    "# The program a double click in owl (and open FILE) starts for a file,\n" \
+    "# The program a double click in Owl (and open FILE) starts for a file,\n" \
     "# by the file's ending, in small or capital letters: ENDING = PROGRAM.\n" \
     "# An app (in /system/<arch>/apps) opens it in its window, any other\n" \
     "# program in a terminal window; an ending not here opens in the editor.\n" \
     "# Apps open other files too, from their own menus.\n" \
-    "ppm = imageview\n" \
-    "bmp = imageview\n" \
-    "png = imageview\n" \
-    "jpg = imageview\n" \
-    "jpeg = imageview\n" \
-    "rvid = reel\n" \
-    "html = ibrowser\n" \
-    "htm = ibrowser\n" \
+    "ppm = Imageview\n" \
+    "bmp = Imageview\n" \
+    "png = Imageview\n" \
+    "jpg = Imageview\n" \
+    "jpeg = Imageview\n" \
+    "rvid = Reel\n" \
+    "html = compass\n" \
+    "htm = compass\n" \
     "wav = tune\n" \
     "txt = edit\n" \
     "md = edit\n" \
@@ -218,6 +235,20 @@
     "# 0 is UTC (the default). There are no daylight saving rules: change the\n" \
     "# offset when the clocks change.\n" \
     "zone = 0\n"
+
+/* (68x) /system/config/sound: soundd reads it at its start and writes it
+ * when missing; `volume` changes its lines through soundd. */
+#define SETTINGS_SOUND "/system/config/sound"
+#define SETTINGS_SOUND_TEXT \
+    "# The sound server's settings: soundd reads them at its start, and the\n" \
+    "# program `volume` changes them while it runs.\n" \
+    "#\n" \
+    "#   volume = 0-100   the master volume of everything soundd plays (100: as\n" \
+    "#                    the programs sent it; the scale follows the ear, as\n" \
+    "#                    PulseAudio's: 50 is an eighth of the amplitude)\n" \
+    "#   mute = yes       nothing heard (the volume kept)\n" \
+    "volume = 100\n" \
+    "mute = no\n"
 
 /* /system/config/services: written by login (the library reads it) */
 #define SETTINGS_SERVICES "/system/config/services"

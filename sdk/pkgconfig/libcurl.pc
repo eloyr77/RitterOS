@@ -1,0 +1,16 @@
+# libcurl.pc (46e): libcurl.so.4, a system library from upstream, for builds outside
+# the tree (sdk/ritteros.cmake and sdk/ritteros.meson set arch). Version:
+# user/upstream/versions' (sdk_shell_test compares them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/build/upstream/include
+libdir=${prefix}/build/system/${arch}/lib
+supported_protocols="DICT FILE FTP FTPS GOPHER GOPHERS HTTP HTTPS IMAP IMAPS IPFS IPNS MQTT MQTTS POP3 POP3S RTSP SMTP SMTPS TELNET TFTP WS WSS"
+supported_features="alt-svc AsynchDNS brotli HSTS HTTP2 HTTPS-proxy IPv6 Largefile libz PSL SSL threadsafe UnixSockets"
+
+Name: libcurl
+Description: curl: URL transfers (HTTP/1.1, HTTP/2, TLS, WebSockets)
+Version: 8.23.0
+Requires.private: libssl libcrypto zlib libbrotlidec libnghttp2 libpsl
+Cflags: -I${includedir}
+Libs: ${libdir}/libcurl.so.4

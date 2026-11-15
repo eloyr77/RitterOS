@@ -1,0 +1,45 @@
+// -*- C++ -*-
+//
+// (43c) libc++'s configuration for RitterOS (given to every C++ compile with
+// -include: the pinned zig's libc++ takes these as flags, not from a header
+// of its own): what CMake's __config_site.in
+// would say for this system (libc++ 22, the pinned zig's sources). The
+// target triple is *-unknown-none-elf, so nothing here may be left to
+// libc++'s guesses from an OS's macros: threads are POSIX's (pthread.h),
+// the C library has POSIX 2008's locales (newlocale, uselocale and the
+// *_l calls: libc++'s generic locale code), the clocks a monotonic one,
+// random numbers getrandom/getentropy. No time-zone database (the system
+// has one fixed offset), the parallel algorithms run serially.
+
+#ifndef _LIBCPP___CONFIG_SITE
+#define _LIBCPP___CONFIG_SITE
+
+#define _LIBCPP_ABI_VERSION 1
+#define _LIBCPP_ABI_NAMESPACE __1
+#define _LIBCPP_ABI_FORCE_ITANIUM 0
+#define _LIBCPP_ABI_FORCE_MICROSOFT 0
+#define _LIBCPP_HAS_THREADS 1
+#define _LIBCPP_HAS_MONOTONIC_CLOCK 1
+#define _LIBCPP_HAS_TERMINAL 1
+#define _LIBCPP_HAS_MUSL_LIBC 0
+#define _LIBCPP_HAS_THREAD_API_PTHREAD 1
+#define _LIBCPP_HAS_THREAD_API_EXTERNAL 0
+#define _LIBCPP_HAS_THREAD_API_WIN32 0
+#define _LIBCPP_HAS_THREAD_API_C11 0
+#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0
+#define _LIBCPP_HAS_FILESYSTEM 1
+#define _LIBCPP_HAS_RANDOM_DEVICE 1
+#define _LIBCPP_HAS_LOCALIZATION 1
+#define _LIBCPP_HAS_UNICODE 1
+#define _LIBCPP_HAS_WIDE_CHARACTERS 1
+#define _LIBCPP_HAS_TIME_ZONE_DATABASE 0
+#define _LIBCPP_HAS_C11_ALIGNED_ALLOC 1
+#define _LIBCPP_INSTRUMENTED_WITH_ASAN 0
+#define _LIBCPP_LIBC_NEWLIB 0
+#define _LIBCPP_PSTL_BACKEND_SERIAL
+#define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE     /* (libc++'s own ctype table, as for musl) */
+#define _LIBCPP_USING_GETENTROPY    /* (std::random_device: there is no /dev/urandom) */
+#define _LIBCPP_HARDENING_MODE_DEFAULT _LIBCPP_HARDENING_MODE_NONE
+#define _LIBCPP_ASSERTION_SEMANTIC_DEFAULT _LIBCPP_ASSERTION_SEMANTIC_HARDENING_DEPENDENT
+
+#endif // _LIBCPP___CONFIG_SITE

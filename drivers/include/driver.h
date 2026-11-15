@@ -27,8 +27,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DRIVER_API_MAJOR 6
-#define DRIVER_API_MINOR 1
+#define DRIVER_API_MAJOR 7
+#define DRIVER_API_MINOR 0
 
 /* --- types ---------------------------------------------------------------- */
 

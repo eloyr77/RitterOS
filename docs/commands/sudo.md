@@ -1,14 +1,17 @@
 # sudo: run a command as root, with your own password (users in /system/config/sudo)
 
 ```
-sudo COMMAND [ARGUMENTS...] | -k
+sudo [-S] COMMAND [ARGUMENTS...] | -k
 ```
 
 Runs COMMAND as root after asking for your own password (it is not shown
 as you type). (68e) A correct password counts for 5 minutes in the same
 session (the same terminal, or SSH connection): a sudo meanwhile asks
 nothing. `sudo -k` forgets it at once, so the next sudo asks again. The password is one line: given on standard input
-(a script's), the lines after it are COMMAND's input (68d). Only the users named in `/system/config/sudo` may,
+(a script's), the lines after it are COMMAND's input (68d). (69f) `sudo -S`
+reads it so without the prompt and without touching the terminal's echo
+(Linux's -S): for a program that hands the password on, as the settings
+app's Unlock. Only the users named in `/system/config/sudo` may,
 a file root writes:
 
 ```
@@ -51,7 +54,7 @@ whoever starts it, and `getuid()` tells it who that was.
   - `sudo: it does not run as root (it must be root's, with mode 4755)`:
     sudo's own file lost its setuid bit or owner.
   - `sudo: no password given`: the input ended at the password prompt.
-- `2`: no COMMAND: `usage: sudo COMMAND [ARGUMENTS...] | -k`.
+- `2`: no COMMAND: `usage: sudo [-S] COMMAND [ARGUMENTS...] | -k`.
 
 ## Examples
 

@@ -65,6 +65,7 @@ struct mapping {
                                      * to the cache's pages, msync writes them back */
     bool shared_anon;               /* anonymous MAP_SHARED (56a): one memory after a fork */
     struct anon_obj *anon;          /* (35c-2) its pages (shared_anon), from page `first` */
+    bool view;                      /* (43b-3) a memory file's MAP_PRIVATE: read-only for good */
     struct mapping *next;           /* sorted by start */
 };
 
@@ -245,31 +246,107 @@ static bool page_out(uint64_t phys, uint64_t slot)
 #define ANON_SWAPPED 1                      /* page[i]: slot << 12 | ANON_SWAPPED */
 #define ANON_LEAVING 2                      /* page[i]: phys | ANON_LEAVING */
 
+/* (43b-3) An object's entries lie in chunks of a page each, made when an
+ * entry in them is first set, and never moved while the object lives:
+ * faults waiting for a page leaving and swap off read entries without its
+ * lock. The chunks' directory grows (a memory file made longer) by a
+ * copy; the old directories are kept until the end too. */
+#define CHUNK_ENTRIES (PAGE_SIZE / sizeof(uint64_t))
+
+struct old_directory {
+    uint64_t **dir;
+    struct old_directory *next;
+};
+
 struct anon_obj {
-    struct mutex lock;                      /* "shared memory": page[] */
+    struct mutex lock;                      /* "shared memory": its entries, count, size */
     unsigned refs;                          /* mappings and lookers holding it (atomic) */
-    uint64_t count;                         /* pages */
-    uint64_t *page;                         /* 0: not made yet; a page; or in swap */
+    uint64_t count;                         /* pages (a memory file's size, rounded up) */
+    uint64_t **dir;                         /* the chunks (atomic: read without the lock) */
+    uint64_t chunks;                        /* dir's length */
+    struct old_directory *old;
     struct wait_queue leave;                /* faults wait here for a page leaving */
     struct anon_obj *next;                  /* every object (swap off) */
+    /* (43b-3) A memory file (memfd, /dev/shm): its size in bytes, changed
+     * by one at a time (resize: a shrink takes the pages out of every
+     * process before it frees them), and its seals (atomic reads). */
+    bool file;
+    uint64_t size;
+    struct mutex resize;
+    unsigned seals;
 };
 static struct anon_obj *anon_objs;
 static struct spinlock anon_list = SPINLOCK_INIT("shared memories");
 
+/* Entry i's value, without the lock (0 in a chunk not made). */
+static uint64_t anon_peek(struct anon_obj *o, uint64_t i)
+{
+    uint64_t **dir = __atomic_load_n(&o->dir, __ATOMIC_ACQUIRE);
+    if (i / CHUNK_ENTRIES >= __atomic_load_n(&o->chunks, __ATOMIC_ACQUIRE))
+        return 0;
+    uint64_t *chunk = __atomic_load_n(&dir[i / CHUNK_ENTRIES], __ATOMIC_ACQUIRE);
+    return chunk ? __atomic_load_n(&chunk[i % CHUNK_ENTRIES], __ATOMIC_ACQUIRE) : 0;
+}
+
+/* Entry i set to v (o->lock held; its chunk made if needed: false without
+ * memory, nothing changed). */
+static bool anon_set(struct anon_obj *o, uint64_t i, uint64_t v)
+{
+    uint64_t **chunk = &o->dir[i / CHUNK_ENTRIES];
+    if (!*chunk) {
+        if (!v)
+            return true;                            /* (an entry never set reads 0) */
+        uint64_t *made = kzalloc(PAGE_SIZE);
+        if (!made)
+            return false;
+        __atomic_store_n(chunk, made, __ATOMIC_RELEASE);
+    }
+    __atomic_store_n(&(*chunk)[i % CHUNK_ENTRIES], v, __ATOMIC_RELEASE);
+    return true;
+}
+
+/* Room in the directory for count pages (o->lock held): 0 or -ERR_NOMEM. */
+static int64_t anon_room(struct anon_obj *o, uint64_t count)
+{
+    uint64_t need = (count + CHUNK_ENTRIES - 1) / CHUNK_ENTRIES;
+    if (need <= o->chunks)
+        return 0;
+    uint64_t chunks = o->chunks ? o->chunks : 1;
+    while (chunks < need)
+        chunks *= 2;
+    uint64_t **dir = kzalloc(chunks * sizeof(uint64_t *));
+    struct old_directory *old = kmalloc(sizeof(*old));
+    if (!dir || !old) {
+        kfree(dir);
+        kfree(old);
+        return -ERR_NOMEM;
+    }
+    memcpy(dir, o->dir, o->chunks * sizeof(uint64_t *));
+    old->dir = o->dir;
+    old->next = o->old;
+    o->old = old;
+    __atomic_store_n(&o->dir, dir, __ATOMIC_RELEASE);
+    __atomic_store_n(&o->chunks, chunks, __ATOMIC_RELEASE);
+    return 0;
+}
+
 static struct anon_obj *anon_new(uint64_t count)
 {
     struct anon_obj *o = kzalloc(sizeof(*o));
-    uint64_t *page = kzalloc(count * sizeof(uint64_t));
-    if (!o || !page) {
+    if (!o)
+        return 0;
+    struct mutex init = MUTEX_INIT("shared memory"), resize = MUTEX_INIT("memory file size");
+    o->lock = init;
+    o->resize = resize;
+    if (anon_room(o, count ? count : 1)) {
         kfree(o);
-        kfree(page);
         return 0;
     }
-    struct mutex init = MUTEX_INIT("shared memory");
-    o->lock = init;
+    kfree(o->old);                                  /* (the first directory replaced nothing) */
+    o->old = 0;
     o->refs = 1;
     o->count = count;
-    o->page = page;
+    o->size = count * PAGE_SIZE;
     uint64_t state = spin_lock(&anon_list);
     o->next = anon_objs;
     anon_objs = o;
@@ -280,6 +357,15 @@ static struct anon_obj *anon_new(uint64_t count)
 static void anon_ref(struct anon_obj *o)
 {
     __atomic_add_fetch(&o->refs, 1, __ATOMIC_RELAXED);
+}
+
+/* A page's or a slot's entry given back (the entry itself left as it is). */
+static void anon_free_entry(uint64_t v)
+{
+    if (v & ANON_SWAPPED)
+        swap_slot_give(v >> 12);
+    else if (v)
+        pmm_free_page(v & ~(uint64_t)(PAGE_SIZE - 1));
 }
 
 /* The last holder frees the pages and slots: only once no page-table entry
@@ -295,14 +381,21 @@ static void anon_unref(struct anon_obj *o)
             break;
         }
     spin_unlock(&anon_list, state);
-    for (uint64_t i = 0; i < o->count; i++) {
-        if (o->page[i] & ANON_SWAPPED)
-            swap_slot_give(o->page[i] >> 12);
-        else if (o->page[i])
-            pmm_free_page(o->page[i]);
+    for (uint64_t c = 0; c < o->chunks; c++) {      /* (43b-3: past count too: a file cut down) */
+        if (!o->dir[c])
+            continue;
+        for (uint64_t i = 0; i < CHUNK_ENTRIES; i++)
+            anon_free_entry(o->dir[c][i]);
+        kfree(o->dir[c]);
+    }
+    while (o->old) {
+        struct old_directory *old = o->old;
+        o->old = old->next;
+        kfree(old->dir);
+        kfree(old);
     }
     wait_queue_detach(&o->leave);
-    kfree(o->page);
+    kfree(o->dir);
     kfree(o);
 }
 
@@ -389,6 +482,7 @@ void mmap_init(struct mmap_state *m)
     m->forked = false;
     m->pageable = false;
     m->pageout_at = 0;
+    m->shares = false;
     /* Address-space randomization (22l): this process's mappings (libraries,
      * the heap, files) start at a random page in the window's first half. */
     uint64_t r;
@@ -820,6 +914,24 @@ static int64_t map(struct mmap_state *m, uint64_t space, uint64_t addr, uint64_t
         return -ERR_INVAL;                          /* programs: only inside the mmap window */
     bool anonymous = flags & MMAP_ANONYMOUS;
     uint64_t pages = length / PAGE_SIZE, first = 0, count = 0, backed = 0;
+    struct anon_obj *memory = !anonymous && file ? file->memory : 0;
+    if (memory) {
+        /* (43b-3) A memory file: its object, as shared anonymous memory. A
+         * private mapping only to read (a copy of its own at the first
+         * write is not done yet). */
+        if (offset % PAGE_SIZE)
+            return -ERR_INVAL;
+        if (!file->readable)
+            return -ERR_ACCES;
+        if ((access & MMAP_WRITE) && kind == MMAP_PRIVATE)
+            return -ERR_NOTSUP;
+        if ((access & MMAP_WRITE) && !file->writable)
+            return -ERR_ACCES;
+        if ((access & MMAP_WRITE) && (mmap_memory_seals(memory) & (SEAL_WRITE | SEAL_FUTURE_WRITE)))
+            return -ERR_PERM;                       /* (before MAP_FIXED takes anything out) */
+        anonymous = true;
+        first = offset / PAGE_SIZE;
+    }
     struct rfs_inode inode;
     bool cached = false, cow = false, shared_write = false;
     if (!anonymous) {
@@ -881,9 +993,11 @@ static int64_t map(struct mmap_state *m, uint64_t space, uint64_t addr, uint64_t
     if (!r && !g)
         r = -ERR_NOMEM;
     /* (35c-2) Shared anonymous memory: its object. */
-    struct anon_obj *anon = !r && anonymous && kind == MMAP_SHARED ? anon_new(pages) : 0;
+    struct anon_obj *anon = r ? 0 : memory ? memory : anonymous && kind == MMAP_SHARED ? anon_new(pages) : 0;
     if (!r && anonymous && kind == MMAP_SHARED && !anon)
         r = -ERR_NOMEM;
+    if (memory && !r)
+        anon_ref(memory);                           /* (the mapping's hold) */
     uint64_t at = addr;
     struct drop d;
     if (!r) {
@@ -895,6 +1009,12 @@ static int64_t map(struct mmap_state *m, uint64_t space, uint64_t addr, uint64_t
             drop_detached(&d, &t);                  /* (emptied before the new pages go in) */
         } else if (!(at = find_room(m, length)))
             r = -ERR_NOMEM;
+        /* (43b-3) Sealed against writing: looked at again holding the
+         * mappings to write, which the seal's search for writers takes
+         * too (a seal set meanwhile). */
+        if (!r && memory && (access & MMAP_WRITE) &&
+            (mmap_memory_seals(memory) & (SEAL_WRITE | SEAL_FUTURE_WRITE)))
+            r = -ERR_PERM;
         if (r)
             mm_unlock_dropped(m, &d);
     }
@@ -919,8 +1039,11 @@ static int64_t map(struct mmap_state *m, uint64_t space, uint64_t addr, uint64_t
     g->cow = cow;
     g->shared = !anonymous && kind == MMAP_SHARED;
     g->shared_write = shared_write;
-    g->shared_anon = anonymous && kind == MMAP_SHARED;
+    g->shared_anon = anonymous && (kind == MMAP_SHARED || memory);
     g->anon = anon;
+    g->view = memory && kind == MMAP_PRIVATE;
+    if (anon)
+        __atomic_store_n(&m->shares, true, __ATOMIC_RELEASE);
     g->unread = !anonymous && !access && backed;
     g->file = fp;
     /* Anonymous memory and reservations: nothing now. A file's pages: the
@@ -1116,35 +1239,51 @@ static int fault(struct mmap_state *m, uint64_t space, uint64_t va, bool write, 
     return signal;
 }
 
-static int anon_fault(struct anon_obj *o, uint64_t index, uint64_t space, uint64_t va,
-                      unsigned access, unsigned need, bool desperate, struct anon_obj **wait)
+/* Entry index's page (o->lock held), made zeroed or read back from swap:
+ * 0 and *out, FAULT_ANON_WAIT while it is leaving, FAULT_NOMEM, SIGSEGV
+ * when swap could not give it back. */
+static int anon_page(struct anon_obj *o, uint64_t index, bool desperate, uint64_t *out)
 {
-    mutex_lock(&o->lock);
-    uint64_t v = o->page[index], page = v;
-    if (v & ANON_LEAVING) {
-        anon_ref(o);                                /* (for the waiter) */
-        *wait = o;
-        mutex_unlock(&o->lock);
+    uint64_t v = anon_peek(o, index), page = v;
+    if (v & ANON_LEAVING)
         return FAULT_ANON_WAIT;
-    }
     if (!v || (v & ANON_SWAPPED)) {
-        if (!(page = user_page(desperate))) {
-            mutex_unlock(&o->lock);
+        if (!(page = user_page(desperate)))
             return FAULT_NOMEM;
-        }
         if (!v) {
             memset(phys_to_virt(page), 0, PAGE_SIZE);
         } else if (!swap_read(v >> 12, phys_to_virt(page))) {
             kprintf("  %-15sslot %lu could not be read back: the program ends\n", "swap:", v >> 12);
-            mutex_unlock(&o->lock);
             pmm_free_page(page);
             return SIGSEGV;
-        } else {
-            swap_slot_give(v >> 12);
         }
-        o->page[index] = page;
+        if (!anon_set(o, index, page)) {
+            pmm_free_page(page);
+            return FAULT_NOMEM;
+        }
+        if (v)
+            swap_slot_give(v >> 12);
     }
-    int signal = place(space, va, page, access, need, false);
+    *out = page;
+    return 0;
+}
+
+static int anon_fault(struct anon_obj *o, uint64_t index, uint64_t space, uint64_t va,
+                      unsigned access, unsigned need, bool desperate, struct anon_obj **wait)
+{
+    mutex_lock(&o->lock);
+    if (index >= o->count) {
+        mutex_unlock(&o->lock);
+        return SIGBUS;                              /* (43b-3) past a memory file's end */
+    }
+    uint64_t page;
+    int signal = anon_page(o, index, desperate, &page);
+    if (signal == FAULT_ANON_WAIT) {
+        anon_ref(o);                                /* (for the waiter) */
+        *wait = o;
+    }
+    if (!signal)
+        signal = place(space, va, page, access, need, false);
     mutex_unlock(&o->lock);
     return signal;
 }
@@ -1179,8 +1318,8 @@ int mmap_fault(struct mmap_state *m, uint64_t space, uint64_t addr, bool write, 
                 if (va >= g->start && va < g->end && g->anon == wait)
                     index = g->first + (va - g->start) / PAGE_SIZE;
             rwlock_unlock(&m->lock);
-            wait_event_until(&wait->leave, !(__atomic_load_n(&wait->page[index], __ATOMIC_ACQUIRE) &
-                                             ANON_LEAVING), timer_ticks() + 10);
+            wait_event_until(&wait->leave, !(anon_peek(wait, index) & ANON_LEAVING),
+                             timer_ticks() + 10);
             anon_unref(wait);
             waited--;
             continue;
@@ -1250,6 +1389,11 @@ int64_t mmap_protect(struct mmap_state *m, uint64_t space, uint64_t addr, uint64
                                                      * private mapping of the cache's pages */
         if (want && g->unread)
             r = -ERR_NOTSUP;
+        if ((want & USER_WRITE) && g->view)
+            r = -ERR_NOTSUP;                        /* (43b-3) a memory file's private mapping */
+        if ((want & USER_WRITE) && !(g->access & USER_WRITE) && g->anon &&
+            (mmap_memory_seals(g->anon) & (SEAL_WRITE | SEAL_FUTURE_WRITE)))
+            r = -ERR_PERM;
         at = g->end;
     }
     if (!r && at < end)
@@ -1390,6 +1534,7 @@ int64_t mmap_fork(struct mmap_state *m, uint64_t space, struct mmap_state *child
     bool protected = false;
     mm_lock(m);
     m->forked = child->forked = true;           /* (65e-49) both may share pages from now on */
+    child->shares = m->shares;
     child->pageable = m->pageable;              /* (35c) the same program, loaded */
     child->start = m->start;
     struct mapping **tail = &child->maps;
@@ -1488,12 +1633,12 @@ static unsigned shared_count;
 
 struct anon_evict {
     struct anon_obj *o;
-    uint64_t index, phys;
+    uint64_t index, to, phys;               /* entries [index, to) */
     bool used;                              /* a process used it since the last look */
 };
 
-/* For process_each_space: the page's entries in this process cleared (the
- * other cores told), and whether it was used. */
+/* For process_each_space: the pages' entries in this process cleared (the
+ * other cores told), and whether one was used. */
 static void anon_unmap_in(struct mmap_state *m, uint64_t space, void *arg)
 {
     struct anon_evict *e = arg;
@@ -1501,13 +1646,17 @@ static void anon_unmap_in(struct mmap_state *m, uint64_t space, void *arg)
     mm_lock(m);
     for (struct mapping *g = m->maps; g; g = g->next) {
         uint64_t pages = (g->end - g->start) / PAGE_SIZE, phys;
-        if (g->anon != e->o || e->index < g->first || e->index >= g->first + pages)
+        if (g->anon != e->o || e->to <= g->first || e->index >= g->first + pages)
             continue;
-        uint64_t va = g->start + (e->index - g->first) * PAGE_SIZE;
-        if (paging_user_young(space, va))
-            e->used = true;
-        if (paging_user_take(space, va, &phys))
-            cleared = true;
+        uint64_t from = e->index > g->first ? e->index : g->first;
+        uint64_t to = e->to < g->first + pages ? e->to : g->first + pages;
+        for (uint64_t i = from; i < to; i++) {
+            uint64_t va = g->start + (i - g->first) * PAGE_SIZE;
+            if (paging_user_young(space, va))
+                e->used = true;
+            if (paging_user_take(space, va, &phys))
+                cleared = true;
+        }
     }
     if (cleared)
         paging_user_flush(space);
@@ -1519,21 +1668,21 @@ static void anon_unmap_in(struct mmap_state *m, uint64_t space, void *arg)
 static bool anon_evict(struct anon_obj *o, uint64_t index)
 {
     mutex_lock(&o->lock);
-    uint64_t v = o->page[index];
-    bool there = v && !(v & (ANON_SWAPPED | ANON_LEAVING));
+    uint64_t v = anon_peek(o, index);
+    bool there = index < o->count && v && !(v & (ANON_SWAPPED | ANON_LEAVING));
     if (there)
-        __atomic_store_n(&o->page[index], v | ANON_LEAVING, __ATOMIC_RELEASE);
+        anon_set(o, index, v | ANON_LEAVING);       /* (its chunk is there: v is not 0) */
     mutex_unlock(&o->lock);
     if (!there)
         return false;
-    struct anon_evict e = { o, index, v, false };
+    struct anon_evict e = { o, index, index + 1, v, false };
     process_each_space(anon_unmap_in, &e);
     uint64_t slot = e.used ? SWAP_NONE : swap_slot_take();
     bool out = slot != SWAP_NONE && swap_write(slot, phys_to_virt(v));
     if (!out && slot != SWAP_NONE)
         swap_slot_give(slot);
     mutex_lock(&o->lock);
-    __atomic_store_n(&o->page[index], out ? slot << 12 | ANON_SWAPPED : v, __ATOMIC_RELEASE);
+    anon_set(o, index, out ? slot << 12 | ANON_SWAPPED : v);
     mutex_unlock(&o->lock);
     wait_queue_wake_all(&o->leave);
     if (out)
@@ -1668,8 +1817,8 @@ int64_t mmap_anon_swap_in_all(void)
         struct anon_obj *o = 0;
         uint64_t state = spin_lock(&anon_list);
         for (struct anon_obj *q = anon_objs; q && !o; q = q->next) {
-            for (uint64_t i = 0; i < q->count && !o; i++)
-                if (__atomic_load_n(&q->page[i], __ATOMIC_ACQUIRE) & ANON_SWAPPED)
+            for (uint64_t i = 0; i < __atomic_load_n(&q->count, __ATOMIC_ACQUIRE) && !o; i++)
+                if (anon_peek(q, i) & ANON_SWAPPED)
                     o = q;
         }
         if (o)
@@ -1679,7 +1828,7 @@ int64_t mmap_anon_swap_in_all(void)
             break;
         mutex_lock(&o->lock);
         for (uint64_t i = 0; i < o->count && !r; i++) {
-            uint64_t v = o->page[i], page;
+            uint64_t v = anon_peek(o, i), page;
             if (!(v & ANON_SWAPPED))
                 continue;
             if (!(page = pmm_alloc_page_high()))
@@ -1690,13 +1839,271 @@ int64_t mmap_anon_swap_in_all(void)
                 pmm_free_page(page);
             if (!r) {
                 swap_slot_give(v >> 12);
-                o->page[i] = page;
+                anon_set(o, i, page);               /* (its chunk is there: v is not 0) */
             }
         }
         mutex_unlock(&o->lock);
         anon_unref(o);
     }
     return r;
+}
+
+/* --- (43b-3) memory files: memfds and /dev/shm's objects --------------------------------
+ *
+ * A memory file is an object of shared memory with a size: its pages are
+ * read and written through its descriptors (a page at a time, the bytes in
+ * the caller's kernel buffer: never copy_user under the object's lock) and
+ * mapped MAP_SHARED as shared anonymous memory is. A page past the size is
+ * SIGBUS; cutting the file down takes the pages past it out of every
+ * process first. Its pages go to swap only while a process maps them
+ * (pageout finds them through mappings). */
+#define MEMORY_FILE_MAX (1ULL << 36)        /* 64 GiB: a directory of at most 256 KiB */
+
+struct anon_obj *mmap_memory_new(void)
+{
+    struct anon_obj *o = anon_new(0);
+    if (o)
+        o->file = true;
+    return o;
+}
+
+void mmap_memory_hold(struct anon_obj *o)
+{
+    anon_ref(o);
+}
+
+void mmap_memory_put(struct anon_obj *o)
+{
+    anon_unref(o);
+}
+
+uint64_t mmap_memory_size(struct anon_obj *o)
+{
+    mutex_lock(&o->lock);
+    uint64_t size = o->size;
+    mutex_unlock(&o->lock);
+    return size;
+}
+
+unsigned mmap_memory_seals(struct anon_obj *o)
+{
+    return __atomic_load_n(&o->seals, __ATOMIC_ACQUIRE);
+}
+
+/* Entry i's page made zeroed or read back (o->lock held; it waits without
+ * it while the page is leaving): 0 and *page, or -ERR_NOMEM / -ERR_IO. */
+static int64_t memory_page(struct anon_obj *o, uint64_t i, uint64_t *page)
+{
+    for (;;) {
+        int r = anon_page(o, i, true, page);
+        if (r != FAULT_ANON_WAIT)
+            return r == 0 ? 0 : r == FAULT_NOMEM ? -ERR_NOMEM : -ERR_IO;
+        mutex_unlock(&o->lock);
+        wait_event_until(&o->leave, !(anon_peek(o, i) & ANON_LEAVING), timer_ticks() + 10);
+        mutex_lock(&o->lock);
+    }
+}
+
+static int64_t resize(struct anon_obj *o, uint64_t size)
+{
+    if (size > MEMORY_FILE_MAX)
+        return -ERR_NOSPC;
+    uint64_t count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    mutex_lock(&o->lock);
+    uint64_t was = o->count;
+    int64_t r = 0;
+    if (count > was && (r = anon_room(o, count))) {
+        mutex_unlock(&o->lock);
+        return r;
+    }
+    /* A last page cut inside: its bytes past the new end read 0 later. */
+    if (size % PAGE_SIZE && size < o->size && count <= was) {
+        uint64_t page;
+        if (!(r = memory_page(o, count - 1, &page)))
+            memset((uint8_t *)phys_to_virt(page) + size % PAGE_SIZE, 0, PAGE_SIZE - size % PAGE_SIZE);
+    }
+    if (!r) {
+        __atomic_store_n(&o->count, count, __ATOMIC_RELEASE);
+        o->size = size;
+    }
+    mutex_unlock(&o->lock);
+    if (r || count >= was)
+        return r;
+    /* Shorter: no new fault reaches pages past count now; out of every
+     * process, then freed (a page leaving waited for: pageout puts it
+     * back or in swap). */
+    struct anon_evict e = { o, count, was, 0, false };
+    process_each_space(anon_unmap_in, &e);
+    mutex_lock(&o->lock);
+    for (uint64_t i = count; i < was; i++) {
+        uint64_t v;
+        while ((v = anon_peek(o, i)) & ANON_LEAVING) {
+            mutex_unlock(&o->lock);
+            wait_event_until(&o->leave, !(anon_peek(o, i) & ANON_LEAVING), timer_ticks() + 10);
+            mutex_lock(&o->lock);
+        }
+        if (v) {
+            anon_free_entry(v);
+            anon_set(o, i, 0);
+        }
+    }
+    mutex_unlock(&o->lock);
+    return 0;
+}
+
+int64_t mmap_memory_resize(struct anon_obj *o, uint64_t size)
+{
+    mutex_lock(&o->resize);
+    unsigned seals = mmap_memory_seals(o);
+    uint64_t now = mmap_memory_size(o);
+    int64_t r = (size < now && (seals & SEAL_SHRINK)) || (size > now && (seals & SEAL_GROW))
+                    ? -ERR_PERM : resize(o, size);
+    mutex_unlock(&o->resize);
+    return r;
+}
+
+int64_t mmap_memory_io(struct anon_obj *o, uint64_t offset, void *buffer, uint64_t length,
+                       bool write)
+{
+    int64_t r = 0;
+    if (write) {
+        mutex_lock(&o->resize);
+        unsigned seals = mmap_memory_seals(o);
+        uint64_t now = mmap_memory_size(o);
+        if (seals & (SEAL_WRITE | SEAL_FUTURE_WRITE))
+            r = -ERR_PERM;
+        else if (offset > MEMORY_FILE_MAX || length > MEMORY_FILE_MAX - offset)
+            r = -ERR_NOSPC;
+        else if (offset + length > now)
+            r = seals & SEAL_GROW ? -ERR_PERM : resize(o, offset + length);
+        mutex_unlock(&o->resize);
+        if (r)
+            return r;
+    }
+    uint64_t done = 0;
+    mutex_lock(&o->lock);
+    if (!write)
+        length = offset >= o->size ? 0 : length < o->size - offset ? length : o->size - offset;
+    while (done < length && !r) {
+        uint64_t at = offset + done, i = at / PAGE_SIZE, within = at % PAGE_SIZE;
+        uint64_t n = PAGE_SIZE - within < length - done ? PAGE_SIZE - within : length - done;
+        if (i >= o->count)
+            break;                                  /* (cut down meanwhile) */
+        uint64_t v = anon_peek(o, i), page;
+        if (!write && !v) {
+            memset((uint8_t *)buffer + done, 0, n);    /* (never made: zeros, made by none) */
+        } else if (!(r = memory_page(o, i, &page))) {
+            uint8_t *p = (uint8_t *)phys_to_virt(page) + within;
+            if (write)
+                memcpy(p, (uint8_t *)buffer + done, n);
+            else
+                memcpy((uint8_t *)buffer + done, p, n);
+        }
+        if (!r)
+            done += n;
+    }
+    mutex_unlock(&o->lock);
+    return done ? (int64_t)done : r;
+}
+
+/* For process_each_space: does this process map o writable and shared? */
+struct writable_look {
+    struct anon_obj *o;
+    bool found;
+};
+
+static void writable_in(struct mmap_state *m, uint64_t space, void *arg)
+{
+    (void)space;
+    struct writable_look *w = arg;
+    rwlock_read(&m->lock);
+    for (struct mapping *g = m->maps; g && !w->found; g = g->next)
+        if (g->anon == w->o && (g->access & USER_WRITE))
+            w->found = true;
+    rwlock_unlock(&m->lock);
+}
+
+int64_t mmap_memory_seal(struct anon_obj *o, unsigned add)
+{
+    if (add & ~(unsigned)SEALS_ALL)
+        return -ERR_INVAL;
+    mutex_lock(&o->resize);
+    unsigned seals = mmap_memory_seals(o);
+    if (seals & SEAL_SEAL) {
+        mutex_unlock(&o->resize);
+        return add & ~seals ? -ERR_PERM : 0;
+    }
+    /* SEAL_WRITE only while nothing maps it writable: set first, so a
+     * mapping made meanwhile (map and mprotect look at the seals holding
+     * their mappings to write) is refused, then looked for in every
+     * process; taken back if one is there, as Linux's EBUSY. */
+    __atomic_store_n(&o->seals, seals | add, __ATOMIC_RELEASE);
+    int64_t r = 0;
+    if ((add & SEAL_WRITE) && !(seals & SEAL_WRITE)) {
+        struct writable_look w = { o, false };
+        process_each_space(writable_in, &w);
+        if (w.found) {
+            __atomic_store_n(&o->seals, seals, __ATOMIC_RELEASE);
+            r = -ERR_BUSY;
+        }
+    }
+    mutex_unlock(&o->resize);
+    return r;
+}
+
+/* --- (43b-3) madvise and futexes on shared memory --- */
+
+int64_t mmap_advise(struct mmap_state *m, uint64_t space, uint64_t addr, uint64_t length,
+                    unsigned advice)
+{
+    if (addr % PAGE_SIZE || length > USER_TOP || addr > USER_TOP - length)
+        return -ERR_INVAL;
+    if (advice == MADVISE_WILLNEED)
+        return 0;                                   /* (pages are made when touched) */
+    if (advice != MADVISE_DONTNEED && advice != MADVISE_FREE)
+        return -ERR_INVAL;
+    length = (length + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t end = addr + length;
+    /* The pages taken out as munmap would, the mappings kept: anonymous
+     * memory's are made again zeroed at the next touch (shared memory's
+     * entries only: the object keeps the content), a copy-on-write
+     * mapping's copies are the file's again. A file's other pages are
+     * mapped once at mmap and stay (they are the file's anyway). (FREE as
+     * DONTNEED: Linux may keep the old content until memory is short.) */
+    struct drop d;
+    drop_begin(&d, m, space, length / PAGE_SIZE);
+    mm_lock(m);
+    for (struct mapping *g = m->maps; g; g = g->next)
+        if (g->end > addr && g->start < end && (g->anonymous || g->cow))
+            drop_pages(&d, g, g->start > addr ? g->start : addr, g->end < end ? g->end : end);
+    mm_unlock_dropped(m, &d);
+    return 0;
+}
+
+bool mmap_mapped(struct mmap_state *m, uint64_t addr)
+{
+    bool found = false;
+    rwlock_read(&m->lock);
+    for (struct mapping *g = m->maps; g && !found; g = g->next)
+        found = addr >= g->start && addr < g->end;
+    rwlock_unlock(&m->lock);
+    return found;
+}
+
+bool mmap_futex_key(struct mmap_state *m, uint64_t addr, const void **object, uint64_t *where)
+{
+    if (!__atomic_load_n(&m->shares, __ATOMIC_ACQUIRE))
+        return false;
+    bool found = false;
+    rwlock_read(&m->lock);
+    for (struct mapping *g = m->maps; g && !found; g = g->next)
+        if (addr >= g->start && addr < g->end && g->anon) {
+            *object = g->anon;
+            *where = (g->first + (addr - g->start) / PAGE_SIZE) * PAGE_SIZE + addr % PAGE_SIZE;
+            found = true;
+        }
+    rwlock_unlock(&m->lock);
+    return found;
 }
 
 void mmap_release_all(struct mmap_state *m, uint64_t space)

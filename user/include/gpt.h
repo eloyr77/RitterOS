@@ -8,6 +8,10 @@
 #ifndef RITTEROS_GPT_H
 #define RITTEROS_GPT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -64,5 +68,9 @@ void gpt_new_guid(uint8_t *g);
 /* "B5CA1B3E-6278-48F0-BBEF-87907326A8B3" to the GPT's bytes; false if it
  * is not one. */
 bool gpt_parse_guid(const char *s, uint8_t *g);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

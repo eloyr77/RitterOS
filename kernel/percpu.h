@@ -54,11 +54,14 @@ struct cpu {
     uint64_t stack_top;                 /* its first stack (a parked core's) */
     uint64_t start_counts;              /* arch_counter() counts until it reported in */
     uint64_t ticks;                     /* (65c) timer interrupts on this core */
+    uint64_t precise_at;                /* (45a) the earliest precise deadline (arch_counter)
+                                         * of a thread asleep here (0: none) */
     uint64_t interrupts;                /* (65d) devices' interrupts handled here */
     /* (65d) The clock: counters read when asked (clock_asked), and what the
      * last list of them saw. */
     volatile int clock_asked;
     volatile int heap_asked;            /* (65e) give the heap's blocks back (heap_trim) */
+    volatile int clock_set_asked;       /* (69a) apply the clock setting (cpu_clock_core) */
     bool clock_valid;
     uint64_t clock_actual, clock_base, clock_at;
     uint64_t clock_last_actual, clock_last_base, clock_last_at;

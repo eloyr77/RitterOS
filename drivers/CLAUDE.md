@@ -33,12 +33,14 @@ the interface declares (`scripts/kexports.c`): using anything else stops
 the build (`kexports: ... uses NAME, which the driver interface does not
 declare`).
 
-The interface has a version, `DRIVER_API_MAJOR.DRIVER_API_MINOR` (now 6.1:
+The interface has a version, `DRIVER_API_MAJOR.DRIVER_API_MINOR` (now 7.0:
 65e-44 gave `struct wait_queue` its own lock, so its layout changed; 37e-2a
 added `acpi_pci_method`; 37e-2b gave `struct gpu_card` its `backlight`,
 37e-2c `brightness` and `brightness_now`; 37g-2 `MODULE`'s `suspend` and
 `resume`; 37g-5c-2 `struct gpu_card`'s `report_sleep`: 6.0; 38b `struct
-net_card`'s `set_promiscuous`, at its end, recorded as agreed: 6.1),
+net_card`'s `set_promiscuous`, at its end, recorded as agreed: 6.1; 68v
+`struct sound_card`'s `delay` and `reset`: a card lives in the driver's own
+memory, so a 6.x module's is shorter: 7.0),
 which every module carries. The kernel refuses a module built for another
 major version, or a newer minor one, than its own (`made for the driver
 interface 1.9, this kernel has 1.0`). `drivers/abi/driver-api.N.txt` records
@@ -219,9 +221,9 @@ flipping screen buffers) through the driver's operations.
    driver what the layer knows.
 
 `drivers/intelgpu.c` (Bay Trail, the J1900's) and `drivers/amdgpu.c` (AMD
-Cezanne, its video BIOS from the ACPI table VFCT: `acpi_find_table`; the
-firmware's ATIF interface under the device's ACPI node: `acpi_pci_method`)
-are the examples.
+Cezanne and Picasso, its video BIOS from the ACPI table VFCT:
+`acpi_find_table`; the firmware's ATIF interface under the device's ACPI
+node: `acpi_pci_method`) are the examples.
 
 ### Sound (`driver_sound.h`)
 
@@ -235,8 +237,13 @@ kind; programs write 48 kHz 16-bit stereo PCM (`SOUND_RATE`,
    `SOUND_LINE_OUT`, `SOUND_DIGITAL`: from what the chip says its outputs
    are wired to), `outputs` (the boot line's description), `priv`, and the
    operations `write` (take the PCM, waiting while your buffer is full;
-   start playing if stopped) and `drain` (play out what was written, then
-   stop with silence: the player closed the device).
+   start playing if stopped), `drain` (play out what was written, then
+   stop with silence: the player closed the device), (7.0) `delay` (the
+   bytes written and not yet played, 0 once all played even if the player
+   fell behind: OSS's `SNDCTL_DSP_GETODELAY` asks it) and `reset` (stop at
+   once with silence, dropping what is buffered: `SNDCTL_DSP_RESET`). A
+   player that falls behind must hear silence, not the buffer's old sound
+   again (hda zeroes what has played).
 2. `sound_register(&card)` once the chip plays.
 
 `drivers/hda.c` (Intel HD Audio, any maker's: QEMU's intel-hda, the

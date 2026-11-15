@@ -9,8 +9,14 @@
 #ifdef NDEBUG
 #define assert(expression) ((void)0)
 #else
+#ifdef __cplusplus
+extern "C" {
+#endif
 __attribute__((noreturn)) void ritteros_assert_failed(const char *expression, const char *file,
                                                       int line, const char *function);
+#ifdef __cplusplus
+}
+#endif
 #define assert(expression) \
     ((expression) ? (void)0 : ritteros_assert_failed(#expression, __FILE__, __LINE__, __func__))
 #endif

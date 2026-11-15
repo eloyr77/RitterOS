@@ -30,6 +30,7 @@
 #define INDENT 16                       /* a tree's level */
 #define COLUMNS_MAX 16
 #define EDIT_PAD 4                      /* (41e-4) an editor's text from its edges */
+#define SIDEWAYS_STEP 32                /* (68m-2) pixels a sideways wheel step moves an entry */
 #define BLINK_MS 530                    /* the cursor's blink */
 #define BLINK_TIMER 0x7E41              /* (widget_run's timer's id) */
 #define PASTE_MAX 65536
@@ -47,7 +48,7 @@
 #define PANEL PARTS(WINDOW_COLOR_PANEL)
 #define HOVER PARTS(WINDOW_COLOR_HOVER)
 
-enum kind { ROW, COLUMN, GRID, TABS, LABEL, BUTTON, CHECK, RADIO, SLIDER, PROGRESS, LIST, TABLE, TREE, EDITOR };
+enum kind { ROW, COLUMN, GRID, TABS, PAGES, LABEL, BUTTON, CHECK, RADIO, SLIDER, PROGRESS, LIST, TABLE, TREE, EDITOR };
 
 struct run {
     struct run *under;                  /* (41e-5) the run a dialog's run is inside, or 0 */
@@ -76,6 +77,7 @@ struct widget {
      * leading tabs, its branches open or not) */
     char **items;
     int nitems, top, hover_row, ncols;
+    bool reveal;                        /* (69h) the program chose a row: shown at the next draw */
     unsigned char *level, *open;
     int colw[COLUMNS_MAX];
     /* (41e-4) an editor: its text is `text`; the cursor and the other end
@@ -119,6 +121,7 @@ struct widget *widget_grid(int columns)
 }
 
 struct widget *widget_tabs(void) { return make(TABS, 0); }
+struct widget *widget_pages(void) { return make(PAGES, 0); }
 
 struct widget *widget_slider(int min, int max, int value)
 {
@@ -202,7 +205,7 @@ struct widget *widget_radio(const char *utf8, struct widget *group, int on)
 
 static bool container(const struct widget *w)
 {
-    return w->kind == ROW || w->kind == COLUMN || w->kind == GRID || w->kind == TABS;
+    return w->kind == ROW || w->kind == COLUMN || w->kind == GRID || w->kind == TABS || w->kind == PAGES;
 }
 
 static bool rows_kind(const struct widget *w)
@@ -216,11 +219,12 @@ static bool focusable(const struct widget *w)
            rows_kind(w) || w->kind == EDITOR;
 }
 
-/* Is a child shown? (a tabs' page only while it is the open one) */
+/* Is a child shown? (a tabs' or (69c) pages' page only while it is the
+ * open one) */
 static bool shown(const struct widget *child)
 {
     const struct widget *p = child->parent;
-    if (!p || p->kind != TABS)
+    if (!p || (p->kind != TABS && p->kind != PAGES))
         return true;
     int i = 0;
     for (const struct widget *c = p->first; c && c != child; c = c->next)
@@ -313,7 +317,8 @@ static int clamp_value(const struct widget *w, int value)
         return value < w->min ? w->min : value > w->max ? w->max : value;
     case PROGRESS:
         return value < 0 ? 0 : value > w->max ? w->max : value;
-    case TABS: {
+    case TABS:
+    case PAGES: {
         int n = children(w);
         return value < 0 ? 0 : value >= n ? (n ? n - 1 : 0) : value;
     }
@@ -335,7 +340,7 @@ static int clamp_value(const struct widget *w, int value)
 void widget_set_value(struct widget *w, int value)
 {
     if (!w || (w->kind != CHECK && w->kind != RADIO && w->kind != SLIDER && w->kind != PROGRESS &&
-               w->kind != TABS && !rows_kind(w) && w->kind != EDITOR))
+               w->kind != TABS && w->kind != PAGES && !rows_kind(w) && w->kind != EDITOR))
         return;
     if (w->kind == EDITOR) {
         w->cur = w->anchor = clamp_value(w, value);
@@ -345,8 +350,9 @@ void widget_set_value(struct widget *w, int value)
     if (w->kind == RADIO && value)
         choose(w);
     else {
+        w->reveal = rows_kind(w);               /* (69h) a chosen row scrolled into view */
         w->value = clamp_value(w, value);
-        changed(w, w->kind == TABS);            /* (another page: everything drawn again) */
+        changed(w, w->kind == TABS || w->kind == PAGES);    /* (another page: everything drawn again) */
     }
 }
 
@@ -582,6 +588,18 @@ static void measure(struct widget *w, const struct font *f)
         w->nh = (rows + (w->kind == TABLE)) * (line + 4) + 2;
         break;
     }
+    case PAGES: {                                       /* (69c) as large as its largest page */
+        int pw = 0, ph = 0;
+        for (struct widget *c = w->first; c; c = c->next) {
+            measure(c, f);
+            pw = c->nw > pw ? c->nw : pw;
+            ph = c->nh > ph ? c->nh : ph;
+        }
+        w->header = 0;
+        w->nw = pw;
+        w->nh = ph;
+        break;
+    }
     case TABS: {                                        /* the titles over the largest page */
         int titles = 0, pw = 0, ph = 0;
         for (struct widget *c = w->first; c; c = c->next) {
@@ -673,6 +691,9 @@ static void place(struct widget *w, int x, int y, int wd, int ht)
     } else if (w->kind == TABS) {                       /* every page in the same place, below the titles */
         for (struct widget *c = w->first; c; c = c->next)
             place(c, x + GAP, y + w->header + GAP, wd - 2 * GAP, ht - w->header - 2 * GAP);
+    } else if (w->kind == PAGES) {                      /* (69c) every page in its whole place */
+        for (struct widget *c = w->first; c; c = c->next)
+            place(c, x, y, wd, ht);
     } else if (w->kind == GRID) {
         int cols = w->columns > 64 ? 64 : w->columns, colw[64] = { 0 }, i = 0;
         for (struct widget *c = w->first; c; c = c->next, i++)
@@ -783,7 +804,8 @@ static void draw_rows(struct run *r, struct draw_canvas *c, struct widget *w, bo
         }
         y0 += rh;
     }
-    keep_rows(r, w, false);
+    keep_rows(r, w, w->reveal);
+    w->reveal = false;
     for (int k = w->top; k < w->top + fit; k++) {
         int item = shown_item(w, k);
         if (item < 0)
@@ -1620,6 +1642,12 @@ static void event(struct run *r, struct widget *root, const struct window_event 
         window_resize(r->win, ev->x, ev->y);
         r->relayout = true;
         break;
+    case WINDOW_SETTINGS:                               /* (69b) new colours, a new text size */
+        r->font = wfont_open("FreeSans.ttf", 0);
+        if (!r->font)
+            r->font = wfont_regular();
+        r->relayout = true;                             /* (measured, placed, all drawn) */
+        break;
     case WINDOW_SCROLL: {                               /* (41e-3) the rows under the pointer, 3 a step */
         struct widget *w = control_at(root, r->px, r->py);
         if (w && rows_kind(w)) {
@@ -1632,6 +1660,12 @@ static void event(struct run *r, struct widget *root, const struct window_event 
             w->top += ev->y * 3;
             w->top = w->top > n - fit ? n - fit : w->top;
             w->top = w->top < 0 ? 0 : w->top;
+            changed(w, false);
+        } else if (w && w->kind == EDITOR && ev->x) {  /* (68m-2) a one-line entry sideways */
+            int most = width_of(r, w->text, (int)strlen(w->text)) - edit_width(w) + 2;
+            w->scroll_x += ev->x * SIDEWAYS_STEP;      /* (the cursor may leave the view: */
+            w->scroll_x = w->scroll_x > most ? most : w->scroll_x;    /* a key brings it back) */
+            w->scroll_x = w->scroll_x < 0 ? 0 : w->scroll_x;
             changed(w, false);
         }
         break;

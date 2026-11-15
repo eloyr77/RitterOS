@@ -40,7 +40,7 @@
 #include "wfont.h"
 #include "window.h"
 
-PROGRAM_HELP("term [-f FONT] [CMD [ARG...]]",
+PROGRAM_HELP("Term [-f FONT] [CMD [ARG...]]",
              "a terminal in a window (FONT of /system/fonts); with a command, runs it (needs windowd)");
 
 #define MAXCOLS 170                     /* the grid is a fixed max (no malloc); cols/rows are */
@@ -436,6 +436,21 @@ static int reader(void *arg)
     }
 }
 
+/* (41g-5) the user's theme (68m-1b: named `back` until then, it hid the
+ * scrolled-back count from every use below); (69b) again after
+ * WINDOW_SETTINGS. */
+static void theme_colors(void)
+{
+    uint32_t theme = window_color(WINDOW_COLOR_BACKGROUND);
+    if ((theme >> 16 & 0xFF) + (theme >> 8 & 0xFF) + (theme & 0xFF) > 3 * 128) {
+        fg = window_rgb(win, 0x2E, 0x34, 0x40);
+        bg = window_rgb(win, 0xEC, 0xEF, 0xF4);
+    } else {
+        fg = window_rgb(win, 220, 220, 220);
+        bg = window_rgb(win, 0, 0, 0);
+    }
+}
+
 int main(int argc, char **argv)
 {
     /* The program to run: the shell, or a given command (term CMD ARGS...). */
@@ -487,14 +502,7 @@ int main(int argc, char **argv)
             printf("term: cannot open a window (is windowd running?)\n");
         return 1;
     }
-    uint32_t back = window_color(WINDOW_COLOR_BACKGROUND);      /* (41g-5) the user's theme */
-    if ((back >> 16 & 0xFF) + (back >> 8 & 0xFF) + (back & 0xFF) > 3 * 128) {
-        fg = window_rgb(win, 0x2E, 0x34, 0x40);
-        bg = window_rgb(win, 0xEC, 0xEF, 0xF4);
-    } else {
-        fg = window_rgb(win, 220, 220, 220);
-        bg = window_rgb(win, 0, 0, 0);
-    }
+    theme_colors();
 
     int fds[2];
     if (ritteros_pty_open(fds) < 0) {
@@ -560,6 +568,11 @@ int main(int argc, char **argv)
             write(master, &b, 1);       /* the key goes to the shell */
         } else if (ev.type == WINDOW_RESIZE) {
             resize_to((ev.x - WINDOW_SCROLLBAR_W) / cw, ev.y / ch);  /* whole cells, and reflow */
+        } else if (ev.type == WINDOW_SETTINGS) {    /* (69b) a new theme */
+            take();
+            theme_colors();
+            render();
+            give();
         } else if (ev.type == WINDOW_SCROLL) {  /* the wheel: 3 lines a step, negative up */
             take();
             scroll_back_to(back - 3 * ev.y);

@@ -10,6 +10,57 @@
 
 #define CPACR_FPEN      (3ULL << 20)    /* FP/SIMD not trapped at EL0 and EL1 */
 
+/* An ID register's 4-bit field at bit `at`. */
+static unsigned field(uint64_t reg, int at)
+{
+    return (unsigned)(reg >> at) & 0xF;
+}
+
+/* (43b-6) Linux's HWCAP_* bits (arch/arm64's uapi hwcap.h), from the ID
+ * registers as its cpufeature.c reads them. */
+void arch_hwcaps(uint64_t *hwcap, uint64_t *hwcap2)
+{
+    uint64_t pfr0 = read_sysreg(id_aa64pfr0_el1), isar0 = read_sysreg(id_aa64isar0_el1);
+    uint64_t isar1 = read_sysreg(id_aa64isar1_el1), h = 0;
+    unsigned fp = field(pfr0, 16), simd = field(pfr0, 20);
+    if (fp != 0xF)
+        h |= 1ULL << 0 | (fp >= 1 ? 1ULL << 9 : 0);             /* FP, FPHP */
+    if (simd != 0xF)
+        h |= 1ULL << 1 | (simd >= 1 ? 1ULL << 10 : 0);          /* ASIMD, ASIMDHP */
+    if (field(isar0, 4) >= 1)
+        h |= 1ULL << 3 | (field(isar0, 4) >= 2 ? 1ULL << 4 : 0);    /* AES, PMULL */
+    if (field(isar0, 8) >= 1)
+        h |= 1ULL << 5;                                         /* SHA1 */
+    if (field(isar0, 12) >= 1)
+        h |= 1ULL << 6 | (field(isar0, 12) >= 2 ? 1ULL << 21 : 0);  /* SHA2, SHA512 */
+    if (field(isar0, 16) >= 1)
+        h |= 1ULL << 7;                                         /* CRC32 */
+    if (field(isar0, 20) >= 2)
+        h |= 1ULL << 8;                                         /* ATOMICS */
+    if (field(isar0, 28) >= 1)
+        h |= 1ULL << 12;                                        /* ASIMDRDM */
+    if (field(isar0, 32) >= 1)
+        h |= 1ULL << 17;                                        /* SHA3 */
+    if (field(isar0, 36) >= 1)
+        h |= 1ULL << 18;                                        /* SM3 */
+    if (field(isar0, 40) >= 1)
+        h |= 1ULL << 19;                                        /* SM4 */
+    if (field(isar0, 44) >= 1)
+        h |= 1ULL << 20;                                        /* ASIMDDP */
+    if (field(isar0, 48) >= 1)
+        h |= 1ULL << 23;                                        /* ASIMDFHM */
+    if (field(isar1, 0) >= 1)
+        h |= 1ULL << 16;                                        /* DCPOP */
+    if (field(isar1, 12) >= 1)
+        h |= 1ULL << 13;                                        /* JSCVT */
+    if (field(isar1, 16) >= 1)
+        h |= 1ULL << 14;                                        /* FCMA */
+    if (field(isar1, 20) >= 1)
+        h |= 1ULL << 15 | (field(isar1, 20) >= 2 ? 1ULL << 26 : 0);     /* LRCPC, ILRCPC */
+    *hwcap = h;
+    *hwcap2 = 0;
+}
+
 void arch_user_init(void)
 {
     write_sysreg(CPACR_EL1, read_sysreg(CPACR_EL1) | CPACR_FPEN);

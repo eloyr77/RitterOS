@@ -592,6 +592,8 @@ bool paging_user_touch(uint64_t space, uint64_t virt)
 
 /* Free what the entries of a table at this level (2: PDPT ... 0: page
  * table) point to: lower tables, and at the bottom the program's pages. */
+uint64_t paging_kept_page;
+
 static void free_below(uint64_t *table, int level)
 {
     for (int i = 0; i < 512; i++) {
@@ -600,6 +602,8 @@ static void free_below(uint64_t *table, int level)
         uint64_t phys = table[i] & PTE_ADDRESS;
         if (level > 0)
             free_below(phys_to_virt(phys), level - 1);
+        else if (phys == paging_kept_page)
+            continue;                       /* (68p) the clock page: the kernel's */
         pmm_free_page(phys);
     }
 }

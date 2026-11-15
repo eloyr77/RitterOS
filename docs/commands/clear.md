@@ -7,7 +7,7 @@ clear
 Empties the screen and puts the cursor in its top left corner, so the next
 prompt is at the top. `clear` only writes the two escape sequences `ESC [ 2
 J` (erase the screen) and `ESC [ H` (cursor home): the console understands
-them, and so does a terminal on the serial port, an SSH session or `term`.
+them, and so does a terminal on the serial port, an SSH session or `Term`.
 `clear` has been in RitterOS since step 26. Ctrl-L at the prompt does the
 same and shows the prompt again at the top (since step 30).
 
@@ -29,4 +29,4 @@ ritteros:/$ ls; clear
 
 ## See also
 
-[`sh`](sh.md) (Ctrl-L), [`term`](term.md), [`edit`](edit.md)
+[`sh`](sh.md) (Ctrl-L), [`Term`](Term.md), [`edit`](edit.md)

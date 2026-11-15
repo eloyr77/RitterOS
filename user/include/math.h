@@ -11,6 +11,10 @@
 #ifndef RITTEROS_MATH_H
 #define RITTEROS_MATH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define M_PI        3.14159265358979323846
 #define M_PI_2      1.57079632679489661923
 #define M_PI_4      0.78539816339744830962
@@ -288,5 +292,9 @@ long double __floatsitf(int a);
 long double __floatditf(long a);
 long double __floatunsitf(unsigned int a);
 long double __floatunditf(unsigned long a);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

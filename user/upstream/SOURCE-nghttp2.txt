@@ -1,0 +1,17 @@
+RitterOS's nghttp2 (46c): /system/<arch>/lib/libnghttp2.so.14 (HTTP/2's
+framing, HPACK and its sessions, the library only) with the headers
+/system/include/nghttp2/.
+
+It is nghttp2 1.71.0 by Tatsuhiro Tsujikawa and its contributors, built
+unchanged from its source archive (https://github.com/nghttp2/nghttp2/
+releases/download/v1.71.0/nghttp2-1.71.0.tar.xz, SHA-256 in
+user/upstream/versions, as the project's checksums.txt gives it), which
+scripts/setup-toolchain.sh downloads into tools/src: none of its sources
+are kept in this repository. Only the build is RitterOS's: its own CMake
+through the SDK's sdk/ritteros.cmake (ENABLE_LIB_ONLY, shared), in the
+Makefile's "nghttp2, brotli and libpsl" part.
+
+Licence: the MIT licence (user/upstream/LICENCE-nghttp2.txt, nghttp2's
+COPYING; installed as /system/doc/licences/nghttp2.txt), compatible with
+the GPL; taking it in was agreed for item 46 (2026-11-12).
+Upstream: https://nghttp2.org, https://github.com/nghttp2/nghttp2

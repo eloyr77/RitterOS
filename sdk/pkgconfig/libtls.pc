@@ -1,0 +1,13 @@
+# libtls.pc (43d): libtls.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libtls
+Description: RitterOS's TLS 1.3 and HTTPS
+Version: 1
+Requires: ritteros
+Cflags: -I${includedir}
+Libs: ${libdir}/libtls.so.1

@@ -1,0 +1,9 @@
+# libkeyring.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+constant	KEYRING_NAME_MAX	255
+constant	KEYRING_SECRET_MAX	4096
+function	keyring_get	ssize_t keyring_get(const char *service, const char *account, void *secret, size_t size)
+function	keyring_list	int keyring_list(void (*each)(const char *service, const char *account, void *arg), void *arg)
+function	keyring_remove	int keyring_remove(const char *service, const char *account)
+function	keyring_set	int keyring_set(const char *service, const char *account, const void *secret, size_t length)
+function	keyring_system	void keyring_system(void)

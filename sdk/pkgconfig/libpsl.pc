@@ -1,0 +1,13 @@
+# libpsl.pc (46e): libpsl.so.5, a system library from upstream, for builds outside
+# the tree (sdk/ritteros.cmake and sdk/ritteros.meson set arch). Version:
+# user/upstream/versions' (sdk_shell_test compares them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/build/upstream/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libpsl
+Description: the Public Suffix List (built in)
+Version: 0.23.3
+Cflags: -I${includedir}
+Libs: ${libdir}/libpsl.so.5

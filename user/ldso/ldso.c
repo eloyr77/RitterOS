@@ -3,7 +3,9 @@
  * program for a program whose ELF file names it (PT_INTERP), with the program
  * already loaded and an auxiliary vector on the stack telling where the
  * program's headers and entry point are. ld.so maps every library the program
- * needs from /system/<arch>/lib (and every one those need) with mmap: their
+ * needs (and every one those need) with mmap, (43e) from the folders of
+ * their RUNPATH and the program's (`$ORIGIN/lib`: an app's own, in its
+ * bundle), then /system/<arch>/lib (user/ldso/runpath.h's rule): their
  * code and read-only data come from the page cache, one copy shared with
  * every program that maps the same library, their writable data is a private
  * copy. It then resolves every symbol at once -- a missing library or
@@ -25,6 +27,7 @@
 #include <unistd.h>
 #include "../../common/elf.h"
 #include "ritteros.h"
+#include "runpath.h"
 
 #if defined(__x86_64__)
 #define LIB_DIR         "/system/x86_64/lib/"
@@ -48,8 +51,8 @@
 #define R_TPOFF         R_AARCH64_TLS_TPREL64
 #endif
 
-#define MAX_OBJECTS     16              /* the program and its libraries */
-#define MAX_NEEDED      16              /* libraries one object names */
+#define MAX_OBJECTS     512             /* the program and its libraries (43e: 16 before; the
+                                         * array is bss: only the entries used cost pages) */
 #define MAX_SEGMENTS    16
 #define PAGE            4096ULL
 #define PAGE_UP(x)      (((x) + PAGE - 1) & ~(PAGE - 1))
@@ -66,18 +69,22 @@ struct object {                         /* the program, or a library */
     uint64_t relasz, pltrelsz;
     uint64_t init_array, init_arraysz;
     uint64_t relro_start, relro_end;    /* read-only once relocated (absolute; 0: none) */
-    uint64_t needed[MAX_NEEDED];        /* DT_NEEDED: name offsets in strtab */
-    int needed_count;
     uint64_t tls_image, tls_filesz, tls_memsz, tls_align;  /* its PT_TLS (22i; memsz 0: none) */
     int tls_module;                     /* its number among the modules with per-thread data */
     long tls_tpoff;                     /* its block's offset from the thread pointer */
     uint64_t span, span_size;           /* where it is mapped (a library) */
+    const Elf64_Phdr *phdr;             /* (43a-4) its program headers in memory */
+    uint16_t phnum;
     int refs;                           /* dlopen calls on it (22k) */
+    char dir[256];                      /* (43e) its folder: $ORIGIN ("": not known) */
+    const char *runpath;                /* (43e) its DT_RUNPATH, else DT_RPATH (0: none) */
+    uint64_t runpath_at, rpath_at;      /* (their offsets in strtab, + 1; 0: none) */
 };
 
 static struct object objects[MAX_OBJECTS];
 static int count;
 static const char *program = "?";      /* the program's name, for messages */
+static bool secure;                     /* (43e) AT_SECURE: no $ORIGIN */
 
 /* dlopen (22k): a failure goes back to the call (ldso.S) with the message,
  * instead of ending the program. */
@@ -108,11 +115,6 @@ static void parse(struct object *o)
     for (const Elf64_Dyn *d = o->dynamic; d->d_tag != DT_NULL; d++) {
         uint64_t address = o->base + d->d_val;
         switch (d->d_tag) {
-        case DT_NEEDED:
-            if (o->needed_count == MAX_NEEDED)
-                fail("%s needs more than %d libraries", o->name, MAX_NEEDED);
-            o->needed[o->needed_count++] = d->d_val;
-            break;
         case DT_HASH:         o->hash = (const uint32_t *)address; break;
         case DT_STRTAB:       o->strtab = (const char *)address; break;
         case DT_SYMTAB:       o->symtab = (const Elf64_Sym *)address; break;
@@ -122,6 +124,8 @@ static void parse(struct object *o)
         case DT_PLTRELSZ:     o->pltrelsz = d->d_val; break;
         case DT_INIT_ARRAY:   o->init_array = address; break;
         case DT_INIT_ARRAYSZ: o->init_arraysz = d->d_val; break;
+        case DT_RUNPATH:      o->runpath_at = d->d_val + 1; break;
+        case DT_RPATH:        o->rpath_at = d->d_val + 1; break;
         case DT_PLTREL:
             if (d->d_val != DT_RELA)
                 fail("%s: its PLT relocations are not RELA", o->name);
@@ -132,6 +136,18 @@ static void parse(struct object *o)
     }
     if (!o->strtab || !o->symtab)
         fail("%s: no dynamic symbol table", o->name);
+    if (o->runpath_at || o->rpath_at)   /* (43e: RUNPATH wins, as Linux's loader) */
+        o->runpath = o->strtab + (o->runpath_at ? o->runpath_at : o->rpath_at) - 1;
+}
+
+/* (43e) The k-th library o names (its k-th DT_NEEDED), 0 past the last:
+ * read from its dynamic section, so an object may name any number. */
+static const char *needed(const struct object *o, int k)
+{
+    for (const Elf64_Dyn *d = o->dynamic; d->d_tag != DT_NULL; d++)
+        if (d->d_tag == DT_NEEDED && k-- == 0)
+            return o->strtab + d->d_val;
+    return 0;
 }
 
 /* The System V ELF hash of a symbol name. */
@@ -254,28 +270,60 @@ static void relocate(const struct object *o, const Elf64_Rela *r, uint64_t size)
     }
 }
 
-/* Map the library `name` from LIB_DIR: its whole span reserved first, then
- * each segment put in its place in it. */
+/* (43e) Open the library `name` that `from` needs, by runpath.h's rule:
+ * its descriptor and path, or -1 (errno: LIB_DIR's) with the folders tried
+ * before LIB_DIR in `looked` ("A/, B/, "). */
+static int open_library(const char *name, const struct object *from, char *path, size_t size,
+                        char *looked, size_t looked_size)
+{
+    const struct object *in[2] = { from, &objects[0] };
+    looked[0] = 0;
+    for (int k = 0; k < (from == &objects[0] ? 1 : 2); k++) {
+        const char *list = in[k]->runpath;
+        char folder[256], key[260];
+        while (list && runpath_next(&list, in[k]->dir, secure, folder, sizeof(folder))) {
+            snprintf(key, sizeof(key), "%s/, ", folder);
+            size_t n = strlen(key), have = strlen(looked);
+            bool tried = false;                 /* (a folder in both lists: once) */
+            for (const char *at = looked; !tried && (at = strstr(at, key)); at++)
+                tried = at == looked || (at[-2] == ',' && at[-1] == ' ');
+            if (tried || snprintf(path, size, "%s/%s", folder, name) >= (int)size)
+                continue;
+            int fd = open(path, O_RDONLY);
+            if (fd >= 0)
+                return fd;
+            if (have + n < looked_size)
+                memcpy(looked + have, key, n + 1);
+        }
+    }
+    snprintf(path, size, LIB_DIR "%s", name);
+    return open(path, O_RDONLY);
+}
+
+/* Map the library `file` that `from` needs: its whole span reserved first,
+ * then each segment put in its place in it. */
 /* What a library being loaded holds until it is one of the objects: undone
  * if dlopen fails half way (22k). */
 static int pending_fd = -1;
 static void *pending_span;
 static uint64_t pending_size;
 
-static void load_library(const char *file)
+static void load_library(const char *file, const struct object *from)
 {
     if (count == MAX_OBJECTS)
         fail("more than %d libraries", MAX_OBJECTS - 1);
     const char *name = strrchr(file, '/') ? strrchr(file, '/') + 1 : file;   /* (a path: dlopen) */
     if (!name[0] || strlen(name) >= sizeof(objects[0].name))
         fail("%s is not a library name", file);
-    char path[256];
-    snprintf(path, sizeof(path), strchr(file, '/') ? "%s" : LIB_DIR "%s", file);
-    int fd = open(path, O_RDONLY);
-    if (fd < 0 && strchr(file, '/'))
-        fail("%s: %s", file, strerror(errno));
-    if (fd < 0)
-        fail("%s is not in " LIB_DIR " (%s)", name, strerror(errno));
+    char path[256], looked[512];
+    int fd;
+    if (strchr(file, '/')) {
+        snprintf(path, sizeof(path), "%s", file);
+        if ((fd = open(path, O_RDONLY)) < 0)
+            fail("%s: %s", file, strerror(errno));
+    } else if ((fd = open_library(file, from, path, sizeof(path), looked, sizeof(looked))) < 0) {
+        fail("%s is not in %s" LIB_DIR " (%s)", name, looked, strerror(errno));
+    }
     pending_fd = fd;
     Elf64_Ehdr eh;
     Elf64_Phdr ph[MAX_SEGMENTS];
@@ -340,9 +388,15 @@ static void load_library(const char *file)
     struct object *o = &objects[count++];
     memset(o, 0, sizeof(*o));
     snprintf(o->name, sizeof(o->name), "%s", name);
+    runpath_origin(path, o->dir, sizeof(o->dir));
     o->base = base;
     o->span = (uint64_t)span;
     o->span_size = hi - lo;
+    for (int i = 0; i < eh.e_phnum; i++)        /* (43a-4) its headers, in the segment at 0 */
+        if (ph[i].p_type == PT_LOAD && ph[i].p_offset == 0 && eh.e_phoff + (uint64_t)want <= ph[i].p_filesz) {
+            o->phdr = (const Elf64_Phdr *)(base + ph[i].p_vaddr + eh.e_phoff);
+            o->phnum = eh.e_phnum;
+        }
     pending_span = 0;
     o->dynamic = (const Elf64_Dyn *)(base + dynamic);
     if (tls && tls->p_memsz) {
@@ -464,13 +518,13 @@ static void *dl_open(const char *file, int flags, char *error, size_t size)
         return 0;
     }
     catching = true;
-    load_library(file);
-    for (int i = before; i < count; i++)        /* what it needs, each once */
-        for (int k = 0; k < objects[i].needed_count; k++) {
-            const char *need = objects[i].strtab + objects[i].needed[k];
+    load_library(file, &objects[0]);            /* (43e: a bare name where the program looks) */
+    for (int i = before; i < count; i++) {      /* what it needs, each once */
+        const char *need;
+        for (int k = 0; (need = needed(&objects[i], k)); k++)
             if (!loaded(need))
-                load_library(need);
-        }
+                load_library(need, &objects[i]);
+    }
     assign_tls(before);
     for (int i = count - 1; i >= before; i--) {
         relocate(&objects[i], objects[i].rela, objects[i].relasz);
@@ -533,6 +587,70 @@ static int dl_close(void *handle)
 
 static const struct ritteros_dl_loader dl_loader = { dl_open, dl_sym, dl_close };
 
+/* (43a-4) dl_iterate_phdr's and dladdr's answers. */
+static int dl_object(int index, struct ritteros_dl_object *out)
+{
+    if (index < 0 || index >= count)
+        return 0;
+    const struct object *o = &objects[index];
+    out->name = index == 0 ? "" : o->name;      /* (the program: "", as glibc's) */
+    out->base = o->base;
+    out->phdr = o->phdr;
+    out->phnum = o->phnum;
+    out->tls_module = o->tls_memsz ? (size_t)o->tls_module : 0;
+    out->tls_data = o->tls_memsz ? (void *)(thread_pointer() + o->tls_tpoff) : 0;
+    return 1;
+}
+
+/* Whether address lies in one of o's loaded segments. */
+static bool holds(const struct object *o, uint64_t address)
+{
+    for (int i = 0; o->phdr && i < o->phnum; i++)
+        if (o->phdr[i].p_type == PT_LOAD && address >= o->base + o->phdr[i].p_vaddr &&
+            address < o->base + o->phdr[i].p_vaddr + o->phdr[i].p_memsz)
+            return true;
+    return false;
+}
+
+static int dl_address(const void *where, const char **file, void **file_base, const char **symbol,
+                      void **symbol_address)
+{
+    uint64_t a = (uint64_t)where;
+    for (int i = 0; i < count; i++) {
+        const struct object *o = &objects[i];
+        if (!holds(o, a))
+            continue;
+        *file = i == 0 ? program : o->name;
+        uint64_t low = UINT64_MAX;
+        for (int k = 0; k < o->phnum; k++)
+            if (o->phdr[k].p_type == PT_LOAD && o->phdr[k].p_vaddr < low)
+                low = o->phdr[k].p_vaddr;
+        *file_base = (void *)(o->base + (low == UINT64_MAX ? 0 : low));
+        *symbol = 0;
+        *symbol_address = 0;
+        /* the nearest defined function or object at or below it (the hash
+         * table's nchain is the symbols' count) */
+        uint64_t best = 0;
+        uint32_t symbols = o->hash ? o->hash[1] : 0;
+        for (uint32_t k = 1; k < symbols; k++) {
+            const Elf64_Sym *s = &o->symtab[k];
+            unsigned kind = s->st_info & 0xf;
+            if (s->st_shndx == 0 || (kind != 1 && kind != 2))   /* STT_OBJECT, STT_FUNC */
+                continue;
+            uint64_t at = o->base + s->st_value;
+            if (at <= a && at >= best) {
+                best = at;
+                *symbol = o->strtab + s->st_name;
+                *symbol_address = (void *)at;
+            }
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static const struct ritteros_dl_query dl_query = { dl_object, dl_address };
+
 /* ld.so is position-independent (22l): the kernel put it at a random place,
  * so first of all it applies its own relocations (only relative ones: it is
  * static). Nothing before this may use an address stored in its data; the
@@ -570,6 +688,8 @@ uint64_t ldso_main(uint64_t *sp)
         p++;
     const Elf64_Phdr *phdr = 0;
     uint64_t phnum = 0, entry = 0, base = 0;
+    const char *execfn = 0;
+    bool told_secure = false;
     for (p++; p[0] != AT_NULL; p += 2) {
         if (p[0] == AT_PHDR)
             phdr = (const Elf64_Phdr *)p[1];
@@ -579,7 +699,13 @@ uint64_t ldso_main(uint64_t *sp)
             entry = p[1];
         else if (p[0] == AT_BASE)
             base = p[1];
+        else if (p[0] == AT_EXECFN)             /* (43e) */
+            execfn = (const char *)p[1];
+        else if (p[0] == AT_SECURE)
+            secure = p[1] != 0, told_secure = true;
     }
+    if (!told_secure)                           /* (a kernel from before 43e) */
+        secure = getuid() != geteuid();
     if (!phdr || !entry || !base) {     /* (no AT_BASE: started as a program of its own) */
         dprintf(STDERR_FILENO, "ld.so: the dynamic loader; the system starts it for programs "
                                "that use shared libraries\n");
@@ -587,6 +713,8 @@ uint64_t ldso_main(uint64_t *sp)
     }
     struct object *o = &objects[count++];
     snprintf(o->name, sizeof(o->name), "%s", program);
+    if (execfn && execfn[0] == '/')             /* (43e) $ORIGIN: the program's folder */
+        runpath_origin(execfn, o->dir, sizeof(o->dir));
     /* A position-independent program (22l) is somewhere at random: its
      * headers in memory (PT_PHDR) tell how far from where it was linked. */
     uint64_t pbase = 0;
@@ -594,6 +722,8 @@ uint64_t ldso_main(uint64_t *sp)
         if (phdr[i].p_type == PT_PHDR)
             pbase = (uint64_t)phdr - phdr[i].p_vaddr;
     o->base = pbase;
+    o->phdr = phdr;
+    o->phnum = (uint16_t)phnum;
     for (uint64_t i = 0; i < phnum; i++) {
         if (phdr[i].p_type == PT_DYNAMIC)
             o->dynamic = (const Elf64_Dyn *)(pbase + phdr[i].p_vaddr);
@@ -611,15 +741,12 @@ uint64_t ldso_main(uint64_t *sp)
     if (!o->dynamic)
         fail("no dynamic section");
     parse(o);
-    for (int i = 0; i < count; i++)     /* every library needed, breadth first, each once */
-        for (int k = 0; k < objects[i].needed_count; k++) {
-            const char *name = objects[i].strtab + objects[i].needed[k];
-            bool have = false;
-            for (int j = 1; j < count && !have; j++)
-                have = strcmp(objects[j].name, name) == 0;
-            if (!have)
-                load_library(name);
-        }
+    for (int i = 0; i < count; i++) {   /* every library needed, breadth first, each once */
+        const char *name;
+        for (int k = 0; (name = needed(&objects[i], k)); k++)
+            if (!loaded(name))
+                load_library(name, &objects[i]);
+    }
     assign_tls(0);
     for (int i = count - 1; i >= 0; i--) {
         relocate(&objects[i], objects[i].rela, objects[i].relasz);
@@ -646,7 +773,12 @@ uint64_t ldso_main(uint64_t *sp)
         tls_add = (int (*)(const struct ritteros_tls_module *))at_add;
     if (lookup("__ritteros_dl_setup", &at_dl))
         ((int (*)(const struct ritteros_dl_loader *))at_dl)(&dl_loader);
-    for (int i = count - 1; i >= 1; i--) {      /* the libraries' initializers, if any */
+    uint64_t at_query;
+    if (lookup("__ritteros_dl_setup2", &at_query))       /* (43a-4) */
+        ((int (*)(const struct ritteros_dl_query *))at_query)(&dl_query);
+    /* The libraries' initializers, if any, then (43c) the program's own
+     * (C++'s static objects), last as Linux's loader runs them. */
+    for (int i = count - 1; i >= 0; i--) {
         void (**init)(void) = (void (**)(void))objects[i].init_array;
         for (uint64_t k = 0; init && k < objects[i].init_arraysz / sizeof(*init); k++)
             init[k]();

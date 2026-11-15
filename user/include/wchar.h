@@ -11,6 +11,10 @@
 #ifndef RITTEROS_WCHAR_H
 #define RITTEROS_WCHAR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>                     /* WCHAR_MIN, WCHAR_MAX */
@@ -113,5 +117,38 @@ int swscanf(const wchar_t *s, const wchar_t *format, ...);
 int vwscanf(const wchar_t *format, va_list ap);
 int vfwscanf(FILE *f, const wchar_t *format, va_list ap);
 int vswscanf(const wchar_t *s, const wchar_t *format, va_list ap);
+
+/* (43a) POSIX's and GNU's beside C's: wcsdup (a malloc'd copy), wcsnlen,
+ * wcscasecmp/wcsncasecmp (without case: towlower's), wcpcpy/wcpncpy (the
+ * place of the copy's end). */
+wchar_t *wcsdup(const wchar_t *s);
+size_t wcsnlen(const wchar_t *s, size_t n);
+int wcscasecmp(const wchar_t *a, const wchar_t *b);
+int wcsncasecmp(const wchar_t *a, const wchar_t *b, size_t n);
+wchar_t *wcpcpy(wchar_t *dst, const wchar_t *src);
+wchar_t *wcpncpy(wchar_t *dst, const wchar_t *src, size_t n);
+
+/* (43a-2) wcwidth: the columns a character takes on a terminal (0
+ * combining marks, 2 wide East Asian ones, -1 controls and, in the C
+ * locale, anything past ASCII); wcswidth: n characters' (-1 if one is
+ * -1). mbsnrtowcs/wcsnrtombs: mbsrtowcs/wcsrtombs reading at most nms
+ * bytes or nwc characters. The *_l forms in a given locale. */
+int wcwidth(wchar_t wc);
+int wcswidth(const wchar_t *s, size_t n);
+size_t mbsnrtowcs(wchar_t *dst, const char **src, size_t nms, size_t n, mbstate_t *state);
+size_t wcsnrtombs(char *dst, const wchar_t **src, size_t nwc, size_t n, mbstate_t *state);
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int wcscoll_l(const wchar_t *a, const wchar_t *b, locale_t l);
+size_t wcsxfrm_l(wchar_t *dst, const wchar_t *src, size_t n, locale_t l);
+int wcscasecmp_l(const wchar_t *a, const wchar_t *b, locale_t l);
+int wcsncasecmp_l(const wchar_t *a, const wchar_t *b, size_t n, locale_t l);
+size_t wcsftime_l(wchar_t *s, size_t max, const wchar_t *format, const struct tm *tm, locale_t l);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

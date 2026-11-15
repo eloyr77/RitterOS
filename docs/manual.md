@@ -84,7 +84,7 @@ machine with a README and the files below, every line a comment (`#`) until
 you change it (a file you delete comes back, as comments, at the next
 login; since 37e-1b windowd also writes its `windows` when missing). Each
 commented line shows the setting's default: remove the `#` to change it. A file there wins over the system's file of the same name in
-`/system/config`. Two are read so far:
+`/system/config`. Three are read so far (`filetypes` is section 9's):
 
 - `login`: commands run when you log in at the machine's own screen and
   keyboard (not over SSH), one per line, before the first prompt; a line
@@ -96,7 +96,12 @@ commented line shows the setting's default: remove the `#` to change it. A file 
   ```
 
   From the next login on, the desktop comes up by itself; when you leave
-  it, the shell's prompt is there.
+  it, the shell's prompt is there. (69c) The settings app's **At login**
+  page chooses this for you (Console or Window system) and keeps the
+  login's items in order: with the window system its first lines are
+  `windowd &` and `wsend wait`, so the window system starts first and the
+  other items right after it, while it runs (a windowed app once it
+  answers).
 - `windows`: the window system's settings, the same keys as
   `/system/config/windows` (`startup = PROGRAM [ARGUMENTS]`: what opens with
   the desktop; `double_click = MS`: how quick a double click is;
@@ -104,6 +109,13 @@ commented line shows the setting's default: remove the `#` to change it. A file 
   PIXELS`: the size of text in programs that use your size, 15 if not set;
   `theme = light`: light windows and menus, dark if not set; `accent =
   RRGGBB`: the colour of what is in front and chosen).
+- `keyring` (70b): your keyring's settings (section 6, "keyring"):
+  `open_at_login = no` leaves it closed at a login, `lock_after = MINUTES`
+  locks it after that long without use.
+
+**Your keyring.** A login at the machine also opens your keyring, the
+passwords programs keep for you, with the password you just typed
+(section 6, "keyring").
 
 **Logging out.** `exit` (or Ctrl-D on an empty line) ends the shell;
 `login:` comes back.
@@ -361,7 +373,22 @@ more
 
 **Jobs.** Each command runs as a job that has the terminal (keyboard and
 Ctrl-C) while the shell waits. An `&` at the end runs it in the
-background; the shell reports when it ends:
+background: the shell says its job number and process number (`[1] 4`,
+44c) and reports when it ends (`[1] done, exit code 0`, or `[1] ended by
+signal 15`).
+
+(44c) **Job control** at a terminal: Ctrl-Z pauses (stops) the job that
+runs and gives the prompt back (`[1] stopped: COMMAND`); it keeps its
+memory and files until it goes on. `jobs` lists the jobs in the
+background or stopped (`[1]+ stopped  edit notes.txt`, `[2]- running
+make`: `+` the current job, `-` the one before), `fg` takes one on in the
+foreground, `bg` in the background (`fg %2`, `bg %1`; `%%` or `%+` the
+current job, `%-` the one before, none: the current). A job in the
+background that reads the terminal is stopped until `fg` gives it the
+terminal (SIGTTIN). A stopped job's terminal modes (an editor's) come back
+with it at `fg`. A script or `sh -c` has no job control (`fg`: "no job
+control in this shell"). Before 44c a program a signal ended was
+reported "stopped by signal N"; it is "ended by signal N" now.
 
 ```
 ritteros:/$ /system/x86_64/test/counter bg 3 500 &
@@ -382,6 +409,7 @@ is the job's number there.
 | Ctrl-U | erase the whole line |
 | Ctrl-L | clear the screen; the prompt and what you typed so far stay, at the top |
 | Ctrl-C | cancel the line; while a program runs: stop it |
+| Ctrl-Z | (44b, 44c) while a program runs: pause it (SIGTSTP) and get the prompt back; `fg` takes it on, `bg` lets it go on in the background |
 | Ctrl-D | on an empty line: end the shell |
 | Enter | run the line |
 
@@ -425,11 +453,13 @@ Extended-A), punctuation such as – “ ” …, € and arrows; other characte
 appear as a replacement mark.
 
 **The mouse.** A USB mouse or a laptop's built-in PS/2 mouse is found as
-`mouse0`, `mouse1`, ... in the order found. There is no window server yet,
-so a mouse does nothing on its own; the rescue console's `mouse` command
-(section 11) shows that one works — where its pointer is, how far it has
-moved and the buttons pressed. The window server that uses it is coming
-(the roadmap's "window system").
+`mouse0`, `mouse1`, ... in the order found; the window server (`windowd`)
+takes its pointer, buttons and wheels. A USB mouse is read as its report
+descriptor describes it, with a horizontal wheel or tilt where it has one
+(the boot says `report protocol, two wheels`), else in the simple boot
+protocol; a PS/2 mouse says `with a wheel` or `with two wheels`. The
+rescue console's `mouse` command (section 11) shows that one works —
+where its pointer is, how far it has moved and the buttons pressed.
 
 **Exit codes.** When a program fails it says so and the shell adds its exit
 code, for example `ls: exit code 1`.
@@ -643,14 +673,17 @@ Waits that long: whole seconds, fractions (`sleep 0.5`) and the suffixes
 The page with every option and message: [`date`](commands/date.md) (on RitterOS: `man date`).
 
 ```
-date [-u] [-d @SECONDS] [+FORMAT]
+date [-u] [-d @SECONDS] [-s TIME] [+FORMAT]
 ```
 
 Prints the date and time now in the local time (the zone of
 `/system/config/time`), or in UTC with `-u`, or that of SECONDS since 1970
 (`-d @1700000000`). `+FORMAT` uses `strftime`'s conversions (`%Y-%m-%d
 %H:%M:%S`, `%a` the day, `%j` the day of the year, ...; by default `%a %b
-%e %H:%M:%S %Z %Y`). It does not set the clock.
+%e %H:%M:%S %Z %Y`). (68l) As root, `date -s "2026-11-13 02:40"` (local,
+or UTC with `-u`; or `-s @SECONDS`) sets the clock, the firmware's too, so
+the next start keeps it: a machine whose firmware's clock is wrong has
+every web site's certificate refused as not yet valid.
 
 ### basename, dirname: a path's parts (since 51d)
 
@@ -1192,7 +1225,7 @@ js -e CODE [ARG...]
 js
 ```
 
-Runs JavaScript with RitterOS's own engine, the one iBrowser will use: a
+Runs JavaScript with RitterOS's own engine: a
 script from FILE, the text after `-e`, or, with neither, a prompt `js> `
 that runs each line typed (or read from the standard input) and prints its
 value unless it is `undefined`. The script's ARGs are the global array
@@ -1677,13 +1710,17 @@ ritteros:/$ passwd anna
 The page with every option and message: [`passwd`](commands/passwd.md) (on RitterOS: `man passwd`).
 
 ```
-passwd [NAME]
+passwd [-S] [NAME]
 ```
 
 Asks for the new password twice (not shown). Without NAME: your own.
-Root only so far. Passwords are stored only as salted hashes
+(69f) Root sets anyone's; any other user only their own, after giving the
+present one (`passwd` is setuid, as `su` and `sudo`). Passwords are stored only as salted hashes
 (PBKDF2-HMAC-SHA256, 100,000 rounds) in `/system/config/passwords`,
 which only root can read; the users are in `/system/config/users`.
+(70b) Your keyring follows your own new password (section 6,
+"keyring"); when root sets a password, that user's keyring keeps its old
+one until `keyring password`.
 
 ### su: become another user
 
@@ -1750,6 +1787,91 @@ useradd: carl: user ID 1002, home /home/carl; set a password with: passwd carl
 `su` and `sudo` are setuid programs (section "Permissions"): root's, with
 mode `4755`.
 
+### keyring: your passwords, kept encrypted (since 70a)
+
+The page with every option and message: [`keyring`](commands/keyring.md) (on RitterOS: `man keyring`).
+
+```
+keyring [-s] add|get|remove SERVICE ACCOUNT | keyring [-s] list | keyring lock|unlock|password | keyring allow PROGRAM SERVICE
+```
+
+Your **keyring** keeps secrets for you, passwords and tokens, each under
+a service and an account (`mail.example.org anna`), so programs need not
+keep them in files of their own. It is one file, `~/.config/keyring.db`,
+yours alone (mode 0600) and encrypted as a whole: without its password
+the file tells nothing, not even the services' names
+([keyring.md](keyring.md) is its format).
+
+```
+ritteros:/home/anna$ keyring add mail.example.org anna
+Secret for mail.example.org anna:
+Again:
+keyring: mail.example.org anna kept
+ritteros:/home/anna$ keyring get mail.example.org anna
+s3cr3t-and-long
+ritteros:/home/anna$ keyring list
+mail.example.org	anna
+```
+
+**Open and locked.** The elf `keyringd` (one per user, as that user)
+holds the keyring open, and programs ask it through `libkeyring`
+(`keyring.h`; the SDK's guide): they never see the keyring's password.
+Logging in at the machine opens it with your login password (your first
+login makes an empty one under it); it locks (keyringd forgets its key)
+when your last login ends, at `keyring lock`, or after `lock_after`
+minutes without use (`~/.config/keyring`; 0, the default, never).
+`keyring unlock` opens it with its password, also over SSH, which asks no
+password of its own, and starts keyringd when it does not run.
+`open_at_login = no` in `~/.config/keyring` leaves it closed at a login.
+`keyring password` changes its password; `passwd` changing your own
+password changes the keyring's too.
+
+**Which program may use an entry** (70c). keyringd knows a program by the
+file it runs (`/system/x86_64/bin/keyring`, an app's
+`/system/x86_64/apps/NAME.program/NAME`, a script by its interpreter). The
+program that stored an entry may use it. When another one asks for it,
+wants to replace it or remove it, a window asks you first, while that
+program waits:
+
+```
+Keyring
+The program
+/system/x86_64/apps/Compass.program/Compass
+asks for mail.example.org anna
+from your keyring.
+          [Allow]  [Deny]
+```
+
+Allow is kept (that program is not asked about that entry again); Deny
+until the keyring locks. Without the window system (at the console, over
+SSH) the program is refused; `keyring allow PROGRAM SERVICE` lets it use
+the service's entries, after the keyring's password. The `keyring`
+command is a program like any other: `keyring get` of what Compass stored
+asks too. The window keeps out programs that ask by mistake, or that you
+trust only so far; one of your own programs that sets out to read the
+keyring could click Allow itself (`wsend` sends the window system clicks).
+
+**The system keyring** (70d, `-s`) is root's programs' (a Wi-Fi
+passphrase, later): `/system/config/keyring.db`, held open from the boot
+by the elf `keyringd -s` (its file `/system/config/elves/keyringd`, which
+login makes). It has no password: its key is the 32 random bytes of
+`/system/config/keyring.key`, which only root can read. Copying the
+database alone tells nothing; whoever has the whole disk can open it
+(until the system disk is encrypted, on the plan). Only root may use it,
+and every root program every entry: root can read the key file anyway.
+
+```
+ritteros:/# printf 'wpa-pass\n' | keyring -s add wifi.example home
+keyring: wifi.example home kept
+ritteros:/# keyring -s get wifi.example home
+wpa-pass
+```
+
+Every unlock costs 600,000 rounds of PBKDF2-HMAC-SHA256, and so does
+every guess at a copied keyring file. What keyringd does
+(opened, locked and why, a program allowed, a password changed) goes to
+the log `keyring`, never a secret.
+
 ### chmod: change permissions
 
 The page with every option and message: [`chmod`](commands/chmod.md) (on RitterOS: `man chmod`).
@@ -1779,8 +1901,10 @@ The page with every option and message: [`login`](commands/login.md) (on RitterO
 
 The program behind `login:` (section 1). The kernel starts it; you do not
 run it yourself. It makes a user's `~/.config` (with a README) at their
-login when it is missing, and starts their shell as a login shell, `sh -l`,
-which runs `~/.config/login` first (section 1, "Your own settings").
+login when it is missing, opens their keyring (above, "keyring": keyringd
+started when needed, given the password), and starts their shell as a
+login shell, `sh -l`, which runs `~/.config/login` first (section 1, "Your
+own settings").
 
 ---
 
@@ -2809,6 +2933,53 @@ does not speak TLS 1.3`; `the server refused the handshake` (it found
 nothing in common with us); `a record failed its check (bad_record_mac)`
 (the data was changed on the way).
 
+### openssl: TLS by hand, keys and certificates
+
+The page with every option and message: [`openssl`](commands/openssl.md) (on RitterOS: `man openssl`).
+
+```
+openssl COMMAND [OPTION...]
+```
+
+OpenSSL's own tool (since 46b), on its libraries `libssl.so.3` and
+`libcrypto.so.3`, which ported programs use too. Unlike `fetch`, it speaks
+TLS 1.2 as well as 1.3. Its commands are OpenSSL's (`openssl help`,
+`openssl COMMAND -help`). To look at a server's TLS:
+
+```
+ritteros:/$ echo | openssl s_client -connect example.com:443 -servername example.com -brief
+Connecting to ...
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+...
+Verification: OK
+```
+
+It checks the certificate against the same roots as `fetch`
+(`/system/config/openssl/cert.pem` is a link to `/system/certs/cacert.pem`);
+`-verify_return_error` makes a failed check end the connection.
+
+### curl: get or send anything over HTTP, HTTPS and more
+
+The page with every option and message: [`curl`](commands/curl.md) (on RitterOS: `man curl`).
+
+```
+curl [OPTION...] URL...
+```
+
+curl itself (since 46d-2), on `libcurl.so.4`, the library ported programs
+use. Unlike `fetch` it speaks HTTP/2, TLS 1.2, cookies, proxies,
+WebSockets and compressed answers:
+
+```
+ritteros:/$ curl -sS --compressed -o page.html https://example.com/
+ritteros:/$ curl -sS -I https://example.com/
+HTTP/2 200
+...
+```
+
+It trusts the same roots as `fetch` (`/system/certs/cacert.pem`).
+
 ### wifi: the wireless link
 
 The page with every option and message: [`wifi`](commands/wifi.md) (on RitterOS: `man wifi`).
@@ -3064,7 +3235,7 @@ shows its fingerprint:
 
 ```
 ritteros:/$ sshd &
-[7]
+[1] 7
 sshd: made a new host key SHA256:Xl3C...
 sshd: listening on port 22
 ```
@@ -3229,8 +3400,8 @@ tests), IPv4 peers of such a socket as `::ffff:a.b.c.d` unless
 IPv6 addresses (AAAA records, asked of `dnsd`) as well as its IPv4 ones:
 IPv6 first when the machine has an IPv6 address beyond the link (RFC
 6724; the user's choice), else IPv4 first; on a network without IPv6 it
-does not ask for AAAA at all (as macOS's AI_ADDRCONFIG). `fetch`, `ssh`,
-iBrowser and HTTPS try each address in that order until one answers,
+does not ask for AAAA at all (as macOS's AI_ADDRCONFIG). `fetch`, `ssh`
+and HTTPS try each address in that order until one answers,
 and take `[ADDRESS]` in URLs and `ssh USER@[ADDRESS]`. `sshd` and `dnsd`
 listen on IPv6 and IPv4 at once. `ping` takes names the same way (the
 user's: "have ping work as any other app"), an address in its own
@@ -3378,11 +3549,15 @@ guard: 'sideways': in, out or forward is missing
 | `guardd` | the firewall's elf: loads `/system/config/guard` into the kernel (section 8) |
 | `netnamesd` | the network cards' names, an elf on every machine: adds each new card to `/system/config/network/names` and makes its settings file (DHCP) (section 8, `net names`) |
 | `wifid` | the wireless link's elf: scans, joins and holds a Wi-Fi network, runs WPA (section 8) |
+| `soundd` | the sound server, an elf on every machine: several programs play at once on `/dev/pcm0`, which it holds only while sound comes (below) |
+| `keyringd` | (70b) your keyring held open, an elf per user that login starts; `keyringd -s` the system keyring, an elf on every machine (section 6, "keyring") |
+| `volume` | the sound server's master volume, 0-100, and mute: `volume 60`, `volume -10`, `volume mute` (kept in `/system/config/sound`) |
 | `wifi` | the wireless link: join, forget, scan, status (section 8) |
 | `guard` | the firewall's rules: show them, change them (section 8) |
 | `windowd` | the window server (below): shows windows on the screen |
-| `term` | a terminal in a window; `term CMD...` runs a command, `term -f FONT` uses a font of `/system/fonts` (needs `windowd`) |
-| `owl` | a graphical file browser (below; needs `windowd`) |
+| `Term` | a terminal in a window; `Term CMD...` runs a command, `Term -f FONT` uses a font of `/system/fonts` (needs `windowd`) |
+| `Owl` | a graphical file browser (below; needs `windowd`) |
+| `Settings` | (69c) the system's and your settings in a window, a page each: System (69d: display, sound, swap, date and time, elves, service names, power, the processor's clock; 69e: the network cards, routing, virtual cards, card names, Wi-Fi, the firewall; root's to change) and User (appearance, mouse, window system, file types, at login) (needs `windowd`) |
 
 `kill PID` asks the process numbered PID (as `ps` lists it) to end, with
 the signal TERM; `kill -KILL PID` (or `-INT`, `-HUP`, a number 1-31) sends
@@ -3394,7 +3569,7 @@ their own. A process that is not there is `kill: 999: No such process`
 
 ```
 ritteros:/$ /system/x86_64/test/loop &
-[4]
+[1] 4
 loop: running until Ctrl-C
 ritteros:/$ ps
   pid  parent  group  state    name
@@ -3404,7 +3579,7 @@ ritteros:/$ ps
     4       3      4  running  loop
     5       3      5  running  ps
 ritteros:/$ kill 4
-[4] stopped by signal 15
+[1] ended by signal 15
 ```
 
 Programs for RitterOS can also be written on another computer and run here
@@ -3449,9 +3624,10 @@ function.
 **Shared libraries.** The system's programs share their libraries: the C
 library `libritteros.so.1`, the windows' `libwindow.so.1`,
 `libimage.so.1`, `libaudio.so.1`, `libvideo.so.1`, `libdraw.so.1` (2D
-drawing), `libwidget.so.1` (controls: buttons, check boxes, layouts), and
+drawing), `libwidget.so.1` (controls: buttons, check boxes, layouts),
 `libtls.so.1` (TLS 1.3 connections, OpenBSD's libtls
-interface), all in
+interface) and `libkeyring.so.1` (the user's keyring, section 6; since
+70b), all in
 `/system/<arch>/lib`. When a program starts, `/system/<arch>/lib/ld.so` (the
 dynamic loader) maps the ones it needs: one copy of each in memory serves
 every program, and replacing a library's file changes what programs started
@@ -3465,14 +3641,22 @@ ld.so: imageview: libimage.so.1 is not in /system/x86_64/lib/ (No such file or d
 ld.so: imageview: imageview needs image_load, which none of its libraries has
 ```
 
+(43e) An app may bring libraries of its own, in its bundle's `lib` folder
+(`/system/<arch>/apps/NAME.program/lib`, as macOS's apps keep theirs): the
+program names that folder as `$ORIGIN/lib` (ELF's RUNPATH, written when it
+is linked; `$ORIGIN` is the program's own folder, so a moved bundle still
+works), and `ld.so` looks there before `/system/<arch>/lib`. Its own copy of
+a library wins over the system's of the same name. A setuid program run by
+another user ignores `$ORIGIN`.
+
 Started by itself, `ld.so` only says what it is. `ldd PROGRAM` shows the
 same without running the program: each library it needs (and the ones those
 need) and where it is, and every function that none of them has (exit code 1
 then). A program is a path or a name, looked up like the shell does:
 
 ```
-ritteros:/$ ldd imageview
-/system/x86_64/apps/imageview.program/imageview:
+ritteros:/$ ldd Imageview
+/system/x86_64/apps/Imageview.program/Imageview:
     libritteros.so.1 => /system/x86_64/lib/libritteros.so.1
     libwindow.so.1 => /system/x86_64/lib/libwindow.so.1
     libimage.so.1 => /system/x86_64/lib/libimage.so.1
@@ -3532,7 +3716,7 @@ public-domain X11 misc-fixed faces: `6x13`, `7x13`, `7x14`, `8x13`, `9x15`,
 character cell. Programs open one by name; `9x15` is also built into the
 window library, the default and the fallback when a font file is missing or
 cannot be read. Since 27k also X.Org's Adobe bitmap faces (proportional,
-for iBrowser's text): Helvetica (`helvR12`, ...), Times (`timR12`) and
+first for iBrowser's text): Helvetica (`helvR12`, ...), Times (`timR12`) and
 Courier (`courR12`), each regular (`R`), bold (`B`) and oblique or italic
 (`O`, `I`; `BO`, `BI`), at 8, 10, 12, 14, 18 and 24 points (`08` ... `24`:
 11 to 34 pixels), under Adobe's permission notice (`ADOBE-COPYING.txt` in
@@ -3570,7 +3754,7 @@ screen is another user's`), and a program never talks to another user's
 `windowd`.
 
 `windowd` by itself is only a compositor — it has no menu of its own — so
-it opens a program when it starts, the file browser `owl` by default, from
+it opens a program when it starts, the file browser `Owl` by default, from
 which you open terminals and other apps; so the GUI is usable even on a
 machine with only the graphical screen (no serial console). To change what
 it opens, make `/system/config/windows` with a `startup` line:
@@ -3587,17 +3771,19 @@ accent = 5E81AC
 
 `theme` (41g-5) is `dark` (when not set: Nord's dark colours) or `light`
 (its light ones), for the desktop, the frames and menus, and the programs'
-windows (`owl`, `term`, and every program drawn with libwidget's
+windows (`Owl`, `Term`, and every program drawn with libwidget's
 widgets); `accent` is the colour of what is in front and chosen (the
 window in front's title bar, menus' chosen items, selections, focus
 rings), as six hexadecimal digits, the theme's blue `5E81AC` when not
-set. windowd and each program read them when they start: start them again
-after a change.
+set. windowd and each program read them when they start, and (since 69b)
+again when a program asks windowd to (the settings app does after a
+change): the desktop, frames, menus and open windows change at once.
 
 `text_size` (41d) is the size of text, in pixels an em (8-64), for programs
 that draw with the scalable fonts at your size; 15 when not set (the
 built-in font's height). A program reads it when it first opens such a
-font: start it again after a change.
+font, and (since 69b) again when windowd is asked to read the settings:
+libwidget's windows lay themselves out at the new size.
 
 `refresh` (65e-34b) is how many frames a second the window system draws at
 most: `auto` (when not set) is the screen's own rate, from the monitor's
@@ -3607,6 +3793,8 @@ frames start there, in step with the screen; with its screen buffers
 (66d-3) windowd page-flips, so no frame shows half drawn.
 Whatever changes within one frame (a dragged window, the pointer, a
 program's new picture) is drawn together, so the screen never falls behind.
+`double_click`, `click_steady` and `refresh` are read again with the others
+(69b); `startup` counts when windowd starts.
 
 `displays` (66a) shows the screen's mode, the graphics devices and, where
 RitterOS has a driver (so far the J1900's Intel graphics), each output and
@@ -3766,16 +3954,16 @@ when the program holding the screen is hung (the kernel ends that program
 and gives the console back).
 
 **Right-clicking the desktop background** (anywhere no window is) opens the
-desktop menu: the apps, each by its name (**iBrowser**, **Image viewer**,
-**owl**, **Terminal**, **Video player**), and **Close window server**,
+desktop menu: the apps, each by its name (**Image viewer**, **Owl**,
+**Settings**, **Terminal**, **Video player**), and **Close window server**,
 which gives the screen back to the text console. The apps are the
 bundles in `/system/<arch>/apps` (42b): a folder `NAME.program` holding
 the program `NAME`, its file `info` (`name = ...` the label, `about = ...`
 what it is, `types = ...` the file endings it can open) and `icon.png`,
 its picture, 32x32, shown at half size left of its name, on its windows'
-taskbar buttons and in `owl`; an app installed later is in the menu the
+taskbar buttons and in `Owl`; an app installed later is in the menu the
 next time it opens. **`open FILE...`** at the shell
-opens files as a double click in `owl` does (a folder in `owl`).
+opens files as a double click in `Owl` does (a folder in `Owl`).
 
 **File types** (42a). Which program a double click (and `open`) starts
 for a file is yours to choose, by its ending, in `~/.config/filetypes`:
@@ -3784,12 +3972,13 @@ for a file is yours to choose, by its ending, in `~/.config/filetypes`:
 ```
 png = imageview
 rvid = reel
-html = ibrowser
+html = compass
 wav = tune
 txt = edit
 ```
 
-(`ppm`, `bmp`, `jpg`, `jpeg` in `imageview`, `htm` in `ibrowser`, `md`,
+(`ppm`, `bmp`, `jpg`, `jpeg` in `Imageview`, `htm` in `compass` (the web browser, installed apart from the
+system), `md`,
 `c`, `h` in `edit` too.) An app (in `/system/<arch>/apps`) opens the file
 in its window, a command-line program (in `bin`, as `tune` and `edit`) in
 a terminal window; an ending not in the list (nor in
@@ -3819,14 +4008,14 @@ picture:
 ```
 $ export WINDOW_SOCKET=/tmp/w1
 $ windowd headless 800x600 & wsend wait
-$ imageview /test/solid.ppm & wsend wait /test/solid.ppm   # (its window's title)
+$ Imageview /test/solid.ppm & wsend wait /test/solid.ppm   # (its window's title)
 $ wsend click 200 150; wshot /tmp/shot.png
 ```
 
 A windowd on the screen refuses `wsend` (its input is the machine's own
 keyboard and mouse); `wshot` takes any windowd's picture.
 
-**Ctrl + click** is a right-click everywhere (the desktop menu, `owl`'s
+**Ctrl + click** is a right-click everywhere (the desktop menu, `Owl`'s
 menu, any app's), for a mouse with one button or a touchpad RitterOS only
 knows as a plain PS/2 mouse.
 
@@ -3845,7 +4034,9 @@ The boot shows where it is:
 One finger moves the pointer (slow movements precisely, fast ones farther);
 a tap is a click; **two fingers** tapping or pressing are the **right
 button** (context menus); two fingers moving up or down **scroll**, the
-content following the fingers; three fingers do nothing yet. A press of the
+content following the fingers, and sideways scroll sideways (each moment
+along the way they moved more, so a scroll up or down does not drift);
+three fingers do nothing yet. A press of the
 pad stays where you aimed: the pointer's creep as the finger presses is
 taken back, the pointer stays while the pad is held until the finger moves
 3 mm (then it drags), and as the finger lifts. So far the I2C controllers
@@ -3871,20 +4062,20 @@ fits (its program is asked to take that size, as when you resize it).
 A program may also take the whole screen for a window (full screen: no
 frame or title bar, in front of everything, until the program gives it
 back, usually on Escape) or minimize it itself. Files can be dragged out
-of `owl` onto another program's window: press on a file, move the
+of `Owl` onto another program's window: press on a file, move the
 pointer (it carries a small page), and let go over the window; the program
 gets the file's full path and decides what to do with it.
 Graphical programs are written with the window toolkit `libwindow`
 (`window.h`): open a titled window, draw into it (fill rectangles, draw
 text in the shared font), show it, and read pointer and keyboard events.
-`term` is the first graphical program: a terminal in a window running the
+`Term` is the first graphical program: a terminal in a window running the
 shell, so the whole command line works inside the window system. Start the
 GUI with `windowd &` and the terminal opens by itself; you can open more
-with `term` from inside it. Programs talk to `windowd` over the local
+with `Term` from inside it. Programs talk to `windowd` over the local
 socket `/run/windowd`.
 
-**Text fields and the clipboard.** A line where you type -- iBrowser's
-address, the **Open** dialog's name -- is the same text field in every app:
+**Text fields and the clipboard.** A line where you type -- the **Open**
+dialog's name, a settings page's field -- is the same text field in every app:
 a click places the cursor, dragging across text selects it (so does Shift
 with the arrows, Home or End), a double click selects a word, Ctrl+A all of
 it; typing replaces the selection, Backspace and Delete remove it. Ctrl+C
@@ -3901,19 +4092,26 @@ stays the interrupt.
 **Scrolling.** The mouse wheel scrolls the window under the pointer, and
 lists that do not fit have a scroll bar at their right edge: press on it
 to jump, drag it to move (on a touchpad, two fingers scroll; known only as
-a PS/2 mouse, the bar is the way). `owl` and the **Open** dialog move 3 rows a wheel step; `term`
+a PS/2 mouse, the bar is the way). `Owl` and the **Open** dialog move 3 rows a wheel step; `Term`
 keeps the last 1000 lines that left its top, which the wheel or its bar
 shows, and a key or new output brings it back to the bottom. A PS/2 mouse
-reports its wheel when it can (the boot says `PS/2 mouse ... with a wheel`).
+reports its wheel when it can (the boot says `PS/2 mouse ... with a wheel`,
+or `with two wheels` for one with a horizontal wheel as well).
+
+**Scrolling sideways.** Two fingers moving sideways on a touchpad, a
+mouse's horizontal wheel, or **Shift** with the wheel (down is to the
+right) scroll sideways what is wider than its window: a one-line text
+entry whose text is longer than it (the cursor may leave the view; the
+next key brings it back).
 
 Windowed apps live in `/system/<arch>/apps`, each a bundle (42b:
-`term.program/term`, `owl.program/owl`); command-line programs are in
+`Term.program/Term`, `Owl.program/Owl`); command-line programs are in
 `/system/<arch>/bin` next to the window server. You can run either by
 name — the shell looks in both, and inside the bundles.
 
-`owl` is the graphical file browser. It opens a window listing a directory —
+`Owl` is the graphical file browser. It opens a window listing a directory —
 directories first and marked, then files with their sizes, the current path
-at the top — starting in your home directory (or `owl DIR` to start
+at the top — starting in your home directory (or `Owl DIR` to start
 elsewhere). Move the selection with the arrow keys or a click; **Backspace**
 or the `..` row goes up a directory; **Enter**, or a double click on a row,
 opens it. What "open" does depends on the item: a directory is
@@ -3923,14 +4121,14 @@ right-click menu, goes into the bundle instead; **Open with...** there
 and in the File menu opens a file in an app you choose: 42c); any
 other program opens in a terminal that stays open so you can read its output;
 and a data file opens by its type: a picture (`.ppm`, `.bmp`, `.png`, `.jpg`,
-`.jpeg`) in `imageview`, a video (`.rvid`) in `reel`, a sound (`.wav`) in
-`tune` (in a terminal), and anything else in the editor. `term -f FONT` (any font of
-`/system/fonts`, e.g. `term -f 10x20`) sizes its rows and columns to that
-font's cell; an unknown font falls back to 9x15 with a message. `term` can also be told a command
-directly — `term CMD ARGS...` runs it in a window instead of the shell — which
-is how `owl` opens programs.
+`.jpeg`) in `Imageview`, a video (`.rvid`) in `Reel`, a sound (`.wav`) in
+`tune` (in a terminal), and anything else in the editor. `Term -f FONT` (any font of
+`/system/fonts`, e.g. `Term -f 10x20`) sizes its rows and columns to that
+font's cell; an unknown font falls back to 9x15 with a message. `Term` can also be told a command
+directly — `Term CMD ARGS...` runs it in a window instead of the shell — which
+is how `Owl` opens programs.
 
-`owl` has a **File** menu (New folder, Open, Up, Refresh, Quit), an **Edit**
+`Owl` has a **File** menu (New folder, Open, Up, Refresh, Quit), an **Edit**
 menu (Rename, Delete, Copy, Paste), and a **Go** menu with shortcuts to your
 home directory, the apps directory and the root (`/`); right-clicking an
 entry brings up a menu for it (Open, Rename, Delete, Copy). New folder and Rename
@@ -4006,6 +4204,35 @@ an elf already`. An elf finds its process by its program's name among
 `elvesd`'s children: two elves of the same program show as one
 `running (2 processes)`, and `restart` asks to stop and start instead.
 
+### Settings: the settings app
+
+The page with every page and message: [`Settings`](commands/Settings.md)
+(on RitterOS: `man settings`).
+
+**Settings** (in the desktop menu and the apps folder; since 69c, roadmap
+item 47) shows the settings in a window, a page each, listed on the left.
+What a page saves applies at once where it can, and it writes only the
+lines it changes (the files keep their comments and your other lines).
+
+- **System** (the machine's, `/system/config`): Display, Sound, Memory
+  (swap), Date & time, Elves, Service names, Power, Processor, Network
+  cards, Routing, Virtual cards, Card names, Wi-Fi, Firewall and Users. A
+  page applies through the program that owns the setting (`displays set`,
+  `swap on`, `net up`, `wifi country`, `guard add`, `power settings`...);
+  what it says shows under the page's button.
+- **User** (yours, `~/.config`): Appearance (theme, accent, text size: the
+  desktop and every open window follow at once), Mouse & touchpad, Window
+  system, File types, Account (your password) and At login (start in the
+  console or the window system, and what runs at login, in order: see
+  `~/.config/login` below).
+
+The System pages are root's to change. Anyone else sees them read only
+until **Unlock** under the list: your own password, checked as `sudo`
+checks it (only the users in `/system/config/sudo`), after which every
+change runs through `sudo` and is logged as one. The app forgets the
+password when it ends. Sound is the exception: root and the user at the
+console may change the volume, as the sound server allows.
+
 ### Pictures, sound and video
 
 RitterOS reads images, sound and video through three small libraries
@@ -4013,7 +4240,7 @@ RitterOS reads images, sound and video through three small libraries
 from each format's specification), and plays sound on machines with an
 Intel HDA / Azalia audio controller (most PCs).
 
-- `imageview [FILE]` shows a picture (PPM, BMP, PNG or JPEG) in a window, scaled
+- `Imageview [FILE]` shows a picture (PPM, BMP, PNG or JPEG) in a window, scaled
   to fit the window with its proportions kept (centred, the rest of the
   window dark grey), so resizing rescales it; photos are turned the way
   their camera recorded (EXIF orientation: a portrait photo, which cameras
@@ -4025,7 +4252,7 @@ Intel HDA / Azalia audio controller (most PCs).
   progressive, as cameras and web pages make them (not the rare arithmetic-
   coded, 12-bit, lossless or CMYK ones). For a file it cannot read it prints
   `imageview: FILE: Invalid argument` and keeps showing what it showed.
-- `reel [FILE]` plays a video (the simple RVID format so far) in a window —
+- `Reel [FILE]` plays a video (the simple RVID format so far) in a window —
   the frames at the video's rate, and its sound track through the speakers.
   The frames are scaled to fit the window with their proportions kept, so
   the window may be resized, and a video larger than the screen plays in a
@@ -4046,18 +4273,30 @@ typed goes into the **Name** line at the bottom, and **Enter** opens it;
 
 Sound comes out of the device **`/dev/pcm0`** (present when there is an
 audio controller): a program opens it and writes 48 kHz, 16-bit, stereo
-PCM. One program at a time has it; to let several play at once, run the
-mixer **`soundd`** (as an elf — `elf add soundd soundd` — or `soundd &`),
-which owns `/dev/pcm0` and mixes everyone that connects to it. A machine
-with no audio controller has no `/dev/pcm0` and these players say so.
+PCM. One program at a time has it (another gets "Device or resource
+busy"). The sound server **`soundd`**, an elf on every machine (login makes
+its file, `/system/config/elves/soundd`), lets several play at once: each
+connects to `/run/sound` and `soundd` mixes them. It holds `/dev/pcm0` only
+while sound comes and lets it go a second after, so a program may still
+have the device alone meanwhile. `tune` and `Reel` play through `soundd`
+when it runs, else through `/dev/pcm0` (68y). A player asks the device (or `soundd`)
+how much it wrote is not yet heard, to keep the sound with the pictures,
+and drops what is buffered on pause (68v, 68w: `SNDCTL_DSP_GETODELAY`,
+`SNDCTL_DSP_RESET`; see `soundd`'s page). `volume` sets the master volume
+of everything `soundd` plays (`volume 60`, `volume +10`, `volume mute`;
+kept in `/system/config/sound`). When a player falls behind, what
+it wrote last is not played again: there is silence until it writes more.
+A machine with no audio controller has no `/dev/pcm0` and these players
+say so.
 
 The speakers belong to the person at the machine: `/dev/pcmN` opens for
 root and for the user at the console (the user whose job has the console:
-their programs may play wherever they run, in `term` too); a user logged in
+their programs may play wherever they run, in `Term` too); a user logged in
 over SSH meanwhile gets "Permission denied". `soundd` started by a user
 mixes that user's (and root's) programs only and refuses others
 (`soundd: refused a program of user 1001 (this is user 1000's sound)`);
-run as an elf (root's) it mixes everyone's.
+run as the elf (root's) it mixes root's and the console user's, and
+refuses the rest by the same rule as the device (68z).
 
 Each audio controller is a sound device: `/dev/pcm0`, `/dev/pcm1`, ...,
 those with speakers or a headphone jack first, then line outs, then digital
@@ -4081,277 +4320,6 @@ Speakers and headphones play together (there is no switch-over when
 headphones are plugged in yet). Any device can be written to directly,
 e.g. raw 48 kHz 16-bit stereo samples: `cat sound.raw > /dev/pcm1`.
 
-### The web browser: iBrowser
-
-```
-ibrowser [-t] [URL]
-```
-
-**iBrowser** shows web pages in a window (run it under the window system,
-`windowd &` first; `owl` opens it from `/system/<arch>/apps`). URL is an
-`http://` or `https://` address (`http://` is assumed for `host/path`), or
-an HTML file on the disk (a path such as `/home/anna/page.html`); without
-one it shows its own start page.
-
-- **At the top**: `<` goes back to the page before; `x` (shown while a
-  page loads) stops the load, as **Escape** does; the address line
-  shows the page's address, a text field like every app's (select, edit,
-  copy and paste in it). Click it, or press **Ctrl-L** (all of it
-  selected, so typing replaces it); **Enter** goes there.
-- **Loading** (since 27q): a page loads in the background, its style
-  sheets and script files with it (fetched at once); the page shown stays
-  usable meanwhile (scroll it, follow another link, go back, quit) and is
-  replaced when the new one is there. Files a page asks for later (a
-  script file a script inserts, a style sheet not known before) come in
-  the background too: such a script runs once its file is there, the page
-  is styled again when a style sheet comes. The window never waits for a
-  server; only a script that computes for a long time keeps it busy.
-  A `<meta http-equiv="refresh" content="SECONDS; url=URL">` opens URL (or
-  the page again) once the page is in and the seconds are over, in the
-  page's place in the history. While a page's scripts run, its
-  `<noscript>` parts are not shown (nor is a refresh inside one used). A server that does not
-  answer is given up after 30 seconds, for the connection and again for
-  each wait for data: the page then says `HOST: the server did not answer`
-  (or `stopped answering`, if it went silent in the middle). With `-t`, a
-  stopped load prints `ibrowser: stopped`.
-- **At the bottom**: where the link under the pointer leads, or the page's
-  title, or why a page could not be shown.
-- **Links** are blue and underlined; a click follows one (red while the
-  pointer is on it) when the button is let go without the pointer moving.
-- **Selecting**: dragging across the page selects its text (white on blue),
-  a double click a word; **Ctrl+C** copies it (lines as line breaks), while
-  the address line does not have the keyboard.
-- **Scrolling**: the wheel, the scroll bar at the right, the arrow keys,
-  **Page Up**/**Page Down**, **Home**/**End**, and the space bar.
-  **Backspace** (outside the address line) goes back, `q` quits.
-- **File** menu: **Open File...** (a page from the disk, with the Open
-  dialog), **Reload**, **Back**, **Quit**.
-- **Scripts** (since 27p): a page's JavaScript runs on RitterOS's own
-  engine (the one `js` uses), each `<script>` in turn as the page is read:
-  inline ones and files (`src`), not modules (`type="module"`; their
-  `nomodule` fallbacks run). While a script runs, what comes after it in
-  the page is not there yet, as in other browsers. Scripts see the page
-  through the document's objects: `document` (`getElementById`,
-  `querySelector` and `querySelectorAll` with CSS selectors,
-  `createElement`, `write`, ...), each element's (`textContent`,
-  `innerHTML`, `appendChild` and the rest, attributes, `classList`,
-  `style`, `getBoundingClientRect`), `window`, `location` (setting it opens
-  that page), `navigator` (`userAgent` is `Mozilla/5.0 (RitterOS; ARCH)
-  iBrowser/27`), `localStorage` (kept while the page is shown, nothing on
-  the disk), `document.cookie` (the browser's cookies, below; not the
-  HttpOnly ones), `matchMedia` and `getComputedStyle` (a few values). The page is styled and laid out once its scripts are done.
-  Events (since 27q): listeners (`addEventListener` with `capture`,
-  `once` and `passive`), `on...` properties and `onclick="..."` attributes
-  (their text runs as a function of `event` with `this` the element; a
-  bare name in it is a global, not one of the element's or its form's),
-  `dispatchEvent` with the standard's capturing and bubbling, and `Event`,
-  `CustomEvent`, `MouseEvent`, `PointerEvent`, `KeyboardEvent`,
-  `FocusEvent`, `InputEvent`, `WheelEvent` and `SubmitEvent`. The browser
-  fires `DOMContentLoaded` once the scripts ran, the window's `load` once
-  the pictures are in (and each `<img>`'s `load` or `error`), the pointer's
-  and mouse's events (`pointerdown`/`mousedown`, `pointerup`/`mouseup`,
-  `click`, `dblclick`, `contextmenu`, `mousemove`, `mouseover`/`mouseout`,
-  `mouseenter`/`mouseleave`) on the element under the pointer, keys on the
-  control with the keyboard or the body (`keydown` and `keyup` with `key`,
-  `code` and `keyCode` as a US keyboard has them, `keypress` for typed
-  characters), `focus`/`blur`, `input` and `change`, `submit` and `reset`,
-  `wheel`, `scroll`, `resize` and `hashchange`. A listener's
-  `preventDefault` stops what the browser would have done: the link is not
-  followed, the check box or radio button goes back, the form is not sent,
-  the key types nothing, the wheel does not scroll; a press whose
-  `mousedown` is canceled neither focuses nor selects. `element.click()`,
-  `focus()` and `blur()`, a form's `submit()`, `requestSubmit()` and
-  `reset()`, a `javascript:` link, `scrollTo`, `scrollBy` and
-  `scrollIntoView` work. Timers: `setTimeout` and `setInterval` (a
-  function, or a string to run), `requestAnimationFrame` (about every 16
-  ms), `requestIdleCallback` and `queueMicrotask`; they run between the
-  window's events, on the system's clock of 10 ms ticks. After a listener
-  or a timer changed the page it is styled, laid out and drawn again.
-  Promises, `async` functions and generators work (27r); their jobs run
-  after each script, listener and timer, as browsers run them. `Intl`
-  (27s) formats numbers and dates, sorts and pluralizes in English, as
-  `js` describes. Requests
-  (27r): `fetch` (with `Request`, `Response`, `Headers`, and
-  `AbortController`/`AbortSignal` to stop one), `XMLHttpRequest`
-  (asynchronous only: a synchronous one would stop the window, so `open`
-  with `false` throws), `URLSearchParams` as a body; each request is made
-  on a thread of its own and its answer comes back as a job. As in other
-  browsers: a page's requests to its own origin carry cookies; to another
-  origin none (unless `credentials: "include"`), and its answer is read
-  only if the server allows it (CORS: `Access-Control-Allow-Origin`, and an
-  `OPTIONS` preflight first for other methods or headers); `mode: "no-cors"`
-  gives an empty answer of status 0; an https page cannot fetch http, and
-  no page can fetch `file:` paths; headers like `Cookie` and `Host` are not
-  a script's to set. Bodies are text (`text()`, `json()`); no
-  `arrayBuffer` or `blob` yet. `console.log` (and the other
-  console methods) print `ibrowser: console: TEXT` on the standard output,
-  `alert` `ibrowser: console: alert: TEXT`; with `-t`, an error that ends
-  a script (or a listener, a timer, an `onclick="..."`) prints `ibrowser:
-  script error: NAME: MESSAGE at URL:LINE` (a line of the script; an
-  attribute's or a string timer's code has no URL), and nothing is shown
-  in the window, as in other browsers.
-- **Cookies** (since 27q): what sites set with `Set-Cookie` (also on a
-  redirection) and scripts with `document.cookie` is kept while iBrowser
-  runs, nothing on the disk, and sent back with every request to the site
-  and path it belongs to (RFC 6265: `Domain`, `Path`, `Expires`,
-  `Max-Age`, `Secure` only over https, `HttpOnly` hidden from scripts,
-  which cannot replace such a cookie either; at most 300 cookies, the
-  oldest go first). Quitting iBrowser forgets them.
-- **Forms** (since 27c): a click or **Tab** gives a control the keyboard
-  (Tab goes on to the next one, after the last back to the first). Text
-  fields are edited like the address line; a password shows `*` for each
-  character and a text area its lines (both type at their end,
-  **Backspace** takes the last character back, in a text area **Enter**
-  starts a new line). A click or **Space** ticks a checkbox or chooses a
-  radio button (the others of its name go off); a list (`<select>`) opens
-  on a click, its option chosen with a click (or **Up**/**Down** and
-  **Enter** while it is open; Up and Down also change it closed). A
-  submit button (a click, Space or Enter), or **Enter** in a text field or
-  password, sends the form: by GET (its data after the address's `?`) or
-  POST (as the request's body), urlencoded as every browser does; a reset
-  button puts the form back as the page had it. Back shows the page
-  before again, freshly loaded (what was typed into it is gone).
-- **Parts of a page** (since 27b): an address ending in `#part` shows the
-  page scrolled to the element whose `id` is `part` (or an `<a
-  name="part">`); a link to another part of the page shown only scrolls
-  (nothing is loaded again), and Back returns to where you were. A
-  `#part` the page does not have shows its top.
-
-What it shows: text with headings, paragraphs, line breaks, lists (bullets
-or numbers), preformatted text, tables (since 27i their columns as wide as
-their contents need, as other browsers make them: between each cell's
-longest word and its unbroken lines, the room shared out in proportion;
-`colspan`, `rowspan`, captions, the head's rows first and the foot's
-last, cells as high as their row with their contents placed by
-`vertical-align` (middle by default), `border-spacing` and
-`border-collapse`, and the old attributes `border`, `cellpadding`,
-`cellspacing`, `width`, `height`, `valign`, `align`), rules, and PNG and JPEG pictures (`<img>`; a picture that cannot
-be loaded shows its `alt` text). Since 27e pictures come in the
-background: the page's text is there to read, scroll and click at once,
-and each picture is put in as it arrives; once all are in, the page goes
-back to its `#part` (or the place Back returns to) unless you have
-scrolled meanwhile. Styles come from the page's `<style>`,
-its linked style sheets (`<link rel="stylesheet">`) and `style=""`
-attributes, in CSS's order (a more specific selector wins, then the later
-rule): colours and backgrounds, font size and weight, underline and
-strike-through, margins, padding and borders, width and centring
-(`margin: 0 auto`), text alignment, `display` (`none`, `block`, `inline`,
-`list-item`), `white-space: pre` and list styles. Selectors: element
-names, `.class`, `#id`, `*`, and descendants (`div p`) and children
-(`ul > li`). Since 27d also floats (`float: left|right`, text flowing
-beside them, `clear`), `display: inline-block`, and `position: relative`
-(moved from its place), `absolute` (placed in its nearest positioned
-ancestor, or the page), `fixed` (placed in the window: it stays while
-the page scrolls) with `top`, `right`, `bottom`, `left` and `z-index`
-(boxes painted in CSS's order: what has a higher z-index is on top, and
-a click goes to what is on top); `overflow` other than `visible` makes a
-box hold its floats. Since 27f the rest of the CSS pages commonly use:
-`@media` queries, judged against the window (its width and height, with
-`min-`/`max-` or as `(width >= 600px)`, `orientation`, `screen` and `all`
-but not `print`; the page is styled again when the window changes size),
-`@supports` (true for the properties iBrowser reads), `@layer` (its rules
-as plain rules); custom properties (`--name: value`, inherited) and
-`var(--name, fallback)`; `calc()`, `min()`, `max()` and `clamp()`, with
-`vw` and `vh` of the window (a width such as `calc(100% - 20px)` keeps its
-percentage); `!important`; `inherit`, `initial` and `unset`; and
-`::before` and `::after` with `content` (text, `attr(NAME)`, quotes).
-More selectors: attributes (`[type]`, `[type="text"]`, `~=`, `|=`, `^=`,
-`$=`, `*=`, and `i` for any case), `:root`, `:first-child`,
-`:last-child`, `:only-child`, `:nth-child(An+B)` and `:nth-last-child`
-with their `-of-type` forms, `:empty`, `:not()`, `:is()` and `:where()`,
-`:link`, `:checked`, `:disabled`, and the next (`h1 + p`) and later
-(`h1 ~ p`) sibling. States that need a pointer, the keyboard or a
-history (`:hover`, `:focus`, `:active`, `:visited`) never match. Since
-27g flexible boxes: `display: flex` and `inline-flex` (and, since 27l, `display: contents`:
-an element without a box of its own, its children in its place) with
-`flex-direction` (rows and columns, either way round), `flex-wrap` (rows),
-`flex-flow`, `flex-grow`, `flex-shrink`, `flex-basis` and `flex`,
-`justify-content`, `align-items`, `align-self` and `align-content`
-(start, end, center, stretch, and the space- forms), `gap` (`row-gap`,
-`column-gap`), `order`, and auto margins (`margin-left: auto` pushes the
-rest of a row to its end); an item shrinks no narrower than its longest
-word unless `min-width` says otherwise. Also `box-sizing: border-box`
-and `min-width`. Since 27h the look of boxes and text: borders by side
-(`border-top`, `border-left-color`, ...: each side its width, style and
-colour; transparent ones take their room), rounded corners
-(`border-radius`, also on pictures), `box-shadow` (the first one, its blur
-drawn as a lighter edge), colours with alpha (`rgba()`, `hsla()`,
-`#rrggbbaa`) and `opacity` mixed with what is beneath, `visibility:
-hidden`, `background-image` with `url(...)` (loaded like pictures) and
-linear gradients (`to right`, angles to the nearest side; radial ones as
-top to bottom), `background-size` (`cover`, `contain`, lengths),
-`background-position` and `background-repeat`, `overflow: hidden` (the
-contents cut at the box's edges), `line-height`, `vertical-align` (`sub`,
-`super`, `middle`, `top`, lengths), `text-transform`, and an inline
-element's background, borders and side padding. Since 27m `transform:
-translate()` (and `translateX`, `translateY`, `translate3d`; pixels or
-percentages of the element's own box: centring with `translate(-50%)`;
-scaling and rotating are not drawn), percentage heights (of a containing
-box whose height is known: a given height, a positioned box's container,
-the window for the page), `min-height` and `max-height` (the latter for a
-box that clips), an absolutely positioned box between its `top` and
-`bottom`, and the logical `inset-inline-start`/`-end`,
-`inset-block-start`/`-end` (left to right). Since 27n grids: `display:
-grid` and `inline-grid` with `grid-template-columns` and `-rows` (lengths,
-percentages, `fr`, `auto`, `min-content`, `max-content`, `minmax()`,
-`fit-content()`, `repeat()` with a count or `auto-fill`/`auto-fit`),
-`grid-template-areas` and `grid-area` names, `grid-template`,
-`grid-column`/`grid-row` (lines, negative lines, `span`) and their
-`-start`/`-end`, `grid-auto-flow` (row or column), `grid-auto-rows` and
-`-columns`, `gap`, `justify-items`/`-self`, `align-items`/`-self`,
-`justify-content`, `align-content`; the `:has()` selector (with `>`, `+`,
-`~`); `white-space: nowrap`. Since 27j SVG drawings,
-in the page (`<svg>`) and as files (`<img src="logo.svg">`, background
-pictures): paths, rectangles (rounded too), circles, ellipses, lines,
-polylines, polygons and text, groups and nested drawings with
-`transform` and `viewBox`, `<use>` of an element or a `<symbol>`;
-filled (`fill`, `fill-rule`, `fill-opacity`) and stroked (`stroke`,
-`stroke-width`, `stroke-linecap`), styled by the page's CSS like the rest
-of it (`currentColor` too), drawn with smooth edges. Text is drawn (since
-27k) in the Adobe faces of `/system/fonts`, chosen by `font-family`: Times
-for serif faces and by default (as other browsers), Helvetica for sans
-faces (Arial, Helvetica, Verdana, system-ui, ...; also an unknown web font),
-Courier for monospace ones (`pre`, `code`, ...), at the size nearest the
-font size (11, 14, 17, 20, 25 or 34 pixels; larger at twice a smaller one),
-bold and italic as asked; `font-family: fixed` gives the misc-fixed faces
-(and they are used when the Adobe files are missing). Web fonts
-(`@font-face`) are not loaded.
-
-Not (yet): file uploads (`<input
-type=file>` is a plain button), `multipart/form-data` (such forms are sent
-urlencoded), frames,
-web fonts, subgrids, dense grid packing,
-`baseline` alignment (taken as the start), transparency of pictures
-over anything but the page's background, more than one background layer
-or shadow (the first is drawn), dashed and dotted borders (drawn solid),
-SVG gradients, patterns, clipping, masks, filters, markers and dashes (a
-gradient's fallback colour, else grey, is drawn instead),
-`position: sticky` (it is relative), scrolling inside a
-box (`overflow` does not clip), and images other than PNG and JPEG.
-Addresses are fetched like `fetch` fetches them: redirections followed (up
-to 5), `https://` checked against the system's root
-certificates; since 27b iBrowser also takes answers packed with gzip or
-deflate (it asks for them with `Accept-Encoding: gzip, deflate`), as most
-web servers send them.
-
-`-t` also prints each page's text as it is laid out, and its links with
-their places, on standard output (`ibrowser| ...` and `ibrowser: link N at
-X,Y: URL` lines): the tests read them. Every page shown prints
-`ibrowser: loaded URL (STATUS, TYPE, N bytes)` (a packed one `..., N
-bytes, gzip from M)`, M the bytes that came); one that cannot be had,
-`ibrowser: URL: why` (the window shows the reason too; a packed answer
-that does not unpack: `the page's gzip data is damaged`). A scroll to a
-`#part` (or back to a place) prints `ibrowser: scrolled to y N for
-#part`, a missing one `ibrowser: #part is not on the page`; a scroll by
-the reader (keys, wheel, scroll bar) `ibrowser: scrolled by hand to y N`.
-The page's report (its text, links and controls) comes once its pictures
-are in. Each form
-control is listed with its place and state (`ibrowser: control N at X,Y
-WxH: [text: q=VALUE]`; `[password: pw=N characters]`, `[checkbox:
-NAME=VALUE on|off]`, `[select: NAME=OPTION]`, `[submit: LABEL]`, ...), a
-change as `ibrowser: now [...]`, and a form sent as `ibrowser: sending
-GET URL` or `ibrowser: sending POST URL (N bytes): DATA`.
-
 ---
 
 ## 10. Special directories
@@ -4368,14 +4336,14 @@ GET URL` or `ibrowser: sending POST URL (N bytes): DATA`.
 | `/system/fonts` | the window system's fonts (BDF files; TrueType and OpenType since 41c) |
 | `/system/certs` | `cacert.pem`: the root certificates HTTPS trusts (Mozilla's list, section 8, `fetch`) |
 | `/system/config/services` | (since 53d) the service names programs know (`getaddrinfo`, `getservbyname`): `name = port` lines, the same port for TCP and UDP (`http = 80`, `ssh = 22`, ...); a new disk gets a short list, root may add to it (`edit /system/config/services`) |
-| `/system/config/cpu` | (since 64t) the processor's clock, read by the kernel at the start (a change counts from the next start): `clock = performance` (the processor chooses, favouring speed; the default, also without the file), `balanced`, `powersave`, `top` (its highest clock whenever it runs: fastest, more power while idle) or `firmware` (the firmware's own settings). Used on AMD processors with CPPC; elsewhere the boot log says it is not used. The file's comments list the values and what they measured on the laptop; `threads` shows the clock while running |
-| `/system/config/power` | (since 37c-2a) power management, read by the kernel at the start (a change counts from the next start): `power_button = off` (a press switches the machine off as `poweroff` does; the default, also without the file), `nothing` (the press is only logged) or `sleep` (since 37g-7: the machine sleeps, the next press wakes it); (since 37c-2c) `lid = nothing` (closing the lid is only logged; the default) or `sleep` (since 37g-7); (since 37e) `screen_off = MINUTES` without input until the screen goes off (5 by default, 0 never) and `screen_dim = MINUTES` (2 by default; the panels dim to a third); (since 37g-7) `sleep_after = MINUTES` without input (typing over SSH counts) until the machine sleeps (0, the default: never). `power` shows the settings in use |
+| `/system/config/cpu` | (since 64t) the processor's clock, read by the kernel at the start and (since 69a) by `power clock`, which applies it at once on every core: `clock = performance` (the processor chooses, favouring speed; the default, also without the file), `balanced`, `powersave`, `top` (its highest clock whenever it runs: fastest, more power while idle) or `firmware` (the firmware's own settings). Used on AMD processors with CPPC; elsewhere the boot log says it is not used. The file's comments list the values and what they measured on the laptop; `threads` shows the clock while running |
+| `/system/config/power` | (since 37c-2a) power management, read by the kernel at the start and (since 69a) by `power settings`, which applies it at once: `power_button = off` (a press switches the machine off as `poweroff` does; the default, also without the file), `nothing` (the press is only logged) or `sleep` (since 37g-7: the machine sleeps, the next press wakes it); (since 37c-2c) `lid = nothing` (closing the lid is only logged; the default) or `sleep` (since 37g-7); (since 37e) `screen_off = MINUTES` without input until the screen goes off (5 by default, 0 never) and `screen_dim = MINUTES` (2 by default; the panels dim to a third); (since 37g-7) `sleep_after = MINUTES` without input (typing over SSH counts) until the machine sleeps (0, the default: never). `power` shows the settings in use |
 | `/system/config/network/virtual` | (since 38c) the virtual cards and bridges made at every start: `tapN = user NAME` and `brN = PORT...` lines, changed by `net tap` and `net bridge` (only their own lines), read by `net up` (section 8, "Virtual cards" and "Bridges") |
 | `/system/config/swap` | (since 35a) whether swap is used: `on = yes` (or `no`, the default), changed by `swap on`, `swap off` and `swap make` (since 37e-1b only that line: the comments stay), read by the kernel at the start; without the file swap is off |
 | `/system/swap` | (since 35a) the swap file, made by `swap make SIZE`: a fixed file only the kernel writes, encrypted (`swap`) |
 | `/system/config/time` | the local time zone (22o): `zone = -05:00`, a fixed offset from UTC (+HH:MM or -HH:MM; none or 0: UTC), for programs' local time (`localtime`, `strftime`); no daylight saving rules; `zone = 0` when login writes it (37e-1b). Root's to edit (`edit /system/config/time`) |
 | `/system/config/wifi` | the wireless link: `networks/SSID` per saved network (root only: `ssid`, `passphrase`, `security`, `automatic`) and `radio` (`country = 00`, `powersave = off` when wifid writes it, 37e-1b); the elf `wifid` reads them |
-| `/system/config` | the system's settings, one plain text file per topic: `users` and `passwords` (written by `useradd` and `passwd`; the passwords file is root's only), `network/` (a file per network card, made by `net up`), `routing` and `elves/` (a file per elf, written by `elf`); a `README` explains them. Files of settings are `key = value` lines, `#` starts a comment line. (Since 37e-1b) whoever reads a settings file writes it when it is missing, every setting at its default with comments saying what it can be (a setting that is not set by default, such as `routing`'s, a line to remove the `#` from): the kernel writes `cpu`, `power`, `displays` and `swap` at the start, after its check of the disk; login `time`, `services` and `sudo`; `net up` `routing` (on a machine with a network card) and (since 38c) `network/virtual`; `wifid` `wifi/radio`. A new system gets them at its first start, and a file you delete comes back the next time it is looked for: change a value there instead of writing a file from memory. Settings that are a user's own go in the user's `~/.config` (windowd's `windows`); `/system/config/windows` is an optional file for everyone that nothing writes. A disk from before keeps them in `/system`: `login` moves them here at the next start |
+| `/system/config` | the system's settings, one plain text file per topic: `users` and `passwords` (written by `useradd` and `passwd`; the passwords file is root's only), `network/` (a file per network card, made by `net up`), `routing` and `elves/` (a file per elf, written by `elf`); a `README` explains them. Files of settings are `key = value` lines, `#` starts a comment line. (Since 37e-1b) whoever reads a settings file writes it when it is missing, every setting at its default with comments saying what it can be (a setting that is not set by default, such as `routing`'s, a line to remove the `#` from): the kernel writes `cpu`, `power`, `displays` and `swap` at the start, after its check of the disk; login `time`, `services` and `sudo`; `net up` `routing` (on a machine with a network card) and (since 38c) `network/virtual`; `wifid` `wifi/radio`. A new system gets them at its first start, and a file you delete comes back the next time it is looked for: change a value there instead of writing a file from memory. Settings that are a user's own go in the user's `~/.config` (windowd's `windows`); `/system/config/windows` is an optional file for everyone that nothing writes. (69c-69f) The settings app shows and changes them a page each (`man settings`). A disk from before keeps them in `/system`: `login` moves them here at the next start |
 | `/system/logs` | the logs, one plain text file per program, `NAME.log`, each line with its date and time (UTC) in front: `kernel.log` (the kernel's messages from the first boot line on), `login.log` (logins, refused logins and logouts, on the console and over SSH), and one per elf with what it printed (`elvesd.log`, `dhclient.log`, `sshd.log`, ...). The elf `logd` writes them every 10 seconds; a log that grows past 64 KiB becomes `NAME.log.old` (the one before it goes) and a new one begins. Read them with `cat` |
 | `/test` | files the kernel's self-test checks |
 | `/.snapshots/NAME` | snapshot NAME, read only (section 5) |
@@ -4385,16 +4353,18 @@ GET URL` or `ibrowser: sending POST URL (N bytes): DATA`.
 | `/dev/null` | (since 52c) everyone's: reading it gives nothing (the end at once), whatever is written to it is gone: `command > /dev/null` hides a command's output |
 | `/dev/zero` | (since 52c) reads give zero bytes, as many as asked (`head -c 4096 /dev/zero > empty.bin`); writes are gone, as with /dev/null |
 | `/dev/tty` | (since 52c) your terminal, whatever a program's input and output are: `sh -c 'echo seen > /dev/tty' > /dev/null` still shows `seen`. Without a terminal (a command run by `ssh HOST CMD`, an elf) it cannot be opened: `Device not configured` |
+| `/dev/shm` | (since 43b-3) programs' shared memory by name (POSIX's `shm_open`, named semaphores as `sem.NAME`): each name a memory file, kept in memory only (gone at the next start), as large as its program made it. Everyone may make names there; a name is removed (`rm`) by its owner or root, and its memory lives on while a program still has it open or mapped. `ls -l /dev/shm` lists them, `cat` reads one |
 | `/dev/usbserialN` | (since 50e) a USB serial port (CDC ACM: a device's console such as the PlutoSDR's, a modem): what is written goes to the device, reads give what it sent (also what came before the port was opened, up to 16 KiB). Root's and the console user's, as the sound devices. `cu usbserial0` is a terminal on it |
 | `/dev/tapN` | (since 38a) the wire of the virtual network card `tapN` (`net tap add`): a program that opens it reads each Ethernet frame the system sends through the card and writes the frames the card receives, one per `read` or `write`. Root's and the card's user's, one program at a time (section 8, "Virtual cards") |
 
 `/volumes`, `/dev` and `/boot` are not on the disk: the kernel makes them
 up, and `ls /` lists them after the disk's own entries. `ls /dev` lists
-the disks and partitions, then `null`, `zero`, `tty`, the sound
+the disks and partitions, then `null`, `zero`, `tty`, the folder `shm`
+(since 43b-3), the sound
 devices `pcm0`, `pcm1`, ... (since 52l), the USB serial ports
 `usbserial0`, `usbserial1`, ... (since 50e) and the virtual network cards'
 `tap0`, `tap1`, ... (since 38a; `ls -l` shows `b` for a disk, `c` for the
-others). `/.snapshots`
+devices, `d` for `shm`). `/.snapshots`
 is made up too, but hidden, as names starting with a dot are: type its
 name (or use `snapshot list`).
 

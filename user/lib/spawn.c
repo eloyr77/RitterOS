@@ -21,7 +21,7 @@
 #include "pathsearch.h"
 #include "ritteros.h"
 
-enum { ACT_OPEN, ACT_DUP2, ACT_CLOSE };
+enum { ACT_OPEN, ACT_DUP2, ACT_CLOSE, ACT_CHDIR, ACT_FCHDIR };
 
 struct __spawn_action {
     int kind, fd, newfd, oflag;
@@ -79,6 +79,37 @@ int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *a, int fd, cons
 int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *a, int fd, int newfd)
 {
     return add(a, (struct __spawn_action){ ACT_DUP2, fd, newfd, 0, 0, 0 });
+}
+
+/* (43a-3) glibc's and musl's: the child changes to path's folder there
+ * (POSIX 2024 names it posix_spawn_file_actions_addchdir). */
+int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t *a, const char *path)
+{
+    char *copy = strdup(path);
+    if (!copy)
+        return ENOMEM;
+    int e = add(a, (struct __spawn_action){ ACT_CHDIR, 0, 0, 0, 0, copy });
+    if (e)
+        free(copy);
+    return e;
+}
+
+int posix_spawn_file_actions_addchdir(posix_spawn_file_actions_t *a, const char *path)
+{
+    return posix_spawn_file_actions_addchdir_np(a, path);
+}
+
+/* (43b-6) The child changes to the folder of descriptor fd there. */
+int posix_spawn_file_actions_addfchdir_np(posix_spawn_file_actions_t *a, int fd)
+{
+    if (fd < 0)
+        return EBADF;
+    return add(a, (struct __spawn_action){ ACT_FCHDIR, fd, 0, 0, 0, 0 });
+}
+
+int posix_spawn_file_actions_addfchdir(posix_spawn_file_actions_t *a, int fd)
+{
+    return posix_spawn_file_actions_addfchdir_np(a, fd);
 }
 
 int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *a, int fd)
@@ -243,6 +274,12 @@ static void child(int report, const char *file, bool search, const posix_spawn_f
             } else if (dup2(act->fd, act->newfd) < 0) {
                 fail(report, errno);
             }
+        } else if (act->kind == ACT_CHDIR) {
+            if (chdir(act->path) < 0)
+                fail(report, errno);
+        } else if (act->kind == ACT_FCHDIR) {
+            if (fchdir(act->fd) < 0)
+                fail(report, errno);
         } else {
             close(act->fd);                         /* (one not open: no error, as POSIX 2024) */
         }

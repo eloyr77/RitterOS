@@ -19,6 +19,9 @@
 #define EC_DATA_ABORT       0x25        /* data access fault at EL1 */
 #define EC_SP_ALIGNMENT     0x26
 #define EC_SVC              0x15        /* SVC instruction: a system call */
+#define EC_SYSREG           0x18        /* a system register access trapped */
+#define EC_SVE              0x19        /* (46b) SVE: not given to programs */
+#define EC_SME              0x1D        /* (46b) SME: not given to programs */
 #define EC_SERROR           0x2F
 #define EC_BRK              0x3C        /* BRK instruction */
 
@@ -40,7 +43,9 @@ static const char *class_name(unsigned ec)
     case 0x01:               return "WFI/WFE trapped";
     case 0x07:               return "FP/SIMD access trapped";
     case 0x15:               return "system call (SVC)";
-    case 0x18:               return "system register access trapped";
+    case EC_SYSREG:          return "system register access trapped";
+    case EC_SVE:             return "SVE instruction trapped";
+    case EC_SME:             return "SME instruction trapped";
     case EC_INSTR_ABORT_LOW:
     case EC_INSTR_ABORT:     return "instruction abort";
     case EC_PC_ALIGNMENT:    return "PC alignment fault";
@@ -125,16 +130,19 @@ static void user_exception(struct exception_frame *f, unsigned ec)
              * touched (22e): made, and the program goes on. (35b) An
              * access flag fault (0x08-0x0B): pageout cleared the flag of a
              * page to see whether it is used; it is set again. */
+            /* (45d) A cache maintenance instruction's fault (ISS.CM, bit
+             * 8: a JIT's DC CVAU over code not yet touched) says WnR, but
+             * reads the page: a read, as Linux takes it. */
+            bool write = ec == EC_DATA_ABORT_LOW && ((f->esr >> 6) & 1) && !((f->esr >> 8) & 1);
             __asm__ volatile ("msr daifclr, #2");
-            int fault = process_page_fault(f->far, ec == EC_DATA_ABORT_LOW && ((f->esr >> 6) & 1),
-                                           ec == EC_INSTR_ABORT_LOW);
+            int fault = process_page_fault(f->far, write, ec == EC_INSTR_ABORT_LOW);
             __asm__ volatile ("msr daifset, #2");
             if (fault == 0) {
                 process_before_return(f);
                 sched_preempt_point(true);
                 return;
             }
-            if (fault == SIGBUS && process_fault_signal(f, SIGBUS))
+            if (fault == SIGBUS && process_fault_signal(f, SIGBUS, BUS_ADRERR, f->far))
                 return;                     /* (22r: its handler runs) */
             if (fault == SIGBUS)
                 process_fault("bus error (past the end of a mapped file)", f->elr, f->far, SIGBUS);
@@ -148,9 +156,22 @@ static void user_exception(struct exception_frame *f, unsigned ec)
     ksnprintf(what, sizeof(what), "%s (EC 0x%02x)%s%s", f->vector == 8 ? class_name(ec)
               : vector_names[f->vector], ec, detail[0] ? ", " : "", detail);
     /* As on Unix: undefined (and privileged) instructions SIGILL, the rest
-     * (aborts, alignment) SIGSEGV. */
-    int signal = ec == EC_UNKNOWN ? SIGILL : SIGSEGV;
-    if (process_fault_signal(f, signal))
+     * (aborts, alignment) SIGSEGV. (46b) So are SVE and SME instructions and
+     * trapped system registers, as Linux's where a program may not use them:
+     * OpenSSL tries instructions to learn the processor's features and
+     * expects SIGILL for the missing ones (an Apple processor has SME, which
+     * RitterOS does not switch on). */
+    int signal = ec == EC_UNKNOWN || ec == EC_SYSREG || ec == EC_SVE || ec == EC_SME ? SIGILL : SIGSEGV;
+    /* (43b-5) Linux's info: an abort's address and kind (a permission
+     * fault: mapped without that access); else the instruction's. */
+    int code = signal == SIGILL ? ILL_ILLOPC : SI_KERNEL;
+    if (is_abort(ec)) {
+        __asm__ volatile ("msr daifclr, #2");
+        code = process_fault_code(f->far);      /* (by the mapping, as Linux's) */
+        __asm__ volatile ("msr daifset, #2");
+    }
+    uint64_t at = signal == SIGILL ? f->elr : is_abort(ec) || ec == EC_PC_ALIGNMENT ? f->far : 0;
+    if (process_fault_signal(f, signal, code, at))
         return;                             /* (22r: its handler runs) */
     process_fault(what, f->elr, is_abort(ec) || ec == EC_PC_ALIGNMENT ? f->far : ~0ULL, signal);
 }

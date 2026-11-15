@@ -33,6 +33,16 @@ void arch_delay_ms(uint32_t ms);
 uint64_t arch_counter(void);
 uint64_t arch_counter_hz(void);
 
+/* (68u) After the scheduler is up: measure the counter's rate again where
+ * the boot's measurement was short (x86: a thread, `tscrate`, against the
+ * ACPI PM timer, then uefi_clock_rate); nothing where the rate is the
+ * hardware's own (ARM's CNTFRQ_EL0). */
+void arch_counter_refine_start(void);
+
+/* (68p) How a program reads arch_counter itself: SYS_CLOCK_TSC or
+ * SYS_CLOCK_CNTVCT (0: it cannot), and what to add to what it reads. */
+uint32_t arch_counter_user(uint64_t *offset);
+
 /* (64t) The processor's clock while it runs: its real cycles and cycles at
  * the counter's rate (arch_counter_hz), both counted only while it is not
  * halted (x86: APERF and MPERF). False where it has no such counters. */
@@ -76,6 +86,13 @@ void arch_stop_other_cores(void);
  * found. Interrupts stay masked until arch_interrupts_enable(). Returns false
  * if the machine lacks what is needed. Uses ACPI (acpi_init must have run). */
 bool arch_interrupts_init(uint32_t hz);
+
+/* (45a) Arm this core's timer to interrupt no later than at (an
+ * arch_counter() value), besides its ticks: a thread sleeps here until
+ * then. Interrupts off. At every timer interrupt the architecture calls
+ * sched_precise_due() and arms the earlier of its answer and the next tick
+ * (the ticks keep their own exact schedule). */
+void arch_timer_wake_at(uint64_t at);
 
 /* A device interrupt handler; runs with interrupts masked. */
 typedef void (*irq_handler_fn)(void *context);
@@ -218,10 +235,25 @@ void arch_fpu_clean(void *area);
  * system call's first argument), checked so that only a program's state
  * can come back, and gives its blocked set; false if it is not one.
  * Both are called with interrupts off and switch them on to copy.
+ * (43b-5) The context is the library's ucontext_t (glibc's names for the
+ * registers), info (struct sys_siginfo) lies above it, and the handler
+ * gets (signal, &info, &context); on_alt: on the thread's alternate stack
+ * alt (unless it runs there already), which uc_stack shows either way.
  */
+struct sys_siginfo;
+struct signal_stack {
+    uint64_t sp, size;              /* the thread's alternate stack (SYS_SIGALTSTACK) */
+    bool set;
+    bool used;                      /* (out) the handler runs on it */
+};
 bool arch_signal_enter(void *frame, uint64_t handler, int signal, uint64_t restorer,
-                       uint64_t blocked);
-bool arch_signal_return(void *frame, uint64_t *blocked);
+                       uint64_t blocked, const struct sys_siginfo *info,
+                       struct signal_stack *alt, bool on_alt);
+bool arch_signal_return(void *frame, uint64_t *blocked, uint64_t *sp);
+/* (44a) Make the system call that left in frame happen again at the
+ * return: the program counter back on its instruction, its number and
+ * first argument (which the result replaced) back in their registers. */
+void arch_syscall_restart(void *frame, uint64_t number, uint64_t arg0);
 
 /*
  * A program thread's thread pointer (22i): the register its per-thread data
@@ -237,6 +269,12 @@ void arch_set_thread_pointer(uint64_t tp);
  * several a thread found another core's), ARM nothing (0). */
 uint64_t arch_user_segments(void);
 void arch_set_user_segments(uint64_t segments);
+
+/* (43b-6) What the processor offers programs, as Linux's AT_HWCAP and
+ * AT_HWCAP2 say it (each program's auxiliary vector): x86 CPUID 1's EDX
+ * (HWCAP2 0: neither MONITOR at ring 3 nor FSGSBASE is given), ARM the ID
+ * registers' features in Linux's HWCAP_* bits. */
+void arch_hwcaps(uint64_t *hwcap, uint64_t *hwcap2);
 
 /* Code was written to memory at addr (kernel address) and will be executed:
  * make the instruction fetches see it (ARM: clean and invalidate caches). */

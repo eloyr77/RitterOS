@@ -1,0 +1,58 @@
+#!/bin/sh
+# ritteros-ld (43d): the linker sdk/ritteros.meson gives clang (-fuse-ld):
+# zig's lld with RitterOS's link, as ritteros.mk links. Meson links through
+# the compiler, which for a bare ELF target has no linker of its own, so the
+# link step names a Linux target and lands here: its Linux defaults are
+# overridden (later options win), and the rest is RitterOS's. A program
+# (no -shared) gets the start code, user.ld, ld.so as its loader, (43e) the
+# RUNPATH $ORIGIN/lib (an app's own libraries in its bundle's lib) and the
+# shared libraries (--as-needed: only those it uses, the C++ ones too); a
+# shared library the libraries it may use. The architecture is the
+# driver's -m (elf_x86_64 or aarch64linux); the checkout is this file's ../.
+here=$(cd "$(dirname "$0")/.." && pwd)
+# (43e) Meson writes its build tree's folders into programs (its build
+# rpath: `$ORIGIN/` and this computer's paths, which `meson install` would
+# take out again, but RitterOS gets the files as built): a -rpath keeps only
+# the folders that mean something on RitterOS, $ORIGIN's and /system's.
+set -f
+prev=
+for a in "$@"; do
+    shift
+    case "$prev$a" in
+    -rpath) prev=-rpath; continue ;;
+    -rpath*) list=${a#-rpath=}; [ "$prev" = -rpath ] && list=$a; prev=
+        keep=
+        IFS=:
+        for f in $list; do
+            case "$f" in
+            '$ORIGIN'*|'${ORIGIN}'*|/system/*) keep=${keep:+$keep:}$f ;;
+            esac
+        done
+        unset IFS
+        [ -n "$keep" ] && set -- "$@" -rpath "$keep"
+        continue ;;
+    esac
+    set -- "$@" "$a"
+done
+set +f
+arch=x86_64
+shared=no
+for a in "$@"; do
+    case "$a" in
+    aarch64linux) arch=aarch64 ;;
+    -shared) shared=yes ;;
+    esac
+done
+zig=${RITTEROS_ZIG:-$here/tools/zig/zig}
+lib=$here/build/system/$arch/lib
+libs="--as-needed $lib/libc++.so.1 $lib/libc++abi.so.1 $lib/libunwind.so.1 $lib/libritteros.so.1
+      $lib/libwindow.so.1 $lib/libimage.so.1 $lib/libaudio.so.1 $lib/libvideo.so.1 $lib/libdraw.so.1
+      $lib/libwidget.so.1 $lib/libtls.so.1 $lib/libkeyring.so.1 --no-as-needed $here/build/$arch/user/libritteros-pic.a"
+# (46e) -lssl, -lcurl ... (Autotools' and Meson's links): the system
+# libraries from upstream by their link names (build/sdk/ARCH/lib)
+common="-z max-page-size=4096 -z now -z relro --hash-style=sysv --eh-frame-hdr -L $here/build/sdk/$arch/lib -L $lib"
+if [ $shared = yes ]; then
+    exec "$zig" ld.lld "$@" $common $libs
+fi
+exec "$zig" ld.lld "$@" $common -T "$here/user/user.ld" -pie -dynamic-linker "/system/$arch/lib/ld.so" -rpath '$ORIGIN/lib' \
+    -z nocopyreloc "$here/build/$arch/user/user/arch/$arch/start.S.o" $libs

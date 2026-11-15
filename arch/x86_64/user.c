@@ -16,6 +16,12 @@
 #include "syscalls.h"
 #include "vmlayout.h"
 
+void arch_hwcaps(uint64_t *hwcap, uint64_t *hwcap2)
+{
+    *hwcap = cpuid(1, 0).edx;
+    *hwcap2 = 0;
+}
+
 #define MSR_STAR        0xC0000081
 #define MSR_LSTAR       0xC0000082
 #define MSR_SFMASK      0xC0000084

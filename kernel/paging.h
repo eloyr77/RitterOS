@@ -135,7 +135,10 @@ bool paging_user_touch(uint64_t space, uint64_t virt);
 /* Make space the lower half of the running address space (0: none). */
 void paging_user_activate(uint64_t space);
 
-/* Free the tables and every page mapped in space. It must not be active. */
+/* Free the tables and every page mapped in space. It must not be active.
+ * (68p) Except paging_kept_page: the clock page every program maps, the
+ * kernel's for good. */
 void paging_user_destroy(uint64_t space);
+extern uint64_t paging_kept_page;
 
 #endif

@@ -4,11 +4,15 @@
 #
 #   tools/downloads  source tarballs / binary archives
 #   tools/src        extracted sources and build directories
-#   tools/venv       Python venv providing meson, ninja, pkgconf
+#   tools/venv       Python venv providing meson, ninja, pkgconf, and (43d)
+#                    cmake: also the SDK's builds of ported programs
+#                    (sdk/ritteros.cmake, sdk/ritteros.meson)
 #   tools/local      install prefix (bin/qemu-system-x86_64, share/qemu/edk2-*)
 #   tools/zig        Zig toolchain (clang + lld, used as cross compiler)
 #   tools/local/bin  also iasl and acpiexec (Intel's ACPICA, 37b): the
 #                    tests' oracle for RitterOS's AML interpreter, never shipped
+#   tools/src/NAME-VER  (46) the system libraries' upstream sources
+#                    (user/upstream/versions), built by the Makefile
 #   tools/src/atom-LINUX_VER  AMD's AtomBIOS interpreter from Linux (37g-5a):
 #                    the oracle for amdgpu's, built only into scripts/atomhost
 #                    on the Mac, never shipped
@@ -23,6 +27,7 @@ SLIRP_VER=4.8.0
 ZIG_VER=0.17.0
 ACPICA_VER=20260930
 ATOM_LINUX_VER=v6.6
+CMAKE_VER=4.3.4
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$ROOT/tools"
@@ -63,6 +68,13 @@ if ! is_done venv; then
     "$T/venv/bin/pip" install -q --upgrade pip
     "$T/venv/bin/pip" install -q meson==1.11.2 ninja==1.13.2 pkgconf==2.4.3.post2 tomli==2.5.0
     done_stage venv
+fi
+# --- (43d) CMake, for ported programs (sdk/ritteros.cmake): Kitware's own
+# builds, from PyPI as the other build tools -----------------------------------
+if ! is_done cmake-$CMAKE_VER; then
+    log "CMake $CMAKE_VER"
+    "$T/venv/bin/pip" install -q cmake==$CMAKE_VER
+    done_stage cmake-$CMAKE_VER
 fi
 export PATH="$PREFIX/bin:$T/venv/bin:$PATH"
 
@@ -236,6 +248,40 @@ if ! is_done atom; then
     done
     done_stage atom
 fi
+
+# --- (46) The system libraries' upstream sources ----------------------------
+# Upstream libraries RitterOS builds and ships unchanged (user/upstream/:
+# each one's source note and licence): only their sources, checked against
+# the SHA-256 recorded in user/upstream/versions; the Makefile builds them.
+# shellcheck source=../user/upstream/versions
+. "$ROOT/user/upstream/versions"
+upstream() { # name version url sha256 (saved as NAME-VERSION.tar.EXT: a tag's
+    local f="$DL/$1-$2.tar.${3##*.tar.}"    # archive's own name is only vVERSION)
+    is_done "$1-$2" && [ -d "$SRC/$1-$2" ] && return 0
+    log "$1 $2 (sources for RitterOS)"
+    [ -f "$f" ] || { curl -sSfL -o "$f.part" "$3" && mv "$f.part" "$f"; }
+    if [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" != "$4" ]; then
+        echo "setup-toolchain: $f is not the archive recorded in user/upstream/versions" >&2
+        rm -f "$f"
+        exit 1
+    fi
+    rm -rf "$SRC/$1-$2"
+    tar -xf "$f" -C "$SRC"
+    done_stage "$1-$2"
+}
+upstream zlib "$ZLIB_VER" "https://zlib.net/zlib-$ZLIB_VER.tar.xz" "$ZLIB_SHA256"
+upstream openssl "$OPENSSL_VER" \
+    "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VER/openssl-$OPENSSL_VER.tar.gz" \
+    "$OPENSSL_SHA256"
+upstream nghttp2 "$NGHTTP2_VER" \
+    "https://github.com/nghttp2/nghttp2/releases/download/v$NGHTTP2_VER/nghttp2-$NGHTTP2_VER.tar.xz" \
+    "$NGHTTP2_SHA256"
+upstream brotli "$BROTLI_VER" "https://github.com/google/brotli/archive/refs/tags/v$BROTLI_VER.tar.gz" \
+    "$BROTLI_SHA256"
+upstream libpsl "$LIBPSL_VER" \
+    "https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL_VER/libpsl-$LIBPSL_VER.tar.gz" \
+    "$LIBPSL_SHA256"
+upstream curl "$CURL_VER" "https://curl.se/download/curl-$CURL_VER.tar.xz" "$CURL_SHA256"
 
 log "Toolchain ready"
 "$PREFIX/bin/qemu-system-x86_64" --version | head -1

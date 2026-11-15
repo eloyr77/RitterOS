@@ -4,6 +4,7 @@
  */
 #include "arch.h"
 #include "cpu.h"
+#include "syscalls.h"
 
 void arch_delay_ms(uint32_t ms)
 {
@@ -15,6 +16,11 @@ void arch_delay_ms(uint32_t ms)
         arch_cpu_relax();
 }
 
+/* (68u) CNTFRQ_EL0 is the counter's own rate: nothing to measure again. */
+void arch_counter_refine_start(void)
+{
+}
+
 uint64_t arch_counter(void)
 {
     isb();                                  /* not ahead of earlier instructions */
@@ -24,6 +30,14 @@ uint64_t arch_counter(void)
 uint64_t arch_counter_hz(void)
 {
     return read_sysreg(CNTFRQ_EL0);
+}
+
+/* (68p) Programs read CNTVCT_EL0 too: each core lets them (CNTKCTL_EL1's
+ * EL0VCTEN, set as its timer starts, gic.c). */
+uint32_t arch_counter_user(uint64_t *offset)
+{
+    *offset = 0;
+    return SYS_CLOCK_CNTVCT;
 }
 
 bool arch_clock_counts(uint64_t *actual, uint64_t *base)

@@ -76,6 +76,14 @@ int vfs_write(struct vfs *v, uint64_t id, uint64_t offset, const void *data, uin
  * the end and writes in one hold of its lock; FAT and exFAT in two. */
 int vfs_append(struct vfs *v, uint64_t id, const void *data, uint64_t size, uint64_t *at);
 int vfs_truncate(struct vfs *v, uint64_t id);
+/* (43b-1) The file made size bytes long, from what every file system can
+ * do: longer by writing zeros at its end; 0 by vfs_truncate; shorter by
+ * keeping the first size bytes in pages, cutting it to 0 and writing them
+ * back (RFS_ERR_NO_SPACE... as a write's; RFS_ERR_IO without the memory). */
+int vfs_set_size(struct vfs *v, uint64_t id, uint64_t size);
+/* (43b-1) The file system's sizes: block size, blocks, free blocks;
+ * false when it does not tell (FAT, exFAT so far). */
+bool vfs_space(struct vfs *v, uint64_t *block_size, uint64_t *blocks, uint64_t *free_blocks);
 int vfs_remove(struct vfs *v, const char *path);
 int vfs_rename(struct vfs *v, const char *from, const char *to);
 /* (57a) A symbolic link at path naming target; a hard link to (a new name for

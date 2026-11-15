@@ -85,7 +85,7 @@ machine's host key the first time).
 **Linking.** By default (`LINK = shared`) your program uses the machine's
 shared libraries in `/system/<arch>/lib` (`libritteros.so.1`, and
 `libwindow.so.1`, `libimage.so.1`, `libaudio.so.1`, `libvideo.so.1`,
-`libdraw.so.1`, `libwidget.so.1`, `libtls.so.1` if it calls them), loaded by `ld.so` when it starts: a small file, and the
+`libdraw.so.1`, `libwidget.so.1`, `libtls.so.1`, `libkeyring.so.1` if it calls them), loaded by `ld.so` when it starts: a small file, and the
 library code is shared with every other program there. `LINK = static`
 links it with the archive `libritteros.a` instead: a bigger file carrying
 the code it uses, independent of the machine's libraries.
@@ -100,6 +100,90 @@ libraries lack: `ld.so` then stops it at its start with `ld.so: NAME: NAME
 needs FUNCTION, which none of its libraries has` (exit 127), and `ssh HOST
 'ldd NAME'` lists every such function without running it. Update the
 machine, or build against its version.
+
+**C++** (since 43c). `.cpp` files in `SRCS` are C++23 against RitterOS's
+libc++ (LLVM's libc++, libc++abi and libunwind, built from the pinned Zig's
+sources and installed as `/system/<arch>/lib/libc++.so.1`, `libc++abi.so.1`,
+`libunwind.so.1`); a program with any is linked with them, and with the
+index of its frames that exceptions need. The whole standard library is
+there: exceptions, RTTI, `<iostream>`, `<format>`, `<print>`,
+`<filesystem>`, `<thread>`, `<regex>`, `<random>`, `<chrono>` (no time
+zones: `std::chrono::tzdb` is not there). `CXXFLAGS` adds your flags.
+C++ is built on your computer only (RitterOS's own `cc` is C's: `make` on
+the machine refuses a `.cpp`), and linked shared only (`LINK = static` is
+refused: there are no static C++ libraries). C and C++ files mix: every
+RitterOS header is `extern "C"` for C++. `sdk/examples/hello-cpp` is one.
+A machine installed before 43c needs updating first (it has no
+`libc++.so.1`: the program stops at its start, exit 127).
+
+**CMake and Meson** (since 43d), for programs ported with their own
+build: `cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=RITTEROS/sdk/ritteros.cmake`
+(`-DRITTEROS_ARCH=aarch64` for ARM), or `meson setup build --cross-file
+RITTEROS/sdk/ritteros.meson` (x86_64; for ARM a copy with `arch` and
+`ritteros` set, as its first lines say); both make ritteros.mk's link,
+shared libraries too, and find RitterOS's libraries through pkg-config
+(`sdk/pkgconfig`). A static library is made anew at each build (69m:
+CMake's rule removed the archive first since then, Meson's always did):
+an object whose source left it is gone, never linked by mistake. A build
+made before 69m may still hold such objects: delete its `.a` files once.
+The pinned CMake, Meson, Ninja and pkgconf are in
+`RITTEROS/tools/venv/bin` (`scripts/setup-toolchain.sh`); run `make sdk` in
+RITTEROS first. `sdk/examples/hello-cmake` and `hello-meson` show both;
+`docs/porting.md` is the porting guide: the target (no `__linux__`: a
+bare ELF target), what the C library has (43a-43b: POSIX 2008 and the Linux
+and BSD calls ported software uses most, by area) and what it has not yet
+(epoll, inotify, /dev/urandom, job control, timer_create, getcontext,
+LD_LIBRARY_PATH). A port's own libraries go into its bundle (next).
+
+**An app's own libraries** (since 43e, as macOS's apps keep theirs inside
+the app). A program that brings shared libraries of its own (a ported
+program's, a browser's dozens) keeps them in its bundle's `lib` folder,
+never in `/system/<arch>/lib`, which is RitterOS's own:
+
+```
+/system/x86_64/apps/browser.program/
+    browser               the program
+    info, icon.png        (as every app's)
+    lib/libfoo.so.1       its own libraries
+    lib/libbar.so.2
+    webprocess            helper programs, if any, beside the program
+```
+
+The program records where to look first (ELF's RUNPATH): `$ORIGIN/lib`,
+where `$ORIGIN` is the folder the program's file is in, so the bundle finds
+its libraries wherever it is (copied, moved, or started through a symbolic
+link: the system gives `ld.so` the program's real path). For each library,
+`ld.so` looks in the RUNPATH folders of the file that needs it, then in the
+program's (so the libraries in `lib` find each other with no RUNPATH of
+their own, as macOS's `@rpath`), then in `/system/<arch>/lib`: an app's own
+library wins over the system's of the same name. `dlopen("libfoo.so.1")`
+looks in the same places; `ldd PROGRAM` on the machine shows which file each
+one is.
+
+- **The builds write it for you:** `ritteros.mk` into an app (`KIND = apps`,
+  `LINK = shared`), `ritteros.cmake` and `ritteros.meson` into every
+  program. A project's own folders go in as well: CMake's `INSTALL_RPATH`
+  (written at the build: the files are copied as built), Meson's
+  `install_rpath`, clang's `-Wl,-rpath,FOLDERS`, the linker's `-rpath
+  FOLDERS`; several are joined with `:`. Quote `$ORIGIN` from the shell
+  (`'$ORIGIN/lib'`; in a makefile `'$$ORIGIN/lib'`). Meson's own
+  build-tree folders (`$ORIGIN/`, paths of your computer) are dropped by
+  `sdk/ritteros-ld`, which keeps only `$ORIGIN` and `/system/` folders.
+- **On the machine,** `cc -o app main.c -Wl,-rpath,'$ORIGIN/lib'` (43e-2:
+  cc hands `-Wl,` words to `ld`, as GCC and clang do), or `ld -rpath
+  '$ORIGIN/lib' ...` as ritteros.mk does.
+- **Copy the bundle whole,** with `tar` (one ssh call, as root):
+  `tar cf - -C stage browser.program | ssh root@HOST 'tar xf - -C /system/x86_64/apps'`.
+- **Rules:** a setuid program run by another user ignores `$ORIGIN` (else
+  anyone could link it into a folder of their own beside a library of their
+  own: Linux's loader does the same); there is no `LD_LIBRARY_PATH`. Give
+  every library a soname with its major version (`libfoo.so.1`): the
+  program records that name. `ld.so` takes a program with up to 511
+  libraries in all, its own and the system's (43e-2; 15 before), and a
+  library may name any number of others.
+- `sdk/examples/hello-cmake` and `hello-meson` are such bundles: the sdk
+  test installs each as `/system/ARCH/apps/hello-cmake.program/` with its
+  `lib/libgreet.so.1`.
 
 ## Setting up the RitterOS machine (once)
 
@@ -149,7 +233,7 @@ A person at the machine does this; afterwards an agent needs nothing there.
 5. **For windowed apps,** the window system must be running on the
    machine's screen. Two different things here:
    - *Starting* the window system: at the machine itself, by a user logged
-     in there, `windowd &` (it opens the file browser `owl`; the desktop
+     in there, `windowd &` (it opens the file browser `Owl`; the desktop
      stays up until you quit it from its right-click menu), or as the elf
      `windowd`. Over SSH only root may start it (and then gets every key
      typed at the machine); another user over SSH is refused (`windowd:
@@ -200,7 +284,10 @@ the command's exit code becomes ssh's.
   `/system/<arch>/apps/APP.program/` holding the program `APP`, its file
   `info` and its `icon.png`. The shell, windowd, `open` and the program
   search (`execvp`) find a bare name in `bin`, then as `APP.program/APP`;
-  `owl` shows a bundle anywhere as one item with its icon and runs it.
+  `Owl` shows a bundle anywhere as one item with its icon and runs it.
+  (69l) A bundle's name starts with a capital letter, and its program's
+  is the same (`Owl.program/Owl`, typed `Owl`): names are compared
+  exactly, so `APP` is what the user types and what file types name.
   Writing there needs root. `KIND = apps` makes `make deploy` build the
   bundle: the program, and the project's `APP.info` and `APP.png` (if
   there) as `info` and `icon.png`, and removes an old flat
@@ -265,7 +352,7 @@ the command's exit code becomes ssh's.
   program.
 - **New files are made with mode 0644.** Root passes every permission check
   in RitterOS, so root can run such a file anyway, but other users cannot
-  (`sh: hello: Permission denied`), and `owl` opens a non-executable file in
+  (`sh: hello: Permission denied`), and `Owl` opens a non-executable file in
   the editor instead of running it: chmod 755 once after the first copy
   (`make deploy` always does). Copying over an existing program keeps its
   mode. Overwriting a program that is running is safe: it was loaded into
@@ -284,7 +371,8 @@ the command's exit code becomes ssh's.
   error`: built for the other architecture; `sh: NAME: Permission denied`: a
   user other than root, and no x bit). At its prompt the shell also prints
   `NAME: exit code N` for a line whose last command failed, and `NAME:
-  stopped by signal N` (or `NAME: killed`) when a signal ended it; over
+  ended by signal N` (or `NAME: killed`) when a signal ended it (44c: it
+  said "stopped by signal N" before; "stopped" is a paused job now); over
   `ssh HOST 'cmd'` (sh -c) it prints neither (51a): the exit code is ssh's.
 - **A crash** (a page fault and the like) is reported by the kernel on the
   machine's screen and in its log, not on the ssh session:
@@ -424,7 +512,7 @@ shell is small:
 Useful programs there (all listed by `help`): `ls`, `cat`, `cp`, `mv`, `rm`,
 `mkdir [-p]`, `chmod MODE` (octal), `find`, `edit`, `ps`, `kill`, `mem`,
 `uptime`, `uname -a` (the release and the commit it was built from), `net`, `ping`, `fetch` (HTTP and HTTPS), `elf` (the background programs),
-`windowd`, `term`, `owl`.
+`windowd`, `Term`, `Owl`.
 
 ## Writing the program
 
@@ -439,7 +527,8 @@ RitterOS's start code, and its return value is the exit code. It includes only R
 static archive `libritteros.a`; your program links one or the other
 (`LINK`, above). The system's own SSH, cipher, GPT and mkfs code is static
 only. Your own libraries are static (more `SRCS`, or an archive added to the
-link).
+link), or (43e) shared, in your app's bundle (above: "An app's own
+libraries").
 
 **The complete list is [`API.md`](API.md):** every header, every function
 and macro with its declaration, the library each header's functions are in, and the headers as they are, with
@@ -454,7 +543,7 @@ programs; do not use it). The summary:
 | `string.h`, `strings.h` | `strlen`, `strnlen`, `strcmp`, `strncmp`, `strcoll`, `strxfrm`, `strchr`, `strrchr`, `strstr`, `strspn`, `strcspn`, `strpbrk`, `strtok`, `strcpy`, `strncpy`, `strcat`, `strncat`, `strdup`, `strndup`, `memcmp`, `memchr`, `memcpy`, `memccpy`, `memmove`, `memset`, `strerror`; `strcasecmp`, `strncasecmp` |
 | `ctype.h`, `assert.h`, `inttypes.h` | `isalpha` and the other classes, `tolower`, `toupper` (ASCII); `assert` (`NDEBUG` switches it off; a failure prints the expression and aborts); the `PRId64`-style macros |
 | `setjmp.h`, `locale.h` | `setjmp`/`longjmp` (no `sigsetjmp`); the "C" locale only: `setlocale` ("C", "POSIX" or ""; others refused), `localeconv` |
-| `time.h` | `time`, `clock` (CPU time, `CLOCKS_PER_SEC` 1000000), `difftime`, `mktime`, `gmtime`, `localtime` (and `_r`), `strftime` (C99's conversions), `asctime`, `ctime`; `timespec_get`, `clock_gettime` (`CLOCK_REALTIME`, `CLOCK_MONOTONIC`, `CLOCK_PROCESS_CPUTIME_ID`), `nanosleep` (in 10 ms ticks); local time = UTC + `zone` of `/system/config/time` (no daylight saving) |
+| `time.h` | `time`, `clock` (CPU time, `CLOCKS_PER_SEC` 1000000), `difftime`, `mktime`, `gmtime`, `localtime` (and `_r`), `strftime` (C99's conversions), `asctime`, `ctime`; `timespec_get`, `clock_gettime` (`CLOCK_REALTIME`, `CLOCK_MONOTONIC`, `CLOCK_PROCESS_CPUTIME_ID`; (68p) the first two read without a system call, from the kernel's clock page, about 40 ns; `CLOCK_MONOTONIC` counts from the start and `date -s` never moves it), (68l) `clock_settime` (`CLOCK_REALTIME`, root only; the firmware's clock too; `settimeofday` in `sys/time.h`), `nanosleep` (45a: it ends within about a millisecond of its time; until 45a in 10 ms ticks); local time = UTC + `zone` of `/system/config/time` (no daylight saving) |
 | `math.h` | C99's set, our own code in double-double arithmetic (results within an ulp, nearly always the nearest double; `sin(1e300)` too): `sin` `cos` `tan` `asin` `acos` `atan` `atan2`, `sinh` `cosh` `tanh` `asinh` `acosh` `atanh`, `exp` `exp2` `expm1` `log` `log2` `log10` `log1p` `pow` `sqrt` `cbrt` `hypot`, `floor` `ceil` `trunc` `round` `fmod` (exact) `modf` `frexp` `ldexp` `scalbn` `copysign` `fmin` `fmax` `fabs`, each with its `f` form; `isnan` `isinf` `isfinite` `isnormal` `signbit` `fpclassify`, `M_PI` and the other `M_` constants; since 22z also `rint` `nearbyint` `lrint` `llrint` (the current rounding direction), `lround` `llround`, `remainder` `remquo` `fdim` `fma` (exact) `nextafter` `nexttoward` `ilogb` `logb` `scalbln` `nan`, `erf` `erfc` `tgamma` `lgamma` (no `signgam`), `isgreater` and the other comparisons, `float_t`/`double_t`, and the `l` form of everything (double's precision); errno is never set |
 | `wchar.h`, `wctype.h` | wide characters (`wchar_t`, `wint_t`, `WEOF`) in the "C" locale, one byte each (a byte's value; above 255 no byte: EILSEQ): `wcslen` and the other `wcs*`/`wmem*` string calls, `wcstol`/`wcstoll`/`wcstoul`/`wcstoull`/`wcstod`/`wcstof`/`wcstold`, `wcsftime`, `btowc`, `wctob`, `mbrtowc`, `wcrtomb`, `mbrlen`, `mbsinit`, `mbsrtowcs`, `wcsrtombs`; streams `fgetwc`, `fgetws`, `ungetwc`, `fputwc`, `fputws`, `getwchar`, `putwchar`, `fwide` (the byte calls do not set the orientation); `wprintf`, `fwprintf`, `swprintf` (negative when it did not fit), `wscanf`, `fwscanf`, `swscanf` and their `v` forms; `printf`'s `%ls`/`%lc` and `scanf`'s `%ls`/`%lc`/`%l[`; `iswalpha` and the other classes, `towlower`, `towupper`, `wctype`/`iswctype`, `wctrans`/`towctrans` (ASCII). UTF-8: `uchar.h` |
 | `uchar.h` | UTF-8 always, whatever the locale: `mbrtoc32`/`c32rtomb` (code points), `mbrtoc16`/`c16rtomb` (UTF-16: a surrogate pair as two calls), `mbrtoc8`/`c8rtomb` (C23's `char8_t`, a byte at a time); a character may arrive in pieces (`(size_t)-2`, kept in the `mbstate_t`); invalid UTF-8 (overlong, surrogates, above U+10FFFF) is `(size_t)-1` with EILSEQ |
@@ -462,27 +551,29 @@ programs; do not use it). The summary:
 | `fenv.h` | the rounding direction (`fegetround`, `fesetround`: `FE_TONEAREST`, `FE_UPWARD`, `FE_DOWNWARD`, `FE_TOWARDZERO`) and the exception flags (`feclearexcept`, `fetestexcept`, `feraiseexcept`, `fegetexceptflag`, `fesetexceptflag`), the whole environment (`fegetenv`, `fesetenv`, `feholdexcept`, `feupdateenv`, `FE_DFL_ENV`); per thread, never trapping; math.h's functions expect rounding to nearest |
 | `unistd.h` | `read`, `write`, `close`, `lseek`, `dup`, `dup2`, `pipe` (since 52a), `sleep`, `usleep`, `getpid`, `getuid`, `chdir`, `getcwd`, `unlink`, `rmdir`, `isatty`, `spawn`; the exec family (since 55b): `execve`, `execv`, `execvp` (a bare name in `PATH`, else `/system/<arch>/bin` and `apps`; a file without `#!` that is not a program runs through `sh`), `execl`, `execlp`, `execle`: the program becomes another one, keeping its process number, folder, umask, blocked signals, ignored signals and descriptors (not those marked `FD_CLOEXEC`); its other threads end; `fork` (since 56a: a copy of the program, its memory copied a page at a time when written, `MAP_SHARED` memory shared; only the calling thread goes on in the child; shared buffers from `ritteros_share` are not passed on), `_exit`; `getppid`, `setpgid`, `getpgid`, `setsid` (56b); `symlink`, `readlink`, `link` (57a: symbolic and hard links on RitterFS, EPERM on FAT) |
 | `fcntl.h` | `open(path, flags, ...)`: `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREAT`, `O_TRUNC`, `O_APPEND`, `O_EXCL` (52j), `O_NONBLOCK` (53b); `fcntl` (53b: F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD/F_SETFD, F_GETFL/F_SETFL: with O_NONBLOCK reads, writes, accept and connect never wait: EAGAIN, EINPROGRESS); with `O_CREAT` a third argument, the new file's mode (since 52b; the umask is taken away: 022 at the start, so 0666 gives 0644); `creat(path, mode)` |
-| `sys/socket.h`, `netinet/in.h`, `netinet/tcp.h`, `arpa/inet.h`, `sys/un.h` | BSD sockets (since 53a): `socket` (AF_INET: SOCK_STREAM TCP, SOCK_DGRAM UDP; AF_INET6 since 64d: IPv6, and IPv4 peers too as `::ffff:a.b.c.d` unless `IPV6_V6ONLY` is set before `bind`; AF_UNIX: local streams), `bind` (a port: every address of the machine), `connect`, `listen`, `accept`, `send`/`recv` (MSG_WAITALL, MSG_NOSIGNAL, MSG_DONTWAIT since 53b), `sendto`/`recvfrom`, `shutdown` (half close), `getsockname`/`getpeername`, `setsockopt`/`getsockopt` (SO_RCVTIMEO/SO_SNDTIMEO act; SO_REUSEADDR, SO_KEEPALIVE, SO_BROADCAST, TCP_NODELAY kept), `inet_pton`/`inet_ntop` (IPv6 too)/`inet_aton`/`inet_addr`/`inet_ntoa`, `htons` & co. |
-| `sys/time.h` | `struct timeval`, `gettimeofday` (since 53a) |
-| `pthread.h`, `sched.h` | POSIX threads (since 54a): `pthread_create`/`join`/`detach`/`exit`/`self`/`equal`, attributes (detach state; the stack size, 8 MiB by default, up to 63 MiB: since 54d), mutexes (normal, recursive, error-checking; `trylock`, `timedlock`), condition variables (`timedwait` on CLOCK_REALTIME or CLOCK_MONOTONIC), `pthread_once`, keys with destructors, `pthread_sigmask`, `sched_yield`; since 54b read-write locks (a waiting writer first), barriers, spin locks; since 54c `pthread_cancel` (deferred at the waiting calls, or asynchronous), `pthread_setcancelstate`/`_setcanceltype`, `pthread_testcancel`, `pthread_cleanup_push`/`_pop`; `pthread_atfork` (56a); up to 256 threads a program (16 until 54d) |
+| `sys/socket.h`, `netinet/in.h`, `netinet/tcp.h`, `arpa/inet.h`, `sys/un.h` | BSD sockets (since 53a): `socket` (AF_INET: SOCK_STREAM TCP, SOCK_DGRAM UDP; AF_INET6 since 64d: IPv6, and IPv4 peers too as `::ffff:a.b.c.d` unless `IPV6_V6ONLY` is set before `bind`; AF_UNIX: local streams, (45b) and `SOCK_SEQPACKET`: messages kept whole, at most 64 KiB each), `bind` (a port: every address of the machine), `connect`, `listen`, `accept`, `send`/`recv` (MSG_WAITALL, MSG_NOSIGNAL, MSG_DONTWAIT since 53b), `sendto`/`recvfrom`, `shutdown` (half close), `getsockname`/`getpeername` (who is at a local socket's other end: `ritteros_peer_uid(fd)`, and (70c) `ritteros_peer_program(fd, path, size)`, the file its program runs; ritteros.h), `setsockopt`/`getsockopt` (SO_RCVTIMEO/SO_SNDTIMEO act; SO_REUSEADDR, SO_KEEPALIVE, SO_BROADCAST, TCP_NODELAY kept), `inet_pton`/`inet_ntop` (IPv6 too)/`inet_aton`/`inet_addr`/`inet_ntoa`, `htons` & co. |
+| `sys/time.h` | `struct timeval`, `gettimeofday` (since 53a); (46b) also `select` and `fd_set`, as POSIX says |
+| `sys/ioctl.h` | (46b) `ioctl` with `FIONBIO` (non-blocking on or off), `FIOCLEX` and `FIONCLEX` (close-on-exec); any other request is -1 with `ENOTTY` |
+| `pthread.h`, `sched.h` | POSIX threads (since 54a): `pthread_create`/`join`/`detach`/`exit`/`self` ((68q) no system call after a thread's first)/`equal`, attributes (detach state; the stack size, 8 MiB by default, up to 63 MiB: since 54d), mutexes (normal, recursive, error-checking; `trylock`, `timedlock`), condition variables (`timedwait` on CLOCK_REALTIME or CLOCK_MONOTONIC), `pthread_once`, keys with destructors, `pthread_sigmask`, `sched_yield`; since 54b read-write locks (a waiting writer first), barriers, spin locks; since 54c `pthread_cancel` (deferred at the waiting calls, or asynchronous), `pthread_setcancelstate`/`_setcanceltype`, `pthread_testcancel`, `pthread_cleanup_push`/`_pop`; `pthread_atfork` (56a); up to 256 threads a program (16 until 54d) |
 | `spawn.h` | `posix_spawn`, `posix_spawnp` (since 55c; a name looked up as `execvp` does), file actions (`posix_spawn_file_actions_addopen`, `_adddup2`, `_addclose`, on any descriptor), attributes (`POSIX_SPAWN_SETPGROUP`, `SETSIGMASK`, `SETSIGDEF`, `RESETIDS`); since 56b by fork and exec, as POSIX: the child has every descriptor not marked FD_CLOEXEC and the ignored signals; they return an error number, not -1 |
 | `regex.h` | `regcomp`, `regexec`, `regerror`, `regfree` (since 58a): POSIX's basic and extended syntax (`REG_EXTENDED`), `REG_ICASE`, `REG_NOSUB`, `REG_NEWLINE`, `REG_NOTBOL`/`REG_NOTEOL`; the leftmost-longest match, groups in `regmatch_t`; back references in both syntaxes |
 | `netdb.h` | `getaddrinfo`/`freeaddrinfo`/`gai_strerror` (since 53d: names through dnsd, services from `/system/config/services`; IPv6 since 64d: AAAA records are asked for only when the machine has an IPv6 address beyond the link, and then come first; `AF_UNSPEC`, `AF_INET`, `AF_INET6` with `AI_V4MAPPED`/`AI_ALL`), `getnameinfo` (numbers, IPv6 too: no reverse lookup), `gethostbyname` (IPv4), `getservbyname`/`getservbyport`, `h_errno` |
 | `sys/select.h` | `select`, `fd_set` with `FD_ZERO`/`FD_SET`/`FD_CLR`/`FD_ISSET` (since 53c, over poll; FD_SETSIZE 256) |
 | `poll.h` | `poll(fds, count, timeout_ms)` (since 52d; up to 256 descriptors, as many as a program may have open since 52k): pipes, pseudo-terminals, the terminal, sockets (UDP, TCP, local), `/dev/tapN` (since 38a); files never wait |
-| `termios.h` | `tcgetattr`, `tcsetattr`, `tcflush`, `tcdrain`, `cfmakeraw`, `cf[gs]et[io]speed` (since 52e): ICANON (raw input with VMIN/VTIME), ECHO, ISIG, ICRNL act; the rest is kept; the terminal is put back when the program ends |
+| `termios.h` | `tcgetattr`, `tcsetattr`, `tcflush`, `tcdrain`, `cfmakeraw`, `cf[gs]et[io]speed` (since 52e): ICANON (raw input with VMIN/VTIME), ECHO, ISIG, ICRNL act, (44b) TOSTOP too; the rest is kept; the terminal is put back when the program ends. (44b) Job control: Ctrl-Z sends SIGTSTP to the foreground job; a background job that reads its terminal gets SIGTTIN (it stops until it is in the foreground and continued), one that writes with TOSTOP set or changes the modes SIGTTOU; with SIGTTIN ignored the read fails with EIO |
 | `sys/stat.h`, `dirent.h` | `stat`, `fstat` (since 52b: also pipes `S_ISFIFO`, terminals `S_ISCHR`, sockets `S_ISSOCK`), `lstat` (57a: a link itself, `S_ISLNK`, `DT_LNK` in readdir; `st_nlink` counts a file's names), `mkdir`, `chmod`, `chown`, `umask` (since 52h: per program, passed on to the programs it starts); `opendir`, `readdir`, `closedir` |
-| `sys/mman.h` | `mmap`, `munmap`, `mprotect`: anonymous memory, and files mapped into memory (a read-only mapping shares one copy of the file's pages with every program that maps it) |
-| `signal.h` | `kill`, `raise`, `signal` and `sigaction` with handlers (they run when the signal comes, on the program's stack; faults too: `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`), `sa_mask`, `SA_RESETHAND`, `SA_NODEFER`, the `sigset_t` calls, `sig_atomic_t`; interrupted calls return `EINTR` (no `SA_RESTART`); `sigprocmask` (since 52f: per thread; new threads and, since 52i, spawned programs take their creator's set), `sigpending`, `sigsuspend` (52i); no `SA_SIGINFO` |
+| `sys/mman.h` | `mmap`, `munmap`, `mprotect`: anonymous memory, and files mapped into memory (a read-only mapping shares one copy of the file's pages with every program that maps it); (45c) reservations of tens of GiB `PROT_NONE` cost nothing until touched (`MAP_NORESERVE` is taken; the window is 64 TiB); (45d) never writable and executable at once (`ENOTSUP`): a JIT maps one `memfd_create` file twice, `MAP_SHARED` read-write and read-execute, writes code through the first and calls `__builtin___clear_cache` over the second before running it (the C library's `__clear_cache`; it matters on AArch64; RitterOS's `cc` takes the builtin too since 46b); (46b) `mlock`, `munlock`, `mlockall`, `munlockall` fail with `ENOSYS` (no pages kept out of swap) |
+| `signal.h` | `kill`, `raise`, `signal` and `sigaction` with handlers (they run when the signal comes, on the program's stack; faults too: `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`), `sa_mask`, `SA_RESETHAND`, `SA_NODEFER`, the `sigset_t` calls, `sig_atomic_t`; interrupted calls return `EINTR` (no `SA_RESTART`); (44a) the stop signals (`SIGSTOP`, `SIGTSTP`, `SIGTTIN`, `SIGTTOU`) stop a process and `SIGCONT` continues it, `waitpid`'s `WUNTRACED`/`WCONTINUED` and `SIGCHLD`'s `CLD_STOPPED`/`CLD_CONTINUED` report it (a call the stop interrupted goes on); `sigprocmask` (since 52f: per thread; new threads and, since 52i, spawned programs take their creator's set), `sigpending`, `sigsuspend` (52i); no `SA_SIGINFO` |
 | `thread.h` | `thread_create(fn, arg)`, `thread_join`, `thread_self`: threads of one program |
-| `threads.h` | C11's threads on top of them: `thrd_create`, `thrd_join`, `thrd_detach`, `thrd_current`, `thrd_equal`, `thrd_exit`, `thrd_sleep`, `thrd_yield`; `mtx_init` (`mtx_plain`, `mtx_timed`, `mtx_recursive`), `mtx_lock`, `mtx_timedlock`, `mtx_trylock`, `mtx_unlock`; `cnd_init`, `cnd_wait`, `cnd_timedwait`, `cnd_signal`, `cnd_broadcast`; `call_once`; `tss_create`/`tss_get`/`tss_set`/`tss_delete` (64 keys, destructors at thread end); `thread_local`. Waits go through the kernel's futex (no spinning); timed calls take absolute TIME_UTC times, in 10 ms ticks; at most 256 threads per program (16 until 54d) (a detached thread's number is free again once it ended); mutexes and condition variables are the program's own |
-| `dlfcn.h` | `dlopen` (a library by name in `/system/<arch>/lib`, or a path), `dlsym`, `dlclose` (it stays loaded), `dlerror`: plug-ins (not in a `LINK = static` program) |
-| `ritteros.h` | everything RitterOS-specific: `ritteros_spawn` (start a program; `ritteros_spawn_env` with an environment of your choice), `ritteros_pipe`, sockets (`ritteros_socket`, `_connect`, `_bind`, `_listen`, `_accept`, `_sendto`, `_recvfrom`), `ritteros_resolve` (DNS), the network cards (`ritteros_netcard`, `ritteros_netinfo`; since 38a-38b `ritteros_tap`, `ritteros_bridge`), local sockets, shared memory, `ritteros_time` (ns since 1970), `ritteros_random`, `config_get`, `sha256`, `crc32`, `PROGRAM_HELP` |
-| `window.h` | windowed apps: `window_open`, `window_fill`, `window_text`, `window_text_font`, `window_blit`, `window_flush`, `window_wait` and `window_wait_timeout` (events: pointer, key, resize, close, menu, double click: windowd decides what is one, the same for every app, scroll: the wheel's steps, key down/up: physical keys for games, `WKEY_*`), `window_scrollbar`/`window_scrollbar_hit` (scroll bars), menus, `window_choose_file` (the shared Open dialog; `window_choose` with a filter, 42c), `window_app_opens` (an app bundle's `types` against a file, 42c), `window_field_*` (a one-line text field: selecting with the mouse and Shift, editing, Ctrl+A/C/X/V; give it every event, -1 means the event is yours), `window_clipboard_set`/`_get` (windowd's clipboard, the screen's user's), `window_timer` (`WINDOW_TIMER` events), `window_fd` (the window in a program's own `poll`) |
+| `threads.h` | C11's threads on top of them: `thrd_create`, `thrd_join`, `thrd_detach`, `thrd_current`, `thrd_equal`, `thrd_exit`, `thrd_sleep`, `thrd_yield`; `mtx_init` (`mtx_plain`, `mtx_timed`, `mtx_recursive`), `mtx_lock`, `mtx_timedlock`, `mtx_trylock`, `mtx_unlock`; `cnd_init`, `cnd_wait`, `cnd_timedwait`, `cnd_signal`, `cnd_broadcast`; `call_once`; `tss_create`/`tss_get`/`tss_set`/`tss_delete` (64 keys, destructors at thread end); `thread_local`. Waits go through the kernel's futex (no spinning); timed calls take absolute TIME_UTC times (45a: they end within about a millisecond of them; until 45a in 10 ms ticks); at most 256 threads per program (16 until 54d) (a detached thread's number is free again once it ended); mutexes and condition variables are the program's own |
+| `dlfcn.h` | `dlopen` (a library by name: 43e the program's RUNPATH folders, an app's `lib`, then `/system/<arch>/lib`; or a path), `dlsym`, `dlclose` (it stays loaded), `dlerror`: plug-ins (not in a `LINK = static` program) |
+| `ritteros.h` | everything RitterOS-specific: `ritteros_spawn` (start a program; `ritteros_spawn_env` with an environment of your choice), `ritteros_pipe`, sockets (`ritteros_socket`, `_connect`, `_bind`, `_listen`, `_accept`, `_sendto`, `_recvfrom`), `ritteros_resolve` (DNS), the network cards (`ritteros_netcard`, `ritteros_netinfo`; since 38a-38b `ritteros_tap`, `ritteros_bridge`), local sockets, shared memory, `ritteros_time` (ns since 1970), `ritteros_random`, `config_get`, `sha256`, `ritteros_crc32` (46a: not `crc32`, zlib's name in `libz.so.1`), `PROGRAM_HELP`. (46b) Include it yourself: the standard headers (`errno.h`, `fcntl.h`, `signal.h`, ...) declare only standard names |
+| `window.h` | windowed apps: `window_open`, `window_fill`, `window_text`, `window_text_font`, `window_blit`, `window_flush`, `window_flush_rect` (68s: only a rectangle of the window shown again, e.g. a video picture), `window_wait` and `window_wait_timeout` (events: pointer, key, resize, close, menu, double click: windowd decides what is one, the same for every app, scroll: the wheel's steps, key down/up: physical keys for games, `WKEY_*`), `window_scrollbar`/`window_scrollbar_hit` (scroll bars), menus, `window_choose_file` (the shared Open dialog; `window_choose` with a filter, 42c), `window_app_opens` (an app bundle's `types` against a file, 42c), `window_field_*` (a one-line text field: selecting with the mouse and Shift, editing, Ctrl+A/C/X/V; give it every event, -1 means the event is yours), `window_clipboard_set`/`_get` (windowd's clipboard, the screen's user's), `window_timer` (`WINDOW_TIMER` events), `window_fd` (the window in a program's own `poll`) |
 | `wfont.h` | fonts: `wfont_find("10x20")` (a BDF font of `/system/fonts`; 0 if missing), `wfont_open("FreeSans.ttf", 17)` (since 41c: a TrueType or OpenType font at any size in pixels, drawn smooth; size 0: the user's `text_size`), `wfont_wrap`/`wfont_layout` (since 41d: text over several lines), `wfont_regular()` (the built-in 9x15, the fallback), `wfont_width`, `wfont_height`, `wfont_text_width` |
-| `widget.h` | controls (`libwidget`, since 41e): `widget_row`/`_column`/`_grid` and `widget_add`, `widget_stretch`; `widget_label`, `widget_button`, `widget_check`, `widget_radio`, `widget_slider`, `widget_progress`, `widget_tabs` (pages titled by their text; since 41e-2); `widget_list`, `widget_table`, `widget_tree` (rows given as text: lines, tabs between a table's cells, a tree's leading tabs its level; since 41e-3); `widget_editor` (multi-line or one-line text editing with selection and the clipboard; since 41e-4); `widget_message`, `widget_question` (dialogs over a window, run until answered; since 41e-5); `widget_on` (a callback), `widget_value`/`_set_value`, `widget_text`/`_set_text`; `widget_run`, `widget_quit`, `widget_free` |
+| `widget.h` | controls (`libwidget`, since 41e): `widget_row`/`_column`/`_grid` and `widget_add`, `widget_stretch`; `widget_label`, `widget_button`, `widget_check`, `widget_radio`, `widget_slider`, `widget_progress`, `widget_tabs` (pages titled by their text; since 41e-2), `widget_pages` (one child shown at a time without titles, chosen by the program with `widget_set_value`, e.g. from a list beside it; since 69c); `widget_list`, `widget_table`, `widget_tree` (rows given as text: lines, tabs between a table's cells, a tree's leading tabs its level; since 41e-3); `widget_editor` (multi-line or one-line text editing with selection and the clipboard; since 41e-4); `widget_message`, `widget_question` (dialogs over a window, run until answered; since 41e-5); `widget_on` (a callback), `widget_value`/`_set_value`, `widget_text`/`_set_text`; `widget_run`, `widget_quit`, `widget_free` |
 | `draw.h` | 2D drawing (`libdraw`, since 41b) on any pixel buffer, a window's own (`window_pixels`) or an image's: `draw_rect`, `draw_line`, `draw_polygon`, `draw_circle`, `draw_ellipse`, `draw_round_rect`, filled or outlined, `draw_gradient` (two colours between two points), `draw_image` (a libimage `struct image` scaled and turned, its alpha blended), anti-aliased by exact area, colours with alpha (`draw_rgba`), `draw_clip` |
-| `image.h`, `audio.h`, `video.h` | images (`image_load` reads PPM, BMP, PNG and JPEG; `image_save` writes PNG, BMP or PPM by the file's ending, PNG since 41h-2), WAV sound, RVID video (`media.h` has the shared types); play sound by writing 48 kHz 16-bit stereo to `/dev/pcm0` |
+| `image.h`, `audio.h`, `video.h` | images (`image_load` reads PPM, BMP, PNG and JPEG; `image_save` writes PNG, BMP or PPM by the file's ending, PNG since 41h-2), WAV sound, RVID video (`media.h` has the shared types); play sound by writing 48 kHz 16-bit stereo to `/dev/pcm0` (68v: `<sys/soundcard.h>`'s `SNDCTL_DSP_GETODELAY` through `ioctl` says how many bytes written are not yet played, to keep sound with pictures; `SNDCTL_DSP_RESET` drops what is buffered on pause or seek; a player that falls behind hears silence; 68w: the device takes one program at a time, so to play beside others connect to soundd's `/run/sound`, an elf on every machine: plain PCM, or "RSND" and messages with its delay and reset: `man soundd`; 68x: everything through soundd is under the master volume, `volume`; 68z: soundd plays for root's and the console user's programs only, the rule `/dev/pcm0` keeps, and closes any other connection at once; a sound server of your own asks the kernel the same with `ritteros_sound_may_play(fd)` on each connection) |
+| `keyring.h` | the user's keyring (`libkeyring`, since 70b): `keyring_set`, `keyring_get`, `keyring_remove`, `keyring_list` for secrets kept under a service and an account, encrypted, through the elf keyringd; your program uses what it stored, another's only once the user allows it (70c); `keyring_system()` the system keyring, for root's programs (70d). See "Secrets" below |
 
 **Not there** (so do not reach for it): `sysconf`; other locales
 than "C" (ASCII only).
@@ -599,7 +690,7 @@ than "C" (ASCII only).
       switch (ev.type) {
       case WINDOW_POINTER:      /* ev.x, ev.y in the window; ev.buttons held (1 left, 2 right) */
       case WINDOW_DOUBLE_CLICK: /* windowd's rule, the same in every program */
-      case WINDOW_SCROLL:       /* ev.y wheel steps, negative up */
+      case WINDOW_SCROLL:       /* ev.y wheel steps, negative up; ev.x sideways, positive right */
       case WINDOW_KEY:          /* ev.key a byte as a terminal gets it (arrows: ESC [ A ...) */
       case WINDOW_TEXT:         /* ev.key a typed character, whole (Unicode): take text from here */
       case WINDOW_KEY_DOWN:     /* ev.key a physical key, WKEY_* (games); WINDOW_KEY_UP too */
@@ -658,7 +749,7 @@ than "C" (ASCII only).
   of its own if the app is busy). Events wait for it in a small queue at
   `windowd`, pointer moves merged into the latest; an app that stops reading
   only stops itself, but its window then freezes. A lock shared with that
-  thread must be fair (see `term.c`'s ticket lock): a plain flag polled with
+  thread must be fair (see `Term.c`'s ticket lock): a plain flag polled with
   `usleep` starves the waiter.
 - **Animations, timers and other descriptors** (since 41a): no thread is
   needed for them. `window_timer(win, ms, id)` makes a `WINDOW_TIMER`
@@ -685,8 +776,10 @@ than "C" (ASCII only).
   ```
 
   Timers do not wake such a poll by themselves; its timeout must not pass
-  the next one. Waits count the system's 100 Hz tick, so a timer comes
-  due up to one or two ticks (10-20 ms) late, never early.
+  the next one. (45a) Timed waits (poll's timeout, nanosleep, condition
+  variables, timerfd) end within about a millisecond of their time, never
+  early: the core's timer is armed for each (until 45a they waited for the
+  system's next 10 ms tick).
 - **Controls** (since 41e): build a tree of widgets and let `widget_run`
   lay it out, draw it and run the window; every program's buttons and
   check boxes then look and behave alike (Tab and Shift+Tab move the
@@ -746,7 +839,7 @@ than "C" (ASCII only).
   held after a press in the window) call `window_drag(win, text, n)`; the
   window the button is let go over gets `WINDOW_DROP` (`ev.x`, `ev.y`
   where it fell) and reads `window_drop_text(win)`. A file is dragged as
-  its full path, several one per line (`owl` drags its entries so):
+  its full path, several one per line (`Owl` drags its entries so):
 
   ```c
   if (ev.type == WINDOW_DROP)
@@ -813,6 +906,15 @@ than "C" (ASCII only).
   uint32_t c = window_color(WINDOW_COLOR_BACKGROUND);
   window_fill(win, 0, 0, w, h, window_rgb(win, c >> 16 & 255, c >> 8 & 255, c & 255));
   ```
+
+  (69b) The user may change them while your program runs (the settings
+  app): every window then gets `WINDOW_SETTINGS`, after which
+  `window_color` and `wfont_open(path, 0)` give the new colours and text
+  size. Draw again then; a program that kept colours of its own (as owl
+  and term do) takes them again first. libwidget's windows do it by
+  themselves (laid out again at the new text size). A program that changes
+  `~/.config/windows` itself calls `window_settings_reload(win)` to have
+  windowd read it again.
 - **Games read physical keys, not bytes** (since 15p): `WINDOW_KEY` is the
   byte a terminal would get (text: no releases, nothing for Ctrl, Shift or
   Alt alone, repeats while held). `WINDOW_KEY_DOWN` and `WINDOW_KEY_UP` come
@@ -849,6 +951,30 @@ than "C" (ASCII only).
   several threads at once, and `free` gives memory back to the system (a
   block of 128 KiB or more at once; small blocks when a whole 1 MiB arena
   of them is free).
+- **Secrets** (`<keyring.h>`, `libkeyring.so.1`, since 70b): keep a
+  password or a token for the user in their keyring (`~/.config/keyring.db`,
+  encrypted; held open by the elf keyringd from their login) instead of a
+  file of your own: `keyring_set(service, account, secret, length)`,
+  `keyring_get(service, account, buffer, size)` (the secret's whole length,
+  which may be more than size; not NUL-terminated), `keyring_remove`,
+  `keyring_list(each, arg)` (services and accounts, never secrets). A
+  service names what the secret is for (`imap.example.org`, your program's
+  name), an account whose (1-255 bytes each, no control characters); a
+  secret is at most 4,096 bytes. Your program never sees the keyring's
+  password. On failure -1 and errno: `ENOENT` no such entry, `EACCES` the
+  keyring is locked (the user runs `keyring unlock`; over SSH it is locked
+  until then), `ECONNREFUSED` keyringd does not run, `EINVAL` a name or a
+  size refused, `EPERM` not allowed to your program. (70c) keyringd knows
+  your program by its file's path (the kernel's `ritteros_peer_program`):
+  it may use the entries it stored; for another program's entry, the call
+  waits while the user answers keyringd's Allow/Deny window (up to 50 s),
+  and a Deny (or no window system) is `EPERM`. A program that moves or
+  is renamed is another program to the keyring. `ritteros_peer_program(fd,
+  path, size)` is there for your own servers too: the program at the other
+  end of a connected local socket. (70d) A program running as root (an
+  elf of yours) calls `keyring_system()` once to use the system keyring
+  instead (`/system/config/keyring.db`, kept by the elf `keyringd -s`):
+  every root program may use every entry there, nothing is asked.
 - **TLS** (`<tls.h>`, `libtls.so.1`, since 23d) is OpenBSD's libtls
   interface (a subset): `tls_client`, `tls_configure(t, 0)` (the defaults),
   `tls_connect(t, host, "443")`, `tls_read`/`tls_write`, `tls_close`,
@@ -858,6 +984,43 @@ than "C" (ASCII only).
   `tls_config_set_ca_file` names other ones), with its host name and dates. `tls_read` returns 0 at the end; `tls_close`
   then fails if the server just closed the connection without saying so
   (close_notify): the data may be cut short, so check a length you know.
+- **System libraries from upstream** (item 46): `/system/<arch>/lib` also
+  has zlib (`libz.so.1`, `<zlib.h>`, 46a) and OpenSSL 3.5 (`libcrypto.so.3`,
+  `libssl.so.3`, `<openssl/...>`, 46b: TLS 1.2 and 1.3, the full libcrypto;
+  `SSL_CTX_set_default_verify_paths` finds the system's roots), nghttp2
+  (`libnghttp2.so.14`, `<nghttp2/nghttp2.h>`), brotli (`libbrotlicommon.so.1`,
+  `libbrotlidec.so.1`, `libbrotlienc.so.1`, `<brotli/...>`) and libpsl
+  (`libpsl.so.5`, `<libpsl.h>`, the Public Suffix List built in; ASCII
+  names only), 46c; curl (`libcurl.so.4`, `<curl/curl.h>`, 46d-2: TLS by
+  OpenSSL, HTTP/2, gzip and brotli, cookies with libpsl, the threaded
+  resolver, IPv6, proxies, WebSockets, `CURLOPT_CONNECT_ONLY`,
+  `curl_multi_poll`/`curl_multi_wakeup`; its CA bundle
+  `/system/certs/cacert.pem`); built unchanged from their projects'
+  sources: use them rather than your own copies. (46e) After RitterOS's
+  `make sdk` (it builds them, their headers in `build/upstream/include`
+  and link names `build/sdk/<arch>/lib/libssl.so` ... for `-lssl`), each
+  build finds them as on Linux:
+  - CMake (sdk/ritteros.cmake): `find_package(OpenSSL)`, `(CURL)`,
+    `(ZLIB)`, `(LibPSL)` (RitterOS's `sdk/cmake/FindLibPSL.cmake`), or
+    `pkg_check_modules` for any of them; see `sdk/examples/netlibs`.
+  - Meson (sdk/ritteros.meson): `dependency('openssl')`, `('libcurl')`,
+    `('zlib')`, `('libpsl')`, `('libbrotlidec')`, `('libnghttp2')`.
+  - ritteros.mk: `LDLIBS := -lcurl -lssl -lcrypto` (and -lz, -lnghttp2,
+    -lbrotlidec, -lbrotlienc, -lpsl); on RitterOS itself name the files
+    (`/system/x86_64/lib/libcurl.so.4`).
+  - Autotools and other builds: CC the SDK's clang as sdk/ritteros.meson
+    names it, `CFLAGS=-isystem RITTEROS/build/upstream/include`, the link
+    through `-fuse-ld=RITTEROS/sdk/ritteros-ld` (it adds both folders, so
+    `-lssl` resolves), `PKG_CONFIG_LIBDIR=RITTEROS/sdk/pkgconfig`
+    (`--define-variable=arch=aarch64` for ARM).
+  The headers are on every compile line of the four (as /system/include
+  is on the machine). A program records the sonames (`libssl.so.3`), never
+  the link names. `sdk/abi/` records the symbols each library exports
+  (abicheck.py), API.md's "System libraries from upstream" their versions
+  and documentation. (46d-1) sdk/ritteros.cmake's checks
+  (check_function_exists, check_library_exists, check_c_source_compiles...)
+  link real programs with RitterOS's libraries, so they answer as RitterOS
+  would: run `make sdk` before configuring.
 - **A command-line program in `bin` declares**
   `PROGRAM_HELP("usage", "what it does")` (from `ritteros.h`), which `help`
   shows; the template has one.
@@ -934,9 +1097,9 @@ ping for an address, and pings another machine through a bridge.
 
 **Where to learn by example** (in the RitterOS tree): `user/bin/*.c` are
 the command-line programs (`cat.c`, `ls.c` are short; `fetch.c` uses
-sockets, DNS and libtls; `tune.c` plays a WAV; `soundd.c` uses threads),
-`user/apps/*.c` the windowed apps (`term.c`, `owl.c` with menus,
-`imageview.c`, `reel.c`), `sdk/examples/hellowin/` the smallest windowed app.
+sockets, DNS and libtls; `tune.c` plays a WAV (68y: through soundd's messages, else `/dev/pcm0`); `soundd.c` uses threads),
+`user/apps/*.c` the windowed apps (`Term.c`, `Owl.c` with menus,
+`Imageview.c`, `Reel.c`), `sdk/examples/hellowin/` the smallest windowed app.
 
 ## Troubleshooting
 
@@ -953,6 +1116,7 @@ sockets, DNS and libtls; `tune.c` plays a WAV; `soundd.c` uses threads),
 | exit code 139, nothing printed | the program crashed | `ssh HOST 'cat /system/logs/kernel.log'` for the fault line |
 | `ld.so: NAME: NAME needs FUNCTION, which none of its libraries has` (exit 127) | built against a newer RitterOS than the machine runs | update the machine, or build against its version; `ldd NAME` there lists all of them |
 | `ld.so: NAME: libX.so.1 is not in /system/<arch>/lib/` (exit 127) | the machine lacks that library | update the machine, or `LINK = static` |
+| `ld.so: NAME: libX.so.1 is not in /system/.../NAME.program/lib/, /system/<arch>/lib/` (exit 127) | the app's own library is not in its bundle (every folder tried is named) | copy it into the bundle's `lib` (43e) |
 | `Function not implemented` | a static program calling the kernel for something an older RitterOS lacks | update the machine |
 | a compile or link error: an unknown function or header | not in RitterOS's C library | use what `user/include` declares ([`API.md`](API.md)) |
 

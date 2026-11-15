@@ -1,6 +1,8 @@
 /*
- * USB mice in the HID "boot protocol": every report is at least 3 bytes,
- * the same on all mice, so no HID report descriptor needs to be parsed.
+ * USB mice. (68m-3) In report protocol where their HID report descriptor
+ * says where X, Y and the buttons lie (hid.c's hid_pointer: also the wheel
+ * and the horizontal wheel, AC Pan); else in the HID "boot protocol",
+ * where every report is at least 3 bytes, the same on all mice:
  *
  *   byte 0   buttons: bit 0 left, bit 1 right, bit 2 middle
  *   byte 1   X movement since the last report, signed
@@ -15,7 +17,7 @@
 #include <stdbool.h>
 #include "usb.h"
 
-/* Switch the mouse interface to the boot protocol and start receiving
+/* Switch the mouse interface to report (or boot) protocol and start receiving
  * reports from its interrupt endpoint. The device must be configured. */
 bool usbmouse_attach(struct usb_device *dev, const struct usb_interface_descriptor *interface,
                      const struct usb_endpoint_descriptor *endpoint);

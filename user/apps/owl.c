@@ -37,7 +37,7 @@
 #include "ritteros.h"
 #include "window.h"
 
-PROGRAM_HELP("owl [DIR]",
+PROGRAM_HELP("Owl [DIR]",
              "a graphical file browser (needs windowd)");
 
 #if defined(__x86_64__)
@@ -364,7 +364,7 @@ static void open_entry(int idx)
     char path[1024];
     join(path, sizeof(path), cwd, en->name);
     char term[64];
-    snprintf(term, sizeof(term), "/system/" ARCH "/apps/term.program/term");
+    snprintf(term, sizeof(term), "/system/" ARCH "/apps/Term.program/Term");
     int fds[3] = { 0, 1, 2 };
     char name[64];
     int how = -1;
@@ -380,14 +380,14 @@ static void open_entry(int idx)
         char *av[] = { name, path, 0 };
         ritteros_spawn(app, av, SPAWN_NEW_GROUP | SPAWN_NEW_SESSION, fds);
     } else if (how == 1) {                              /* one that runs in a terminal (tune) */
-        char *av[] = { "term", name, path, 0 };
+        char *av[] = { "Term", name, path, 0 };
         ritteros_spawn(term, av, SPAWN_NEW_GROUP | SPAWN_NEW_SESSION, fds);
     } else if (en->is_exec && !strstr(path, ".program/")) {   /* a program: a terminal runs it
                                                          * (not a bundle's own files) */
-        char *av[] = { "term", path, 0 };
+        char *av[] = { "Term", path, 0 };
         ritteros_spawn(term, av, SPAWN_NEW_GROUP | SPAWN_NEW_SESSION, fds);
     } else {                                            /* a data file: open it in the editor */
-        char *av[] = { "term", "edit", path, 0 };
+        char *av[] = { "Term", "edit", path, 0 };
         ritteros_spawn(term, av, SPAWN_NEW_GROUP | SPAWN_NEW_SESSION, fds);
     }
 }
@@ -630,28 +630,10 @@ static void pointer(int x, int y, unsigned buttons)
     }
 }
 
-int main(int argc, char **argv)
+/* (41g-5) the user's theme: light when its background is; (69b) again
+ * after WINDOW_SETTINGS. */
+static void theme_colors(void)
 {
-    struct passwd *pw = getpwuid(getuid());             /* the running user's home */
-    if (pw && pw->pw_dir)
-        snprintf(home_dir, sizeof(home_dir), "%s", pw->pw_dir);
-    if (argc > 1)
-        snprintf(cwd, sizeof(cwd), "%s", argv[1]);
-    else
-        snprintf(cwd, sizeof(cwd), "%s", home_dir);
-    struct stat st;
-    if (stat(cwd, &st) != 0 || !S_ISDIR(st.st_mode))
-        snprintf(cwd, sizeof(cwd), "/");
-
-    win = window_open(WIN_W, WIN_H, "owl");
-    if (!win) {
-        if (errno == EACCES)                    /* (another user's windowd, 15k) */
-            printf("owl: cannot open a window: the screen is another user's\n");
-        else
-            printf("owl: cannot open a window (is windowd running?)\n");
-        return 1;
-    }
-    /* (41g-5) the user's theme: light when its background is */
     uint32_t back = window_color(WINDOW_COLOR_BACKGROUND), sel_color = window_color(WINDOW_COLOR_SELECTION);
     bool light = (back >> 16 & 0xFF) + (back >> 8 & 0xFF) + (back & 0xFF) > 3 * 128;
     c_sel = window_rgb(win, sel_color >> 16 & 0xFF, sel_color >> 8 & 0xFF, sel_color & 0xFF);  /* the selection bar */
@@ -671,6 +653,30 @@ int main(int argc, char **argv)
         c_path = window_rgb(win, 0xEB, 0xCB, 0x8B);     /* the path, yellow */
         c_prompt = window_rgb(win, 0xEC, 0xEF, 0xF4);   /* a prompt / message, bright */
     }
+}
+
+int main(int argc, char **argv)
+{
+    struct passwd *pw = getpwuid(getuid());             /* the running user's home */
+    if (pw && pw->pw_dir)
+        snprintf(home_dir, sizeof(home_dir), "%s", pw->pw_dir);
+    if (argc > 1)
+        snprintf(cwd, sizeof(cwd), "%s", argv[1]);
+    else
+        snprintf(cwd, sizeof(cwd), "%s", home_dir);
+    struct stat st;
+    if (stat(cwd, &st) != 0 || !S_ISDIR(st.st_mode))
+        snprintf(cwd, sizeof(cwd), "/");
+
+    win = window_open(WIN_W, WIN_H, "Owl");
+    if (!win) {
+        if (errno == EACCES)                    /* (another user's windowd, 15k) */
+            printf("owl: cannot open a window: the screen is another user's\n");
+        else
+            printf("owl: cannot open a window (is windowd running?)\n");
+        return 1;
+    }
+    theme_colors();
 
     static const struct window_menu_item file_items[] = {
         { F_NEW, "New folder" }, { M_OPEN, "Open" }, { F_WITH, "Open with..." }, { M_UP, "Up" },
@@ -706,6 +712,9 @@ int main(int argc, char **argv)
         }
         else if (ev.type == WINDOW_RESIZE) {
             window_resize(win, ev.x, ev.y);
+            render();
+        } else if (ev.type == WINDOW_SETTINGS) {        /* (69b) a new theme */
+            theme_colors();
             render();
         } else if (ev.type == WINDOW_MENU) {
             char tmp[1024];

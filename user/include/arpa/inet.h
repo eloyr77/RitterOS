@@ -2,6 +2,10 @@
 #ifndef RITTEROS_ARPA_INET_H
 #define RITTEROS_ARPA_INET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <netinet/in.h>
 
 /* "a.b.c.d" (AF_INET) or an IPv6 address (AF_INET6: "fe80::1", "::ffff:
@@ -19,5 +23,9 @@ const char *inet_ntop(int family, const void *address, char *out, socklen_t size
 int inet_aton(const char *text, struct in_addr *out);
 in_addr_t inet_addr(const char *text);
 char *inet_ntoa(struct in_addr address);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

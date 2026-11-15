@@ -6,6 +6,10 @@
 #ifndef RITTEROS_USER_H
 #define RITTEROS_USER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -42,6 +46,24 @@ struct ritteros_dl_loader {
     int (*close)(void *handle);
 };
 int __ritteros_dl_setup(const struct ritteros_dl_loader *loader);
+/* (43a-4) What ld.so tells about the loaded objects (dl_iterate_phdr,
+ * dladdr), handed over at the start beside the loader: object(i) fills
+ * the i-th (the program first; 0 past the last); address finds the object
+ * and the symbol holding an address (0: none). */
+struct ritteros_dl_object {
+    const char *name;
+    uint64_t base;                      /* what its addresses are moved by */
+    const void *phdr;                   /* its program headers in memory */
+    uint16_t phnum;
+    size_t tls_module;                  /* its per-thread data's module (0: none) */
+    void *tls_data;                     /* the calling thread's block of it */
+};
+struct ritteros_dl_query {
+    int (*object)(int index, struct ritteros_dl_object *out);
+    int (*address)(const void *address, const char **file, void **file_base, const char **symbol,
+                   void **symbol_address);
+};
+int __ritteros_dl_setup2(const struct ritteros_dl_query *query);
 void __ritteros_start(long *sp);
 void *__tls_get_addr(void *index);
 
@@ -128,8 +150,9 @@ void pbkdf2_sha256(const void *password, size_t password_length, const uint8_t *
                    size_t salt_length, uint32_t iterations, uint8_t *out, size_t out_length);
 
 /* CRC-32 (IEEE 802.3, as GPT and zlib use it) and CRC-32C (Castagnoli,
- * as RitterFS uses it); common/crc32.c. */
-uint32_t crc32(const void *data, size_t size);
+ * as RitterFS uses it); common/crc32.c. (46a) Not named crc32: that is
+ * zlib's (libz.so.1), with other arguments. */
+uint32_t ritteros_crc32(const void *data, size_t size);
 uint32_t crc32c(const void *data, size_t size);
 
 /* The time: nanoseconds since 1970-01-01 UTC; 0 if the machine has no
@@ -313,6 +336,17 @@ int ritteros_local_connect(const char *path);
  * for a server, the user who bound the name for a client (a name says
  * nothing about whose it is). The user ID, or -1 with errno (ENOTCONN). */
 int ritteros_peer_uid(int fd);
+/* (70c) The program at the other end of a connected local socket: the full
+ * path of the file its process ran when it connected (or, for a client, the
+ * server's when it bound the name; a #! script's interpreter), into path
+ * (size bytes, PROGRAM_PATH_MAX holds any). Its length, or -1 with errno
+ * (ENOTCONN, ENAMETOOLONG when size is too small, EBADF). A keyring server
+ * tells programs apart by it (keyringd). */
+int ritteros_peer_program(int fd, char *path, size_t size);
+/* (68z) May the program at the other end of a connected local socket play
+ * sound: root's, or the console user's (the rule /dev/pcmN keeps)? 1 or 0,
+ * or -1 with errno (ENOTCONN, EBADF). For a sound server such as soundd. */
+int ritteros_sound_may_play(int fd);
 /* Shared buffers (SYS_SHARE): create one (a descriptor), map it into this
  * program (its address, or 0 on error), ask its size, and pass it to / take
  * it from another program over a local socket. The buffer lives until every
@@ -453,5 +487,9 @@ int ritteros_session_stamp(int op);
 #define PROGRAM_HELP(usage, description)                                        \
     __attribute__((section(".ritteros.help"), used))                           \
     static const char ritteros_program_help[] = usage "\t" description
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

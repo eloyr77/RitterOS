@@ -4,6 +4,8 @@
 #include "process.h"
 #include "sleep.h"
 #include "acpi.h"
+#include "acpi_events.h"
+#include "cpuclock.h"
 #include "cpus.h"
 #include "panic.h"
 #include "percpu.h"
@@ -14,6 +16,9 @@
 #include "mounts.h"
 #include "elf.h"
 #include "socket.h"
+#include "localsock.h"
+#include "eventfd.h"
+#include "locks.h"
 #include "shbuf.h"
 #include "ipv4.h"
 #include "ipv6.h"
@@ -71,6 +76,8 @@ enum file_kind { FILE_CLOSED, FILE_TERMINAL, FILE_RITTERFS, FILE_SNAPSHOTS, FILE
                  FILE_NULL, FILE_ZERO,          /* /dev/null, /dev/zero (52c) */
                  FILE_USBSERIAL,                /* /dev/usbserialN (50e) */
                  FILE_TAP,                      /* /dev/tapN: a virtual card's wire (38a) */
+                 FILE_MEMORY,                   /* (43b-3) a memfd or /dev/shm's object */
+                 FILE_EVENT, FILE_TIMER,        /* (43b-4) an eventfd, a timerfd */
                  FILE_SHARE, FILE_RESERVED };    /* a slot claimed, not yet installed (49b) */
 
 /* An open file (51a: POSIX's "open file description"): what open() made,
@@ -100,7 +107,13 @@ struct open_file {
     struct usbserial *serial;       /* FILE_USBSERIAL: the port (kept after an unplug) */
     struct tap *tap;                /* FILE_TAP: the card (its holder until the close) */
     struct shbuf *shbuf;            /* FILE_SHARE: a shared buffer */
+    struct anon_obj *memory;        /* (43b-3) FILE_MEMORY: the memory file (held) */
+    uint32_t memory_uid, memory_gid, memory_mode;   /* ... its owner and mode */
+    bool shm_dir;                   /* (43b-3) FILE_DEVICES: /dev/shm itself */
+    struct eventfd *event;          /* (43b-4) FILE_EVENT */
+    struct timerfd *timer;          /* (43b-4) FILE_TIMER */
     uint64_t shbuf_va;              /* where it is mapped in this program, or 0 */
+    char *path;                     /* (43b-1) a file's or folder's path as opened (SYS_FDPATH) */
     bool master;
     uint8_t made_up;                /* the system's root: names listed after its own */
 };
@@ -148,14 +161,31 @@ struct process {
     uint64_t handlers[SIGNALS], handler_masks[SIGNALS];
     uint8_t handler_flags[SIGNALS];
     uint64_t pending;
+    /* (43b-5) Who sent each signal waiting, for its handler's info. */
+    struct sig_note { int32_t code, pid; uint32_t uid; int32_t status; } notes[SIGNALS];
     uint64_t restorer;
     char log[LOG_NAME_SIZE];        /* the log its console output also goes to ("": none) */
     char name[32];                  /* the file name, for messages */
+    /* (70c) The full path of the file it runs (a script: its interpreter),
+     * links followed: what SYS_PEER_PROGRAM tells the other end of a local
+     * socket it connects or binds. Set where it starts a program (spawn,
+     * exec), passed on by fork. */
+    char program[PROGRAM_PATH_MAX];
     enum process_state state;
     struct process *parent;         /* 0: the kernel, or none (orphan) */
     bool orphan;                    /* nobody will wait: freed when it ends */
     int status;                     /* how it ended (a zombie) */
     volatile int kill_signal;       /* a signal asked it to end (0: none) */
+    /* (44a) Stopped by a stop signal: its threads park on `resumed` before
+     * they would return to the program, until SIGCONT. `parked` counts
+     * them; once all are, the stop is told to its parent (stop_told, then
+     * stop_report until a waitpid with WUNTRACED takes it). SIGCONT sets
+     * cont_report (WCONTINUED). Under the table lock. */
+    volatile bool stopped;
+    uint8_t stop_signal;
+    bool stop_told, stop_report, cont_report;
+    int parked;
+    struct wait_queue resumed;
     /* Its threads, under the table lock: number 0 ran main. */
     struct thread *threads[PROCESS_THREADS];
     uint8_t slots[PROCESS_THREADS];             /* SLOT_* */
@@ -170,6 +200,7 @@ struct process {
     uint64_t space;                 /* its address space (paging_user_*) */
     uint64_t share_next;            /* next free address for a shared-buffer mapping */
     uint64_t screen_va, screen_pages;   /* (66d-2) the screen buffers mapped here, or 0 */
+    uint64_t clock_va;              /* (68p) the clock page, mapped here (0: none) */
     uint64_t stack_top;             /* the main stack's top: randomized (22l) */
     uint64_t bias, image_lo, image_hi;  /* where a position-independent program went (22l) */
     struct mmap_state mm;           /* its mmap mappings (22a) */
@@ -284,8 +315,13 @@ uint64_t process_pageout(uint64_t want, uint64_t *looked)
     return n + mmap_pageout_shared();           /* (35c-2) out of every process */
 }
 
+/* (43b-3) One walk at a time: paging_out is one word (pageout's, a memory
+ * file cut down, a seal looking for writers). */
+static struct mutex each_space = MUTEX_INIT("each space");
+
 void process_each_space(void (*fn)(struct mmap_state *m, uint64_t space, void *ctx), void *ctx)
 {
+    mutex_lock(&each_space);
     for (int last = 0;;) {
         struct process *p = 0;
         uint64_t state = spin_lock(&table);
@@ -299,8 +335,10 @@ void process_each_space(void (*fn)(struct mmap_state *m, uint64_t space, void *c
             __atomic_store_n(&paging_out, p, __ATOMIC_RELEASE);
         }
         spin_unlock(&table, state);
-        if (!p)
+        if (!p) {
+            mutex_unlock(&each_space);
             return;
+        }
         fn(&p->mm, p->space, ctx);
         __atomic_store_n(&paging_out, (struct process *)0, __ATOMIC_RELEASE);
         wait_queue_wake_all(&paging_done);
@@ -506,6 +544,11 @@ static struct block_device *device_at(const char *path)
 
 static int64_t close_file(struct open_file *f);
 static int64_t file_put(struct open_file *f);
+static int64_t descriptor_put(struct process *p, struct open_file *f);
+struct sig_note;
+static void signal_locked(struct process *p, int signal, const struct sig_note *note);
+static void tell_parent(struct process *p, int code, int status);
+static void orphan_check_locked(int group);
 static void display_process_ended(int pid);
 static void screen_unmap(struct process *p);
 struct socket;
@@ -770,6 +813,8 @@ struct start_info {
     uint64_t entry, base;           /* the program's entry, the loader's lowest address */
     uint64_t phdr;                  /* its headers in memory (PT_PHDR; 0: the copy below) */
     Elf64_Phdr ph[MAX_SEGMENTS];    /* the program's headers (copied onto its stack) */
+    const char *path;               /* (43e) its full path, links followed: AT_EXECFN */
+    bool secure;                    /* (43e) it runs as another user than its caller: AT_SECURE */
 };
 
 /* An ELF program for this CPU that p may run: its file system, object,
@@ -883,7 +928,7 @@ static int load_segments(struct process *p, struct vfs *fs, uint64_t id,
                 PAGE_DOWN(ph[j].p_vaddr + bias) < PAGE_UP(end))
                 return ERR_NOEXEC;
     }
-    struct mmap_file file = { fs, id, true, false };
+    struct mmap_file file = { fs, id, true, false, 0 };
     for (int i = 0; i < eh->e_phnum; i++) {
         const Elf64_Phdr *s = &ph[i];
         if (s->p_type != PT_LOAD || s->p_memsz == 0)
@@ -954,6 +999,8 @@ static int load(struct process *p, const char *path, struct start_info *start)
      * one (as Unix's nosuid for such mounts). */
     if ((rfs_mode(inode.mode) & RFS_MODE_SETUID) && fs == mounts_root())
         p->uid = inode.uid;
+    start->path = path;
+    start->secure = p->uid != p->ruid;          /* (43e: as issetugid) */
     char loader[PATH_MAX];
     start->dynamic = false;
     for (int i = 0; i < eh.e_phnum; i++) {
@@ -1025,6 +1072,22 @@ static int load(struct process *p, const char *path, struct start_info *start)
  * its loader); the strings lie above. Returns the initial stack pointer, or
  * 0 if they do not fit.
  */
+/* (68p) Map the kernel's clock page (struct sys_clock) read-only at
+ * p->clock_va, taken from the shared-buffer window when it has none (a
+ * fork's child keeps its parent's). The space never frees it
+ * (paging_kept_page). False: no memory for the page tables. */
+static bool clock_map(struct process *p)
+{
+    uint64_t page = uefi_clock_page();
+    if (!page)
+        return true;
+    if (!p->clock_va) {
+        p->clock_va = p->share_next;
+        p->share_next += 2 * PAGE_SIZE;         /* (a gap after it) */
+    }
+    return paging_user_map(p->space, p->clock_va, page, USER_READ);
+}
+
 static uint64_t push_arguments(struct process *p, int argc, const char *const argv[], int envc,
                                const char *const envp[], const struct start_info *start)
 {
@@ -1036,8 +1099,10 @@ static uint64_t push_arguments(struct process *p, int argc, const char *const ar
     if (strings > ARGS_MAX || env_strings > ENV_MAX)
         return 0;
     strings += env_strings;
+    uint64_t execfn = strlen(start->path) + 1;     /* (43e) above the environment's */
+    strings += execfn;
     uint64_t text = (p->stack_top - strings) & ~15ULL;
-    uint64_t headers = text, aux[14];
+    uint64_t headers = text, aux[24];
     int naux = 0;
     {
         uint64_t size = (uint64_t)start->phnum * sizeof(Elf64_Phdr);
@@ -1052,6 +1117,15 @@ static uint64_t push_arguments(struct process *p, int argc, const char *const ar
             aux[naux++] = AT_BASE;   aux[naux++] = start->base;
         }
         aux[naux++] = AT_ENTRY;  aux[naux++] = start->entry;
+        uint64_t hwcap, hwcap2;                     /* (43b-6) */
+        arch_hwcaps(&hwcap, &hwcap2);
+        aux[naux++] = AT_HWCAP;  aux[naux++] = hwcap;
+        aux[naux++] = AT_HWCAP2; aux[naux++] = hwcap2;
+        aux[naux++] = AT_SECURE; aux[naux++] = start->secure;
+        aux[naux++] = AT_EXECFN; aux[naux++] = text + strings - execfn;
+        if (p->clock_va) {
+            aux[naux++] = AT_RITTEROS_CLOCK; aux[naux++] = p->clock_va;    /* (68p) */
+        }
     }
     aux[naux++] = AT_NULL;
     aux[naux++] = 0;
@@ -1080,7 +1154,8 @@ static uint64_t push_arguments(struct process *p, int argc, const char *const ar
             return 0;
         at += n;
     }
-    return copy_user(p, slot + 8, &value, 8, true) &&
+    return copy_user(p, at, (void *)start->path, execfn, true) &&
+           copy_user(p, slot + 8, &value, 8, true) &&
            copy_user(p, slot + 16, aux, (uint64_t)naux * 8, true) ? sp : 0;
 }
 
@@ -1120,7 +1195,8 @@ struct process *process_create(struct vfs *fs, const char *path, int argc,
     mmap_init(&p->mm);
     p->space = *error ? 0 : paging_user_create();
     if (!*error)
-        *error = !p->space ? ERR_NOMEM : load(p, full, &start);
+        *error = !p->space || !clock_map(p) ? ERR_NOMEM : load(p, full, &start);
+    ksnprintf(p->program, sizeof(p->program), "%s", full);
     if (!*error && !(p->user_sp = push_arguments(p, argc, argv, envc, envp, &start)))
         *error = ERR_2BIG;
     p->mm.pageable = !*error;                       /* (35b) loaded: pageout may take pages */
@@ -1210,11 +1286,11 @@ bool process_start(struct process *p)
 
 /* The CPU time p has run (22o: SYS_CPUTIME, C's clock), in nanoseconds:
  * its ended threads' and its running ones'. */
-static uint64_t process_cpu_ns(struct process *p)
+static uint64_t process_cpu_ns(struct process *p, bool thread_only)
 {
     uint64_t state = spin_lock(&table);
-    uint64_t counts = p->cpu_done;
-    for (int i = 0; i < PROCESS_THREADS; i++)
+    uint64_t counts = thread_only ? sched_cpu_counts(thread_current()) : p->cpu_done;
+    for (int i = 0; i < PROCESS_THREADS && !thread_only; i++)
         if (p->threads[i])
             counts += sched_cpu_counts(p->threads[i]);
     spin_unlock(&table, state);
@@ -1294,6 +1370,7 @@ static __attribute__((noreturn)) void process_exit(int status)
         if (f)
             file_put(f);
     }
+    locks_process_ended(p->pid);                    /* (43b-4) its record locks, all at once */
     terminal_process_ended(p->pid);                 /* echo back on if it switched it off */
     display_process_ended(p->pid);                  /* give the screen back if it owned it */
     if (p->tty) {
@@ -1316,10 +1393,20 @@ static __attribute__((noreturn)) void process_exit(int status)
         p->threads[i] = 0;
     p->live = 0;
     thread_current()->process = 0;                  /* a kernel thread for its last steps */
-    /* Its children are orphans now; those that already ended go at once. */
+    /* Its children are orphans now; those that already ended go at once.
+     * (44b) Their groups, and its own, may be orphaned by its end. */
+    int groups[16], ngroups = 0;
+    bool many = false;
     for (struct process **link = &all_processes; *link;) {
         struct process *c = *link;
         if (c->parent == p) {
+            bool seen = c->group == p->group;
+            for (int g = 0; g < ngroups && !seen; g++)
+                seen = groups[g] == c->group;
+            if (!seen && ngroups < 16)
+                groups[ngroups++] = c->group;
+            else if (!seen)
+                many = true;
             c->parent = 0;
             c->orphan = true;
             if (c->state == PROCESS_ZOMBIE) {
@@ -1331,15 +1418,31 @@ static __attribute__((noreturn)) void process_exit(int status)
         }
         link = &c->next;
     }
+    /* (43b-5) Its parent is told by SIGCHLD; one that ignores SIGCHLD has
+     * its children freed as they end (POSIX's), its wait seeing none. */
+    if (!p->orphan && p->parent) {
+        if (p->parent->ignored & (1u << SIGCHLD)) {
+            p->orphan = true;
+        } else {
+            bool killed = STATUS_SIGNALED(status) != 0;
+            tell_parent(p, killed ? CLD_KILLED : CLD_EXITED,
+                        killed ? STATUS_SIGNALED(status) : (status >> 8) & 0xFF);
+        }
+    }
+    orphan_check_locked(p->group);                  /* (44b) */
+    for (int g = 0; g < ngroups; g++)
+        orphan_check_locked(groups[g]);
+    for (struct process *q = all_processes; many && q; q = q->next)
+        orphan_check_locked(q->group);
     bool orphan = p->orphan;
     if (orphan)
         unlink_process(p);
     struct wait_queue *notify = p->parent ? &p->parent->children : &kernel_children;
     spin_unlock(&table, state);
 
-    if (!orphan)
-        wait_queue_wake_all(notify);
-    else
+    if (!orphan || notify != &kernel_children)
+        wait_queue_wake_all(notify);                /* (43b-5: reaped at once, a wait looks again) */
+    if (orphan)
         free_process(p);
     while (free_list) {
         struct process *c = free_list;
@@ -1351,10 +1454,16 @@ static __attribute__((noreturn)) void process_exit(int status)
 
 /* A child of parent with this ID (-1: any) that has ended, taken out of the
  * table; *any: whether parent has such a child at all. */
-static struct process *take_zombie(struct process *parent, int pid, bool *any)
+/* A child of parent's (pid, or -1: any) that ended, taken off the list
+ * into *ended; or (44a) with flags WAIT_UNTRACED one whose stop waits to
+ * be reported, WAIT_CONTINUED one whose continuing does (each reported
+ * once). Its pid and *status, 0 if none; *any: parent has such children. */
+static int take_child(struct process *parent, int pid, uint64_t flags, int *status,
+                      struct process **ended, bool *any)
 {
-    struct process *found = 0;
+    int id = 0;
     *any = false;
+    *ended = 0;
     uint64_t state = spin_lock(&table);
     for (struct process **link = &all_processes; *link; link = &(*link)->next) {
         struct process *c = *link;
@@ -1363,41 +1472,170 @@ static struct process *take_zombie(struct process *parent, int pid, bool *any)
         *any = true;
         if (c->state == PROCESS_ZOMBIE) {
             *link = c->next;
-            found = c;
+            *ended = c;
+            *status = c->status;
+            id = c->pid;
+            break;
+        }
+        if ((flags & WAIT_UNTRACED) && c->stop_report) {
+            c->stop_report = false;
+            *status = STATUS_STOPPED(c->stop_signal);
+            id = c->pid;
+            break;
+        }
+        if ((flags & WAIT_CONTINUED) && c->cont_report) {
+            c->cont_report = false;
+            *status = STATUS_CONTINUED;
+            id = c->pid;
             break;
         }
     }
     spin_unlock(&table, state);
-    return found;
-}
-
-int process_wait(struct process *parent, int pid, int *status, bool no_hang)
-{
-    struct wait_queue *q = parent ? &parent->children : &kernel_children;
-    struct process *found = 0;
-    bool any = true;
-    if (no_hang) {
-        found = take_zombie(parent, pid, &any);
-        if (!found && any)
-            return 0;                               /* children, none ended yet */
-    } else if (!wait_event_interruptible(q, (found = take_zombie(parent, pid, &any)) || !any)) {
-        return -ERR_INTR;
-    }
-    if (!found)
-        return -ERR_CHILD;
-    int id = found->pid;
-    *status = found->status;
-    free_process(found);
     return id;
 }
 
-/* Ask p to end with signal (the table lock is held). */
-static void signal_locked(struct process *p, int signal)
+int process_wait(struct process *parent, int pid, int *status, uint64_t flags)
+{
+    struct wait_queue *q = parent ? &parent->children : &kernel_children;
+    struct process *ended = 0;
+    bool any = true;
+    int id = 0;
+    if (flags & WAIT_NO_HANG) {
+        id = take_child(parent, pid, flags, status, &ended, &any);
+        if (!id && any)
+            return 0;                               /* children, none ended yet */
+    } else if (!wait_event_interruptible(q, (id = take_child(parent, pid, flags, status, &ended, &any)) ||
+                                                !any)) {
+        return -ERR_INTR;
+    }
+    if (!id)
+        return -ERR_CHILD;
+    if (ended)
+        free_process(ended);
+    return id;
+}
+
+/* (43b-5) POSIX's signals whose default is to be ignored: a child's end,
+ * urgent data, a window's size, continuing (44a: what SIGCONT does to a
+ * stopped process happens whatever its action, continue_locked). */
+static bool default_ignored(int signal)
+{
+    return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH || signal == SIGCONT;
+}
+
+/* (44a) The stop signals: by default they stop the process. */
+#define STOP_SIGNALS ((1ULL << SIGSTOP) | (1ULL << SIGTSTP) | (1ULL << SIGTTIN) | (1ULL << SIGTTOU))
+
+static bool stop_signal(int signal)
+{
+    return signal > 0 && signal < SIGNALS && (STOP_SIGNALS & (1ULL << signal));
+}
+
+/* (44a) Tell p's parent by SIGCHLD (the table lock is held): code a CLD_*,
+ * status the exit code or the signal; a stop or a continuing not when the
+ * parent's SIGCHLD action has SA_NOCLDSTOP. A parent waiting for a report
+ * is woken by whoever calls this for a stop or a continuing. */
+static void tell_parent(struct process *p, int code, int status)
+{
+    struct process *parent = p->parent;
+    if (p->orphan || !parent)
+        return;
+    if ((code == CLD_STOPPED || code == CLD_CONTINUED) &&
+        (parent->handler_flags[SIGCHLD] & SIGACTION_NOCLDSTOP))
+        return;
+    struct sig_note note = { code, p->pid, p->uid, status };
+    signal_locked(parent, SIGCHLD, &note);
+}
+
+/* (44a) Stop p by signal (the table lock is held): every thread is
+ * interrupted and parks on its way back to the program (park), a call it
+ * waited in made again after SIGCONT. A SIGCONT waiting is dropped. */
+static void stop_locked(struct process *p, int signal)
+{
+    p->pending &= ~(1ULL << SIGCONT);
+    if (p->stopped || p->exiting || p->kill_signal || p->state == PROCESS_ZOMBIE)
+        return;
+    p->stopped = true;
+    p->stop_signal = (uint8_t)signal;
+    p->stop_told = false;
+    for (int i = 0; i < PROCESS_THREADS; i++)
+        if (p->threads[i])
+            sched_request_stop(p->threads[i]);
+}
+
+/* (44a) SIGCONT reached p (the table lock is held), whatever its action:
+ * the stop signals waiting are dropped, and a stopped p goes on, its
+ * parent told (CLD_CONTINUED, a report for WCONTINUED). */
+static void continue_locked(struct process *p)
+{
+    p->pending &= ~STOP_SIGNALS;
+    for (int i = 0; i < PROCESS_THREADS; i++)
+        if (p->threads[i])
+            p->threads[i]->sig_pending &= ~STOP_SIGNALS;
+    if (!p->stopped)
+        return;
+    __atomic_store_n(&p->stopped, false, __ATOMIC_RELEASE);
+    p->stop_report = false;
+    p->cont_report = true;
+    tell_parent(p, CLD_CONTINUED, SIGCONT);
+    if (p->parent)
+        wait_queue_wake_all(&p->parent->children);
+    wait_queue_wake_all(&p->resumed);
+}
+
+/* (44a) The calling thread of a stopped p waits until SIGCONT (or
+ * SIGKILL); the last of p's threads to park tells the parent of the stop
+ * (CLD_STOPPED, a report for WUNTRACED). Other signals wait meanwhile, as
+ * POSIX's: only SIGKILL and SIGCONT reach a stopped process (a SIGTERM
+ * ends it once it goes on). */
+static void park(struct process *p)
+{
+    struct thread *t = thread_current();
+    uint64_t state = spin_lock(&table);
+    if (!p->stopped || p->kill_signal == SIGKILL || p->exiting) {
+        spin_unlock(&table, state);
+        return;
+    }
+    if (++p->parked >= p->live && !p->stop_told) {
+        p->stop_told = true;
+        p->stop_report = true;
+        p->cont_report = false;
+        tell_parent(p, CLD_STOPPED, p->stop_signal);
+        if (p->parent)
+            wait_queue_wake_all(&p->parent->children);
+    }
+    spin_unlock(&table, state);
+    while (__atomic_load_n(&p->stopped, __ATOMIC_ACQUIRE) && p->kill_signal != SIGKILL && !p->exiting) {
+        t->stop_requested = false;          /* (another signal: it waits for the continuing) */
+        wait_event_interruptible(&p->resumed, !__atomic_load_n(&p->stopped, __ATOMIC_ACQUIRE) ||
+                                                  p->kill_signal == SIGKILL || p->exiting);
+    }
+    state = spin_lock(&table);
+    p->parked--;
+    spin_unlock(&table, state);
+    if (p->kill_signal)
+        process_exit(STATUS_SIGNALED(p->kill_signal));
+    if (p->exiting && p->exiter != t)
+        leave_thread(p, 0);
+}
+
+/* Ask p to end with signal (the table lock is held); note: who sent it,
+ * for its handler's info (0: the system). */
+static void signal_locked(struct process *p, int signal, const struct sig_note *note)
 {
     if (p->state == PROCESS_ZOMBIE)
         return;
-    bool ignored = signal < 32 && (p->ignored & (1u << signal));
+    if (signal == SIGCONT)
+        continue_locked(p);                         /* (44a) whatever its action */
+    if (stop_signal(signal))
+        p->pending &= ~(1ULL << SIGCONT);           /* (44a) POSIX's: one cancels the other */
     bool handled = signal > 0 && signal < SIGNALS && signal != SIGKILL && p->handlers[signal];
+    bool chosen = signal < 32 && (p->ignored & (1u << signal));
+    /* (43b-5) One ignored by default is dropped: no waiting call returns
+     * for it (a shell reading its next line while a child ends). */
+    if (!handled && !chosen && default_ignored(signal))
+        return;
+    bool ignored = chosen;
     /* (52f) Blocked by every thread: it waits in pending, and ends the
      * program (or runs its handler) once a thread unblocks it. */
     uint64_t bit = signal > 0 && signal < SIGNALS && signal != SIGKILL ? 1ULL << signal : 0;
@@ -1405,10 +1643,17 @@ static void signal_locked(struct process *p, int signal)
     for (int i = 0; i < PROCESS_THREADS; i++)       /* (no thread listed: not blocked) */
         if (p->threads[i] && !(blocked = bit && (p->threads[i]->sig_blocked & bit)))
             break;
-    if (handled || (blocked && !ignored))
+    if (stop_signal(signal) && !handled && !ignored && !blocked) {
+        stop_locked(p, signal);                     /* (44a) the stop signals' default */
+        return;
+    }
+    if (handled || (blocked && !ignored)) {
         p->pending |= 1ULL << signal;               /* its handler runs at the next return */
-    else if (!ignored && !p->kill_signal)
-        p->kill_signal = signal;
+        struct sig_note system = { SI_KERNEL, 0, 0, 0 };
+        if (signal > 0 && signal < SIGNALS)
+            p->notes[signal] = note ? *note : system;
+    } else if (!ignored && (!p->kill_signal || signal == SIGKILL))
+        p->kill_signal = signal;                    /* (44a: SIGKILL over one a stop holds back) */
     /* Every thread: a waiting call returns (ignored, handled), or it ends;
      * one that blocks the signal waits on (52f), unless the program ends. */
     for (int i = 0; i < PROCESS_THREADS; i++)
@@ -1420,11 +1665,35 @@ static void signal_locked(struct process *p, int signal)
  * ENTER have it run entry first thing on its way back to the program. */
 static int64_t sys_thread_interrupt(struct process *p, uint64_t number, uint64_t how, uint64_t entry)
 {
-    if (number >= PROCESS_THREADS || how > THREAD_INTERRUPT_ENTER ||
-        (how == THREAD_INTERRUPT_ENTER && (entry < USER_LOAD_MIN || entry >= USER_STACK_TOP)))
+    if (number >= PROCESS_THREADS || how > THREAD_INTERRUPT_SIGNAL ||
+        (how == THREAD_INTERRUPT_ENTER && (entry < USER_LOAD_MIN || entry >= USER_STACK_TOP)) ||
+        (how == THREAD_INTERRUPT_SIGNAL && entry >= SIGNALS))
         return number >= PROCESS_THREADS ? -ERR_SRCH : -ERR_INVAL;
     uint64_t state = spin_lock(&table);
     struct thread *t = p->slots[number] == SLOT_RUNNING ? p->threads[number] : 0;
+    if (t && how == THREAD_INTERRUPT_SIGNAL) {
+        /* (43b-5) pthread_kill: handled there (also once it unblocks it);
+         * not handled, its default is the program's (it ends), as POSIX. */
+        int signal = (int)entry;
+        uint64_t bit = 1ULL << signal;
+        bool handled = signal != SIGKILL && p->handlers[signal];
+        bool chosen = p->ignored & (1u << signal);
+        if (signal == SIGCONT)
+            continue_locked(p);                     /* (44a) whatever its action */
+        if (!signal || (!handled && !chosen && default_ignored(signal))) {
+            /* (only asked, or dropped) */
+        } else if (handled || (!chosen && signal != SIGKILL && (t->sig_blocked & bit))) {
+            t->sig_pending |= bit;
+            if (!(t->sig_blocked & bit))
+                sched_request_stop(t);
+        } else if (chosen) {
+            sched_request_stop(t);                  /* (as an ignored one: a waiting call returns) */
+        } else {
+            signal_locked(p, signal, 0);            /* (its end) */
+        }
+        spin_unlock(&table, state);
+        return 0;
+    }
     if (t) {
         if (how == THREAD_INTERRUPT_ENTER)
             t->enter_at = entry;
@@ -1434,11 +1703,42 @@ static int64_t sys_thread_interrupt(struct process *p, uint64_t number, uint64_t
     return t ? 0 : -ERR_SRCH;
 }
 
+/* sigaltstack (43b-5): the calling thread's alternate stack; not changed
+ * while a handler runs on it (ERR_PERM, Linux's). Whether one does: since
+ * a handler started there and until a sigreturn left it (a handler that
+ * jumps out with longjmp leaves it marked until the next handler). */
+static int64_t sys_sigaltstack(struct process *p, uint64_t new_addr, uint64_t old_addr)
+{
+    struct thread *t = thread_current();
+    struct sys_sigstack old = { t->alt_sp, !t->alt_set ? SIGSTACK_DISABLE : t->alt_on ? SIGSTACK_ONSTACK : 0,
+                                0, t->alt_size }, want;
+    if (new_addr) {
+        if (!copy_user(p, new_addr, &want, sizeof(want), false))
+            return -ERR_FAULT;
+        if (want.flags & ~SIGSTACK_DISABLE)
+            return -ERR_INVAL;
+        if (t->alt_on)
+            return -ERR_PERM;
+        if (!(want.flags & SIGSTACK_DISABLE) &&
+            (want.size < SIGSTACK_MIN || want.sp >= USER_TOP || want.size > USER_TOP - want.sp))
+            return want.size < SIGSTACK_MIN ? -ERR_NOMEM : -ERR_INVAL;
+    }
+    if (old_addr && !copy_user(p, old_addr, &old, sizeof(old), true))
+        return -ERR_FAULT;
+    if (new_addr) {
+        bool set = !(want.flags & SIGSTACK_DISABLE);
+        t->alt_sp = set ? want.sp : 0;
+        t->alt_size = set ? want.size : 0;
+        t->alt_set = set;
+    }
+    return 0;
+}
+
 /* sigpending(out) (52i): the signals waiting that this thread blocks. */
 static int64_t sys_sigpending(struct process *p, uint64_t out)
 {
     uint64_t state = spin_lock(&table);
-    uint64_t set = p->pending & thread_current()->sig_blocked;
+    uint64_t set = (p->pending | thread_current()->sig_pending) & thread_current()->sig_blocked;
     spin_unlock(&table, state);
     return copy_user(p, out, &set, sizeof(set), true) ? 0 : -ERR_FAULT;
 }
@@ -1456,12 +1756,12 @@ static int64_t sys_sigsuspend(struct process *p, uint64_t addr)
     static struct wait_queue never;                 /* (only a stop request wakes it) */
     uint64_t state = spin_lock(&table);
     t->suspend_mask = t->sig_blocked;
-    t->sig_blocked = mask & ~(1ULL << SIGKILL) & ~1ULL;
+    t->sig_blocked = mask & ~(1ULL << SIGKILL) & ~(1ULL << SIGSTOP) & ~1ULL;   /* (44a: SIGSTOP too) */
     t->suspended = true;
     spin_unlock(&table, state);
     for (;;) {
         state = spin_lock(&table);
-        bool come = (p->pending & ~t->sig_blocked) || p->kill_signal || p->exiting;
+        bool come = ((p->pending | t->sig_pending) & ~t->sig_blocked) || p->kill_signal || p->exiting;
         spin_unlock(&table, state);
         if (come)
             break;
@@ -1488,7 +1788,7 @@ static int64_t sys_sigprocmask(struct process *p, uint64_t how, uint64_t set_add
         return -ERR_FAULT;
     uint64_t state = spin_lock(&table);
     uint64_t blocked = how == SIGMASK_BLOCK ? old | set : how == SIGMASK_UNBLOCK ? old & ~set : set;
-    t->sig_blocked = blocked & ~(1ULL << SIGKILL) & ~1ULL;
+    t->sig_blocked = blocked & ~(1ULL << SIGKILL) & ~(1ULL << SIGSTOP) & ~1ULL;
     spin_unlock(&table, state);
     return 0;
 }
@@ -1498,7 +1798,7 @@ void process_hang_up(struct pty *t)
     uint64_t state = spin_lock(&table);
     for (struct process *q = all_processes; q; q = q->next)
         if (q->tty == t && q->state != PROCESS_ZOMBIE)
-            signal_locked(q, SIGHUP);
+            signal_locked(q, SIGHUP, 0);
     spin_unlock(&table, state);
 }
 
@@ -1512,12 +1812,73 @@ int process_signal(int pid, int signal, uint32_t uid)
                 result = -ERR_PERM;
                 continue;
             }
-            signal_locked(p, signal);
+            struct sig_note note = { SI_USER, 0, uid, 0 };
+            signal_locked(p, signal, &note);
             result = 0;
         }
     }
     spin_unlock(&table, state);
     return result;
+}
+
+/* kill (43b-5): pid > 0 one process, 0 the caller's group, -1 every
+ * process it may signal but itself and process 1, below -1 the group
+ * -pid; signal 0 only looks. 0 if any was signalled (or could be), else
+ * -ERR_PERM if one was there but not the caller's, else -ERR_SRCH. */
+static int64_t sys_kill(struct process *self, int64_t pid, int64_t signal)
+{
+    if (signal < 0 || signal >= SIGNALS || pid < -0x7FFFFFFF || pid > 0x7FFFFFFF)
+        return -ERR_INVAL;
+    struct sig_note note = { SI_USER, self->pid, self->uid, 0 };
+    int sent = 0, refused = 0;
+    uint64_t state = spin_lock(&table);
+    int group = pid == 0 ? self->group : (int)-pid;
+    for (struct process *q = all_processes; q; q = q->next) {
+        if (q->state == PROCESS_ZOMBIE || q->state == PROCESS_NEW)
+            continue;
+        bool match = pid > 0 ? q->pid == pid : pid == -1 ? q != self && q->pid != 1 : q->group == group;
+        if (!match)
+            continue;
+        if (self->uid != 0 && q->uid != self->uid && q->ruid != self->ruid) {
+            refused++;
+            continue;
+        }
+        if (signal)
+            signal_locked(q, (int)signal, &note);
+        sent++;
+    }
+    spin_unlock(&table, state);
+    return sent ? 0 : refused ? -ERR_PERM : -ERR_SRCH;
+}
+
+/* (44b) Is group orphaned (the table lock is held): POSIX's, no living
+ * member has a parent in another group of the same session, so no shell
+ * is left to continue a stopped one. */
+static bool group_orphaned_locked(int group)
+{
+    for (struct process *q = all_processes; q; q = q->next)
+        if (q->group == group && q->state != PROCESS_ZOMBIE && q->parent &&
+            q->parent->state != PROCESS_ZOMBIE && q->parent->group != group &&
+            q->parent->session == q->session)
+            return false;
+    return true;
+}
+
+/* (44b) group may have just become orphaned (a process ended; the table
+ * lock is held): with a stopped member, each member gets SIGHUP, then
+ * SIGCONT (POSIX's: nobody could continue them). */
+static void orphan_check_locked(int group)
+{
+    bool stopped = false;
+    for (struct process *q = all_processes; q && !stopped; q = q->next)
+        stopped = q->group == group && q->state != PROCESS_ZOMBIE && q->stopped;
+    if (!stopped || !group_orphaned_locked(group))
+        return;
+    for (struct process *q = all_processes; q; q = q->next)
+        if (q->group == group && q->state != PROCESS_ZOMBIE) {
+            signal_locked(q, SIGHUP, 0);
+            signal_locked(q, SIGCONT, 0);
+        }
 }
 
 bool process_signal_group(int group, int signal)
@@ -1529,9 +1890,11 @@ bool process_signal_group(int group, int signal)
             !(signal < 32 && (p->ignored & (1u << signal))))
             takes = true;
     }
+    if (takes && stop_signal(signal) && group_orphaned_locked(group))
+        takes = false;                              /* (44b) */
     for (struct process *p = all_processes; p && takes; p = p->next) {
         if (p->group == group)
-            signal_locked(p, signal);
+            signal_locked(p, signal, 0);
     }
     spin_unlock(&table, state);
     return takes;
@@ -1540,16 +1903,27 @@ bool process_signal_group(int group, int signal)
 /* Call handler for signal on the way back to the program: its blocked set
  * then also holds the handler's mask and (unless NODEFER) the signal. */
 static bool run_handler(struct process *p, void *frame, int signal, uint64_t handler,
-                        uint64_t mask, uint8_t flags)
+                        uint64_t mask, uint8_t flags, const struct sys_siginfo *info)
 {
     struct thread *t = thread_current();
     uint64_t old = t->suspended ? t->suspend_mask : t->sig_blocked;   /* (52i) */
-    if (!arch_signal_enter(frame, handler, signal, p->restorer, old))
+    struct signal_stack alt = { t->alt_sp, t->alt_size, t->alt_set, false };
+    if (!arch_signal_enter(frame, handler, signal, p->restorer, old, info, &alt,
+                           flags & SIGACTION_ONSTACK))
         return false;
+    t->alt_on = alt.used;
     t->suspended = false;
     t->sig_blocked = old | mask | (flags & SIGACTION_NODEFER ? 0 : 1ULL << signal);
-    t->sig_blocked &= ~(1ULL << SIGKILL);
+    t->sig_blocked &= ~((1ULL << SIGKILL) | (1ULL << SIGSTOP));
     return true;
+}
+
+/* (44a) The call the stop interrupted, made again (no handler ran): as it
+ * was, a sleep to the end it had. */
+static void restart_call(void *frame, struct thread *t, uint64_t sleep_end)
+{
+    arch_syscall_restart(frame, t->restart_number, t->restart_arg0);
+    t->sleep_end = sleep_end;
 }
 
 void process_before_return(void *frame)
@@ -1561,11 +1935,20 @@ void process_before_return(void *frame)
         leave_thread(p, 0);                         /* another thread ends the process */
     if (!p)
         return;
+    /* (44a) Stopped: park until SIGCONT; a call the stop interrupted is
+     * made again unless a handler runs now (then it gives EINTR). */
+    struct thread *self = thread_current();
+    bool restart = self->restart;
+    uint64_t sleep_end = self->sleep_end;
+    self->restart = false;
+    self->sleep_end = 0;
+    if (__atomic_load_n(&p->stopped, __ATOMIC_ACQUIRE))
+        park(p);
     thread_current()->stop_requested = false;       /* an ignored or handled signal: done */
     if (thread_current()->enter_at) {               /* (54c) an asynchronous cancel */
         uint64_t entry = thread_current()->enter_at;
         thread_current()->enter_at = 0;
-        if (!run_handler(p, frame, 0, entry, ~0ULL, SIGACTION_NODEFER)) {
+        if (!run_handler(p, frame, 0, entry, ~0ULL, SIGACTION_NODEFER, 0)) {
             kprintf("%s: no room on its stack for its cancellation: program stopped\n", p->name);
             process_exit(STATUS_SIGNALED(SIGSEGV));
         }
@@ -1579,45 +1962,78 @@ void process_before_return(void *frame)
      * (the wake-up's locks, the interrupt's barrier), so it is seen here;
      * one posted after this look is taken at the next return. */
     struct thread *t = thread_current();
-    if (!(__atomic_load_n(&p->pending, __ATOMIC_ACQUIRE) & ~t->sig_blocked)) {
-        if (t->suspended) {
+    if (!((__atomic_load_n(&p->pending, __ATOMIC_ACQUIRE) | t->sig_pending) & ~t->sig_blocked)) {
+        if (t->suspended) {                         /* (44a: a sigsuspend made again saves it again) */
             t->sig_blocked = t->suspend_mask;       /* (52i: no handler ran: the set again) */
             t->suspended = false;
         }
+        if (restart)
+            restart_call(frame, t, sleep_end);
         return;
     }
     uint64_t state = spin_lock(&table);
-    uint64_t ready = p->pending & ~t->sig_blocked;
+    uint64_t ready = (p->pending | t->sig_pending) & ~t->sig_blocked;
     int signal = ready ? __builtin_ctzll(ready) : 0;
     uint64_t handler = 0, mask = 0;
     uint8_t flags = 0;
     bool ignored = false;
+    struct sys_siginfo info;
+    memset(&info, 0, sizeof(info));
     if (signal) {
-        p->pending &= ~(1ULL << signal);
+        /* (43b-5) The thread's own first (pthread_kill's), then the
+         * program's, with what its sender left. */
+        info.signo = signal;
+        if (t->sig_pending & (1ULL << signal)) {
+            t->sig_pending &= ~(1ULL << signal);
+            info.code = SI_TKILL;
+            info.a = (uint32_t)p->pid | (uint64_t)p->uid << 32;
+        } else {
+            p->pending &= ~(1ULL << signal);
+            struct sig_note *n = &p->notes[signal];
+            info.code = n->code;
+            info.a = (uint32_t)n->pid | (uint64_t)n->uid << 32;
+            info.b = (uint32_t)n->status;
+        }
         handler = p->handlers[signal];
         mask = p->handler_masks[signal];
         flags = p->handler_flags[signal];
-        ignored = p->ignored & (1u << signal);
+        ignored = (p->ignored & (1u << signal)) || (!handler && default_ignored(signal));
         if (flags & SIGACTION_RESETHAND)
             p->handlers[signal] = 0;
     }
+    bool stops = signal && !handler && !ignored && stop_signal(signal);
+    if (stops)
+        stop_locked(p, signal);                     /* (44a) one it blocked until now */
     spin_unlock(&table, state);
+    if (stops) {
+        park(p);
+        if (t->suspended) {
+            t->sig_blocked = t->suspend_mask;
+            t->suspended = false;
+        }
+        if (restart)
+            restart_call(frame, t, sleep_end);
+        return;
+    }
     if (t->suspended && (!signal || (!handler && ignored))) {
         t->sig_blocked = t->suspend_mask;           /* (52i: no handler ran: the set again) */
         t->suspended = false;
     }
-    if (!signal || (!handler && ignored))
+    if (!signal || (!handler && ignored)) {
+        if (restart)
+            restart_call(frame, t, sleep_end);
         return;                                     /* (nothing, or ignored since it came) */
+    }
     if (!handler)
         process_exit(STATUS_SIGNALED(signal));      /* back to the default since it came */
-    if (!run_handler(p, frame, signal, handler, mask, flags)) {
+    if (!run_handler(p, frame, signal, handler, mask, flags, &info)) {
         kprintf("%s: no room on its stack for the handler of signal %d: program stopped\n",
                 p->name, signal);
         process_exit(STATUS_SIGNALED(SIGSEGV));
     }
 }
 
-bool process_fault_signal(void *frame, int signal)
+bool process_fault_signal(void *frame, int signal, int code, uint64_t address)
 {
     struct process *p = current_process();
     if (!p || signal <= 0 || signal >= SIGNALS)
@@ -1630,19 +2046,26 @@ bool process_fault_signal(void *frame, int signal)
         p->handlers[signal] = 0;
     spin_unlock(&table, state);
     /* (a fault while its own handler runs ends the program, as on Unix) */
-    return handler && !blocked && run_handler(p, frame, signal, handler, mask, flags);
+    struct sys_siginfo info;
+    memset(&info, 0, sizeof(info));
+    info.signo = signal;
+    info.code = code;
+    info.a = address;
+    return handler && !blocked && run_handler(p, frame, signal, handler, mask, flags, &info);
 }
 
 void process_sigreturn(void *frame)
 {
-    uint64_t blocked;
-    if (!arch_signal_return(frame, &blocked)) {
+    uint64_t blocked, sp;
+    if (!arch_signal_return(frame, &blocked, &sp)) {
         struct process *p = current_process();
         kprintf("%s: a signal handler's return with a damaged context: program stopped\n",
                 p ? p->name : "?");
         process_exit(STATUS_SIGNALED(SIGSEGV));
     }
-    thread_current()->sig_blocked = blocked & ~(1ULL << SIGKILL);
+    struct thread *t = thread_current();
+    t->sig_blocked = blocked & ~((1ULL << SIGKILL) | (1ULL << SIGSTOP));
+    t->alt_on = t->alt_set && sp > t->alt_sp && sp - t->alt_sp <= t->alt_size;    /* (43b-5) */
 }
 
 bool process_copy_to_user(uint64_t addr, const void *kernel, uint64_t size)
@@ -1655,6 +2078,12 @@ bool process_copy_from_user(void *kernel, uint64_t addr, uint64_t size)
 {
     struct process *p = current_process();
     return p && copy_user(p, addr, kernel, size, false);
+}
+
+int process_fault_code(uint64_t address)
+{
+    struct process *p = current_process();
+    return p && mmap_mapped(&p->mm, address) ? SEGV_ACCERR : SEGV_MAPERR;
 }
 
 int process_page_fault(uint64_t address, bool write, bool exec)
@@ -1695,7 +2124,7 @@ const char *process_error_text(int error)
 void process_print_all(void)
 {
     static const char *const states[] = { "new", "running", "ended" };
-    struct { int pid, ppid, group; enum process_state state; char name[32]; } copy[32];
+    struct { int pid, ppid, group; enum process_state state; bool stopped; char name[32]; } copy[32];
     int n = 0;
     uint64_t lock_state = spin_lock(&table);
     for (struct process *p = all_processes; p && n < 32; p = p->next, n++) {
@@ -1703,13 +2132,14 @@ void process_print_all(void)
         copy[n].ppid = p->parent ? p->parent->pid : 0;
         copy[n].group = p->group;
         copy[n].state = p->state;
+        copy[n].stopped = p->stopped && p->state == PROCESS_ALIVE;     /* (44a) */
         memcpy(copy[n].name, p->name, sizeof(copy[n].name));
     }
     spin_unlock(&table, lock_state);
     kprintf("  pid  parent  group  state    name\n");
     for (int i = n - 1; i >= 0; i--)
         kprintf("  %3d  %6d  %5d  %-7s  %s\n", copy[i].pid, copy[i].ppid, copy[i].group,
-                states[copy[i].state], copy[i].name);
+                copy[i].stopped ? "stopped" : states[copy[i].state], copy[i].name);
     if (!n)
         kprintf("  (no processes)\n");
 }
@@ -1746,8 +2176,18 @@ static struct open_file *file_get(struct process *p, uint64_t fd)
  * free" under smpstress's descriptors part, the old kernel too). */
 static void file_release(struct open_file *f)
 {
-    if (f != &console_terminal && __atomic_sub_fetch(&f->holds, 1, __ATOMIC_SEQ_CST) == 0)
+    if (f != &console_terminal && __atomic_sub_fetch(&f->holds, 1, __ATOMIC_SEQ_CST) == 0) {
+        /* (43b-4) What a call may still be using after the last close
+         * (another thread's read on it): let go of with the open file. */
+        if (f->memory)
+            mmap_memory_put(f->memory);
+        if (f->event)
+            eventfd_free(f->event);
+        if (f->timer)
+            timerfd_free(f->timer);
+        kfree(f->path);                             /* (43b-1) */
         kfree(f);
+    }
 }
 
 /* Drop a descriptor's reference: the last one closes the file
@@ -1801,7 +2241,9 @@ static int fd_claim(struct process *p)
     return fd < FD_MAX ? fd : -ERR_MFILE;
 }
 
-static void fd_install(struct process *p, int fd, const struct open_file *f)
+/* (43b-1) with FD_CLOEXEC set in the same hold when cloexec (OPEN_CLOEXEC:
+ * no fork and exec in between can carry it without the mark) */
+static void fd_install_as(struct process *p, int fd, const struct open_file *f, bool cloexec)
 {
     uint64_t s = spin_lock(&p->fds);
     fds_change_begin(p);                            /* (65e-42: no look sees it half made) */
@@ -1809,8 +2251,17 @@ static void fd_install(struct process *p, int fd, const struct open_file *f)
     *slot = *f;                                     /* f->kind is the real kind */
     slot->refs = 1;
     slot->holds = 1;                                /* (65e-42: the descriptors' hold) */
+    if (cloexec)
+        p->cloexec[fd / 8] |= (uint8_t)(1u << (fd % 8));
+    else
+        p->cloexec[fd / 8] &= (uint8_t)~(1u << (fd % 8));
     fds_change_end(p);
     spin_unlock(&p->fds, s);
+}
+
+static void fd_install(struct process *p, int fd, const struct open_file *f)
+{
+    fd_install_as(p, fd, f, false);
 }
 
 static void fd_release(struct process *p, int fd)   /* a claim that was not installed */
@@ -1864,10 +2315,61 @@ static size_t whole_characters(const char *buf, size_t n)
     return n;
 }
 
+/* (44b) Is t (0: the console) p's controlling terminal: its pseudo-
+ * terminal, or the console of the session it belongs to? */
+static bool controls(struct process *p, struct pty *t)
+{
+    if (t)
+        return p->tty == t;
+    return !p->tty && !p->no_terminal && terminal_foreground_session() == p->session;
+}
+
+/* (44b) POSIX's job control at the terminal: p, not in the foreground of
+ * its controlling terminal t (0: the console), reads it (signal SIGTTIN)
+ * or writes or changes it (SIGTTOU). 0: it goes on (the foreground,
+ * another terminal, or a SIGTTOU it ignores or blocks); -ERR_INTR: its
+ * group was sent the signal (stopped by it, the call is made again after
+ * SIGCONT, 44a); -ERR_IO: a SIGTTIN it ignores or blocks, or an orphaned
+ * group (nobody could continue it). */
+static int64_t background_check(struct process *p, struct pty *t, int signal)
+{
+    if (p->group == (t ? pty_foreground(t) : terminal_foreground()) || !controls(p, t))
+        return 0;
+    bool refused = (p->ignored & (1u << signal)) || (thread_current()->sig_blocked & (1ULL << signal));
+    if (refused)
+        return signal == SIGTTOU ? 0 : -ERR_IO;
+    uint64_t state = spin_lock(&table);
+    bool orphaned = group_orphaned_locked(p->group);
+    if (!orphaned) {
+        struct sig_note note = { SI_KERNEL, 0, 0, 0 };
+        for (struct process *q = all_processes; q; q = q->next)
+            if (q->group == p->group)
+                signal_locked(q, signal, &note);
+    }
+    spin_unlock(&table, state);
+    return orphaned ? -ERR_IO : -ERR_INTR;
+}
+
+/* (44b) TOSTOP: a background job's output to t (0: the console) stops it. */
+static bool tostop(struct pty *t)
+{
+    struct sys_termios m;
+    if (t)
+        pty_termios_get(t, &m);
+    else
+        terminal_termios_get(&m);
+    return m.lflag & TERMIOS_TOSTOP;
+}
+
 /* Output to the terminal. A UTF-8 character split between two writes is
  * kept until its last byte arrives, so the console never sees half of it. */
 static int64_t write_terminal(struct process *p, uint64_t fd, uint64_t buffer, uint64_t size)
 {
+    if (tostop(0)) {                                /* (44b) */
+        int64_t r = background_check(p, 0, SIGTTOU);
+        if (r)
+            return r;
+    }
     char chunk[sizeof(p->carry) + WRITE_CHUNK + 1];
     uint64_t done = 0;
     bool locked = kprintf_lock();
@@ -2042,7 +2544,7 @@ static int64_t read_pty(struct process *p, struct pty *t, bool master, uint64_t 
                         uint64_t size)
 {
     if (!master && p->tty == t && p->group != pty_foreground(t))
-        return 0;
+        return background_check(p, t, SIGTTIN);     /* (44b: before, its input's end) */
     uint8_t chunk[END_CHUNK];
     size_t n = size < END_CHUNK ? size : END_CHUNK;
     int64_t r = master ? pty_read_master(t, chunk, n) : pty_read_slave(t, chunk, n);
@@ -2054,6 +2556,11 @@ static int64_t read_pty(struct process *p, struct pty *t, bool master, uint64_t 
 static int64_t write_pty(struct process *p, struct pty *t, bool master, uint64_t buffer,
                          uint64_t size)
 {
+    if (!master && tostop(t)) {                     /* (44b) */
+        int64_t r = background_check(p, t, SIGTTOU);
+        if (r)
+            return r;
+    }
     uint8_t chunk[END_CHUNK];
     uint64_t done = 0;
     int64_t error = 0;
@@ -2180,6 +2687,159 @@ static int tap_number(const char *path)
     return device_number(path, "tap");
 }
 
+/* --- (43b-3) /dev/shm: shm_open's memory files by name ------------------------
+ *
+ * A name holds its memory file until it is unlinked; descriptors hold it
+ * too, so an unlinked one lives while they are open (as a file's object).
+ * The folder is everyone's with the sticky bit (1777, as Linux's tmpfs):
+ * a name is removed by its owner or root. */
+#define SHM_DIR             DEVICE_DIR "/shm"
+#define SHM_NAME_MAX        255
+
+struct shm_name {
+    char name[SHM_NAME_MAX + 1];
+    struct anon_obj *memory;
+    uint32_t uid, gid, mode;
+    struct shm_name *next;
+};
+static struct shm_name *shm_names;
+static struct mutex shm_lock = MUTEX_INIT("shm names");
+
+/* The name in a path /dev/shm/NAME, or 0. */
+static const char *shm_name_of(const char *path)
+{
+    size_t n = sizeof(SHM_DIR) - 1;
+    if (strncmp(path, SHM_DIR, n) != 0 || path[n] != '/' || !path[n + 1])
+        return 0;
+    const char *name = path + n + 1;
+    for (const char *c = name; *c; c++)
+        if (*c == '/')
+            return 0;
+    return strlen(name) > SHM_NAME_MAX ? 0 : name;
+}
+
+static struct shm_name *shm_find(const char *name)
+{
+    for (struct shm_name *s = shm_names; s; s = s->next)
+        if (!strcmp(s->name, name))
+            return s;
+    return 0;
+}
+
+/* May p use a memory file owned so with want (MAY_*)? */
+static bool memory_may(const struct process *p, uint32_t uid, uint32_t gid, uint32_t mode,
+                       unsigned want)
+{
+    if (p->uid == 0)
+        return true;
+    unsigned bits = p->uid == uid ? mode >> 6 : p->gid == gid ? mode >> 3 : mode;
+    return (bits & want) == want;
+}
+
+/* open of /dev/shm/NAME: an object there, or a new one (OPEN_CREATE). */
+static int64_t open_shm(struct process *p, const char *name, uint64_t flags, uint64_t mode,
+                        struct open_file *f)
+{
+    uint64_t access = flags & OPEN_ACCESS;
+    if (access == OPEN_WRITE)
+        return -ERR_INVAL;                          /* (POSIX: O_RDONLY or O_RDWR) */
+    mutex_lock(&shm_lock);
+    struct shm_name *s = shm_find(name);
+    int64_t r = 0;
+    if (s && (flags & OPEN_CREATE) && (flags & OPEN_EXCLUSIVE)) {
+        r = -ERR_EXIST;
+    } else if (!s && !(flags & OPEN_CREATE)) {
+        r = -ERR_NOENT;
+    } else if (!s) {
+        s = kzalloc(sizeof(*s));
+        struct anon_obj *o = s ? mmap_memory_new() : 0;
+        if (!o) {
+            kfree(s);
+            r = -ERR_NOMEM;
+        } else {
+            memcpy(s->name, name, strlen(name) + 1);
+            s->memory = o;
+            s->uid = p->uid;
+            s->gid = p->gid;
+            s->mode = (flags & OPEN_MODE ? (unsigned)mode : 0600) & 0777 & ~p->umask;
+            s->next = shm_names;
+            shm_names = s;
+        }
+    } else if (!memory_may(p, s->uid, s->gid, s->mode,
+                           MAY_READ | (access == OPEN_READ_WRITE ? MAY_WRITE : 0))) {
+        r = -ERR_ACCES;
+    }
+    if (!r) {
+        mmap_memory_hold(s->memory);
+        f->kind = FILE_MEMORY;
+        f->memory = s->memory;
+        f->memory_uid = s->uid;
+        f->memory_gid = s->gid;
+        f->memory_mode = s->mode;
+        f->readable = true;
+        f->writable = access == OPEN_READ_WRITE;
+    }
+    mutex_unlock(&shm_lock);
+    if (!r && (flags & OPEN_TRUNCATE) && f->writable && (r = mmap_memory_resize(f->memory, 0)))
+        mmap_memory_put(f->memory);
+    return r;
+}
+
+/* unlink of /dev/shm/NAME. */
+static int64_t remove_shm(struct process *p, const char *name)
+{
+    mutex_lock(&shm_lock);
+    struct shm_name **link = &shm_names;
+    while (*link && strcmp((*link)->name, name))
+        link = &(*link)->next;
+    struct shm_name *s = *link;
+    int64_t r = !s ? -ERR_NOENT : p->uid != 0 && p->uid != s->uid ? -ERR_PERM : 0;
+    if (!r)
+        *link = s->next;
+    mutex_unlock(&shm_lock);
+    if (r)
+        return r;
+    mmap_memory_put(s->memory);
+    kfree(s);
+    return 0;
+}
+
+/* stat of /dev/shm/NAME into st: 0, or -ERR_NOENT. */
+static int64_t stat_shm(const char *name, struct sys_stat *st)
+{
+    mutex_lock(&shm_lock);
+    struct shm_name *s = shm_find(name);
+    if (s) {
+        memset(st, 0, sizeof(*st));
+        st->id = (uint64_t)(uintptr_t)s->memory >> 4;
+        st->size = mmap_memory_size(s->memory);
+        st->type = FILE_TYPE_FILE;
+        st->links = 1;
+        st->uid = s->uid;
+        st->gid = s->gid;
+        st->mode = s->mode;
+    }
+    mutex_unlock(&shm_lock);
+    return s ? 0 : -ERR_NOENT;
+}
+
+/* /dev/shm's entry number index (readdir): true and its name in e. */
+static bool shm_entry(uint64_t index, struct sys_dirent *e)
+{
+    mutex_lock(&shm_lock);
+    struct shm_name *s = shm_names;
+    for (uint64_t i = 0; s && i < index; i++)
+        s = s->next;
+    if (s) {
+        size_t n = strlen(s->name);
+        memcpy(e->name, s->name, n + 1);
+        e->name_length = (uint32_t)n;
+        e->type = FILE_TYPE_FILE;
+    }
+    mutex_unlock(&shm_lock);
+    return s != 0;
+}
+
 /* The number N of a path /dev/pcmN, or -1. */
 static int pcm_number(const char *path)
 {
@@ -2219,8 +2879,8 @@ static struct mutex terminal_input = MUTEX_INIT("terminal input");
 
 static int64_t read_terminal(struct process *p, uint64_t buffer, uint64_t size)
 {
-    if (p->group != terminal_foreground())
-        return 0;
+    if (p->group != terminal_foreground())          /* (44b) its own: SIGTTIN; another's: the end */
+        return controls(p, 0) ? background_check(p, 0, SIGTTIN) : 0;
     if (thread_current()->dont_wait && p->line_read == p->line_length && !terminal_input_waiting())
         return -ERR_AGAIN;                          /* (53b; a line read waits for its Enter) */
     if (terminal_is_raw() && p->line_read == p->line_length) {
@@ -2366,6 +3026,43 @@ static int64_t write_tap(struct process *p, struct open_file *f, uint64_t buffer
     return tap_write(f->tap, frame, size);
 }
 
+static int64_t read_at(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size,
+                       uint64_t *at);
+
+/* (43b-3) A memory file's bytes at *at to or from the program, a page at a
+ * time through the kernel's own (never copy_user under the file's lock). */
+static int64_t memory_at(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size,
+                         uint64_t *at, bool write)
+{
+    uint8_t *chunk = kmalloc(PAGE_SIZE);
+    if (!chunk)
+        return -ERR_NOMEM;
+    uint64_t done = 0;
+    int64_t error = 0;
+    while (done < size) {
+        uint64_t want = size - done < PAGE_SIZE ? size - done : PAGE_SIZE;
+        if (write && !copy_user(p, buffer + done, chunk, want, false)) {
+            error = -ERR_FAULT;
+            break;
+        }
+        int64_t n = mmap_memory_io(f->memory, *at, chunk, want, write);
+        if (n <= 0) {
+            error = n;
+            break;
+        }
+        if (!write && !copy_user(p, buffer + done, chunk, (uint64_t)n, true)) {
+            error = -ERR_FAULT;
+            break;
+        }
+        *at += (uint64_t)n;
+        done += (uint64_t)n;
+        if ((uint64_t)n < want)
+            break;                                  /* (its end) */
+    }
+    kfree(chunk);
+    return done > 0 ? (int64_t)done : error;
+}
+
 static int64_t read_file(struct process *p, const struct fd_use *u, uint64_t buffer,
                          uint64_t size)
 {
@@ -2388,6 +3085,23 @@ static int64_t read_file(struct process *p, const struct fd_use *u, uint64_t buf
         return read_zero(p, buffer, size);
     if (f->kind == FILE_DEVICES)
         return -ERR_ISDIR;
+    if (f->kind == FILE_EVENT || f->kind == FILE_TIMER) {     /* (43b-4) 8 bytes */
+        uint64_t value;
+        if (size < 8)
+            return -ERR_INVAL;
+        int64_t r = f->kind == FILE_EVENT ? eventfd_read(f->event, &value) : timerfd_read(f->timer, &value);
+        return r ? r : copy_user(p, buffer, &value, 8, true) ? 8 : -ERR_FAULT;
+    }
+    return read_at(p, f, buffer, size, &f->offset);
+}
+
+/* A file's bytes from *at on, which moves past them (the descriptor's
+ * position, or 43b-1's pread's own). */
+static int64_t read_at(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size,
+                       uint64_t *at)
+{
+    if (f->kind == FILE_MEMORY)
+        return memory_at(p, f, buffer, size, at, false);
     if (!refresh(f))
         return 0;                                   /* removed meanwhile: at its end */
     if (f->kind == FILE_SNAPSHOTS || f->kind == FILE_VOLUMES || f->inode.type == RFS_TYPE_DIR)
@@ -2399,7 +3113,7 @@ static int64_t read_file(struct process *p, const struct fd_use *u, uint64_t buf
     int64_t error = 0;
     while (done < size) {
         uint64_t want = size - done < RFS_BLOCK_SIZE ? size - done : RFS_BLOCK_SIZE;
-        int64_t n = vfs_read_now(f->fs, f->object_id, &f->inode, f->offset, chunk, want);
+        int64_t n = vfs_read_now(f->fs, f->object_id, &f->inode, *at, chunk, want);
         if (n < 0) {
             error = -ERR_IO;                        /* e.g. a block failed its checksum */
             break;
@@ -2410,7 +3124,7 @@ static int64_t read_file(struct process *p, const struct fd_use *u, uint64_t buf
             error = -ERR_FAULT;
             break;
         }
-        f->offset += (uint64_t)n;
+        *at += (uint64_t)n;
         done += (uint64_t)n;
     }
     kfree(chunk);
@@ -2469,13 +3183,15 @@ static bool inaddr_to_user(struct process *p, uint64_t addr, const struct inet_a
 static int64_t socket_read(struct process *p, struct socket *s, uint64_t buffer, uint64_t size,
                            uint64_t from_addr, uint32_t timeout_ms, bool six)
 {
-    uint8_t *chunk = kmalloc(READ_CHUNK);
+    /* (45b) A packet socket's read takes a whole message, up to its largest. */
+    uint64_t room = socket_packets(s) ? (size < LOCAL_PACKET_MAX ? size : LOCAL_PACKET_MAX)
+                                      : (size < READ_CHUNK ? size : READ_CHUNK);
+    uint8_t *chunk = kmalloc(room ? room : 1);
     if (!chunk)
         return -ERR_NOMEM;
     struct inet_addr ip = inet_v4(0);
     uint16_t port = 0;
-    int64_t n = socket_recvfrom(s, chunk, size < READ_CHUNK ? size : READ_CHUNK, &ip, &port,
-                                timeout_ms);
+    int64_t n = socket_recvfrom(s, chunk, room, &ip, &port, timeout_ms);
     if (n > 0 && !copy_user(p, buffer, chunk, (uint64_t)n, true))
         n = -ERR_FAULT;
     uint64_t from = (uint64_t)inet_v4_of(&ip) << 16 | port;
@@ -2491,6 +3207,17 @@ static int64_t socket_read(struct process *p, struct socket *s, uint64_t buffer,
 static int64_t socket_write(struct process *p, struct socket *s, uint64_t buffer, uint64_t size,
                             const struct inet_addr *to, uint16_t port)
 {
+    if (socket_packets(s)) {                        /* (45b) one write, one whole message */
+        if (size > LOCAL_PACKET_MAX)
+            return -ERR_MSGSIZE;
+        uint8_t *message = kmalloc(size ? size : 1);
+        if (!message)
+            return -ERR_NOMEM;
+        int64_t r = copy_user(p, buffer, message, size, false) ? socket_sendto(s, message, size, to, port)
+                                                               : -ERR_FAULT;
+        kfree(message);
+        return r;
+    }
     uint8_t *chunk = kmalloc(IP_PAYLOAD_MAX);
     if (!chunk)
         return -ERR_NOMEM;
@@ -2513,14 +3240,30 @@ static int64_t socket_write(struct process *p, struct socket *s, uint64_t buffer
     return done > 0 ? (int64_t)done : error;
 }
 
+static int64_t write_at(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size,
+                        uint64_t *offset, bool append);
+
 static int64_t write_file(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size)
+{
+    return write_at(p, f, buffer, size, &f->offset, f->append);
+}
+
+/* Bytes to a file at *offset (or its end: append), which moves past them
+ * (the descriptor's position, or 43b-1's pwrite's own). */
+static int64_t write_at(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size,
+                        uint64_t *offset, bool append)
 {
     if (!f->writable)
         return -ERR_BADF;
+    if (f->kind == FILE_MEMORY) {
+        if (append)
+            *offset = mmap_memory_size(f->memory);
+        return memory_at(p, f, buffer, size, offset, true);
+    }
     if (!refresh(f))
         return -ERR_NOENT;                          /* removed meanwhile */
-    if (f->append)
-        f->offset = f->inode.size;                  /* (each piece below: at the end as it is then) */
+    if (append)
+        *offset = f->inode.size;                    /* (each piece below: at the end as it is then) */
     uint8_t *chunk = kmalloc(RFS_BLOCK_SIZE);
     if (!chunk)
         return -ERR_NOMEM;
@@ -2535,15 +3278,15 @@ static int64_t write_file(struct process *p, struct open_file *f, uint64_t buffe
         /* (65e-36) An append finds the end and writes there in one hold of
          * the file system's lock: with the size read before, two appenders
          * wrote at one place (eight shells appending a line each kept seven). */
-        uint64_t at = f->offset;
-        int r = f->append ? vfs_append(f->fs, f->object_id, chunk, n, &at)
-                          : vfs_write(f->fs, f->object_id, f->offset, chunk, n);
-        f->offset = at;
+        uint64_t at = *offset;
+        int r = append ? vfs_append(f->fs, f->object_id, chunk, n, &at)
+                       : vfs_write(f->fs, f->object_id, *offset, chunk, n);
+        *offset = at;
         if (r != RFS_OK) {
             error = fs_error(r);
             break;
         }
-        f->offset += n;
+        *offset += n;
         f->written = true;
         f->unsaved += n;
         done += n;
@@ -2618,6 +3361,18 @@ static int64_t write_device(struct process *p, struct open_file *f, uint64_t buf
     return done > 0 ? (int64_t)done : error;
 }
 
+/* (43b-4) An eventfd's write: a uint64_t added to its count. */
+static int64_t write_event(struct process *p, struct open_file *f, uint64_t buffer, uint64_t size)
+{
+    uint64_t add;
+    if (size < 8)
+        return -ERR_INVAL;
+    if (!copy_user(p, buffer, &add, 8, false))
+        return -ERR_FAULT;
+    int64_t r = eventfd_write(f->event, add);
+    return r ? r : 8;
+}
+
 static int64_t sys_write(struct process *p, uint64_t fd, const struct fd_use *u, uint64_t buffer,
                          uint64_t size)
 {
@@ -2632,9 +3387,10 @@ static int64_t sys_write(struct process *p, uint64_t fd, const struct fd_use *u,
               : f->kind == FILE_PCM ? write_pcm(p, f->pcm, buffer, size)
               : f->kind == FILE_USBSERIAL ? write_usbserial(p, f, buffer, size)
               : f->kind == FILE_TAP ? write_tap(p, f, buffer, size)
+              : f->kind == FILE_EVENT ? write_event(p, f, buffer, size)
               : f->kind == FILE_NULL || f->kind == FILE_ZERO ?
                     (f->writable ? (int64_t)size : -ERR_BADF)        /* (52c: taken, gone) */
-              : f->kind != FILE_RITTERFS ? -ERR_BADF
+              : f->kind != FILE_RITTERFS && f->kind != FILE_MEMORY ? -ERR_BADF
               : write_file(p, f, buffer, size);
 }
 
@@ -2667,7 +3423,7 @@ static int64_t open_build(struct process *p, uint64_t path_addr, uint64_t flags,
     uint64_t access = flags & OPEN_ACCESS;
     if (access > OPEN_READ_WRITE ||
         (flags & ~(uint64_t)(OPEN_ACCESS | OPEN_CREATE | OPEN_TRUNCATE | OPEN_APPEND | OPEN_MODE |
-                             OPEN_EXCLUSIVE | OPEN_NONBLOCK)))
+                             OPEN_EXCLUSIVE | OPEN_NONBLOCK | OPEN_CLOEXEC)))
         return -ERR_INVAL;
     bool writing = access != OPEN_READ;
     if (writing && in_snapshots(path))
@@ -2678,6 +3434,8 @@ static int64_t open_build(struct process *p, uint64_t path_addr, uint64_t flags,
                           pcm_number(path) >= 0 || serial_number(path) >= 0 ||
                           tap_number(path) >= 0))
             return -ERR_EXIST;
+        if (shm_name_of(path))                          /* (43b-3) a memory file by name */
+            return open_shm(p, shm_name_of(path), flags, mode, f);
         int special = special_device(path);
         if (special == SPECIAL_TTY)                     /* (52c) the caller's terminal */
             return open_tty(p, access, f);
@@ -2689,6 +3447,11 @@ static int64_t open_build(struct process *p, uint64_t path_addr, uint64_t flags,
         }
         if (strcmp(path, DEVICE_DIR) == 0) {
             f->kind = FILE_DEVICES;
+        } else if (strcmp(path, SHM_DIR) == 0) {
+            if (exclusive)
+                return -ERR_EXIST;
+            f->kind = FILE_DEVICES;
+            f->shm_dir = true;
         } else if (pcm_number(path) >= 0) {             /* /dev/pcmN: a sound device */
             if (!sound_present(pcm_number(path)))
                 return -ERR_NOENT;
@@ -2696,6 +3459,8 @@ static int64_t open_build(struct process *p, uint64_t path_addr, uint64_t flags,
                 return -ERR_ACCES;                  /* audio output: write-only */
             if (p->uid != 0 && !console_user(p))
                 return -ERR_ACCES;                  /* the speakers are the console's (49k) */
+            if (!sound_take(pcm_number(path)))
+                return -ERR_BUSY;                   /* (68w) one opener: soundd mixes */
             f->kind = FILE_PCM;
             f->pcm = pcm_number(path);
             f->readable = false;
@@ -2784,6 +3549,9 @@ static int64_t open_build(struct process *p, uint64_t path_addr, uint64_t flags,
     }
     f->kind = !snapshots ? FILE_RITTERFS
              : strcmp(path, VOLUMES_DIR) == 0 ? FILE_VOLUMES : FILE_SNAPSHOTS;
+    size_t length = strlen(path) + 1;               /* (43b-1: SYS_FDPATH's) */
+    if ((f->path = kmalloc(length)))
+        memcpy(f->path, path, length);
     f->readable = access != OPEN_WRITE;
     f->writable = writing;
     f->append = writing && (flags & OPEN_APPEND);
@@ -2803,13 +3571,14 @@ static int64_t sys_open(struct process *p, uint64_t path_addr, uint64_t flags, u
         return error;
     }
     f.nonblock = flags & OPEN_NONBLOCK;             /* (53b) */
-    fd_install(p, fd, &f);
+    fd_install_as(p, fd, &f, flags & OPEN_CLOEXEC);
     return fd;
 }
 
 /* Close a descriptor; a file written through it is committed. */
 static int64_t close_file(struct open_file *f)
 {
+    locks_flock_closed(f);                          /* (43b-4) its flock locks */
     if (f->kind == FILE_SOCKET) {
         f->kind = FILE_CLOSED;
         socket_close(f->socket);
@@ -2828,6 +3597,7 @@ static int64_t close_file(struct open_file *f)
     if (f->kind == FILE_PCM) {
         f->kind = FILE_CLOSED;
         sound_drain(f->pcm);                        /* play out the rest, then silence */
+        sound_give(f->pcm);                         /* (68w) */
         return 0;
     }
     if (f->kind == FILE_USBSERIAL) {
@@ -2837,6 +3607,10 @@ static int64_t close_file(struct open_file *f)
     if (f->kind == FILE_TAP) {
         f->kind = FILE_CLOSED;
         tap_close(f->tap);                          /* its link goes down */
+        return 0;
+    }
+    if (f->kind == FILE_MEMORY || f->kind == FILE_EVENT || f->kind == FILE_TIMER) {
+        f->kind = FILE_CLOSED;                      /* (the object: at file_release) */
         return 0;
     }
     if (f->kind == FILE_SHARE) {
@@ -2891,12 +3665,55 @@ static int64_t sys_close(struct process *p, uint64_t fd)
     fds_change_end(p);
     p->cloexec[fd / 8] &= (uint8_t)~(1u << (fd % 8));       /* (53b) */
     spin_unlock(&p->fds, s);
-    return file_put(f);                             /* (51a: closed when the last goes) */
+    return descriptor_put(p, f);                    /* (51a: closed when the last goes) */
 }
 
 static int64_t dup_to(struct process *p, uint64_t old, int64_t new, int64_t min);
 
 /* fcntl (53b): FCNTL_* on a descriptor (see common/syscalls.h). */
+/* (43b-4) The file a lock is on: a RitterFS object or a memory file
+ * (record locks: only those), else the open file itself (flock). */
+static bool lock_file(struct open_file *f, const void **object, uint64_t *id)
+{
+    if (f->kind == FILE_RITTERFS) {
+        *object = f->fs, *id = f->object_id;
+        return true;
+    }
+    *object = f->kind == FILE_MEMORY ? (const void *)f->memory : (const void *)f;
+    *id = 0;
+    return f->kind == FILE_MEMORY;
+}
+
+static int64_t record_lock(struct process *p, struct open_file *f, uint64_t cmd, uint64_t arg)
+{
+    struct sys_flock l;
+    const void *object;
+    uint64_t id;
+    if (!copy_user(p, arg, &l, sizeof(l), false))
+        return -ERR_FAULT;
+    if (!lock_file(f, &object, &id) || (f->kind == FILE_RITTERFS && f->inode.type != RFS_TYPE_FILE))
+        return -ERR_INVAL;
+    if (cmd != FCNTL_GETLK && ((l.type == FCNTL_RDLCK && !f->readable) ||
+                               (l.type == FCNTL_WRLCK && !f->writable)))
+        return -ERR_BADF;                           /* (POSIX: a read lock needs reading...) */
+    int64_t r = locks_record(object, id, p->pid, (unsigned)cmd, &l);
+    if (!r && cmd == FCNTL_GETLK && !copy_user(p, arg, &l, sizeof(l), true))
+        r = -ERR_FAULT;
+    return r;
+}
+
+/* A process's descriptor of f let go of (close, dup2 over it, exec's
+ * close-on-exec, the end): (43b-4) its record locks on that file go too,
+ * as POSIX has it, also while other descriptors of it stay open. */
+static int64_t descriptor_put(struct process *p, struct open_file *f)
+{
+    const void *object;
+    uint64_t id;
+    if (lock_file(f, &object, &id))
+        locks_record_closed(object, id, p->pid);
+    return file_put(f);
+}
+
 static int64_t sys_fcntl(struct process *p, uint64_t fd, uint64_t cmd, uint64_t arg)
 {
     if (cmd == FCNTL_DUPFD || cmd == FCNTL_DUPFD_CLOEXEC) {
@@ -2922,8 +3739,29 @@ static int64_t sys_fcntl(struct process *p, uint64_t fd, uint64_t cmd, uint64_t 
             (f->append ? OPEN_APPEND : 0) | (f->nonblock ? OPEN_NONBLOCK : 0);
     } else if (cmd == FCNTL_SETFL) {
         f->nonblock = arg & OPEN_NONBLOCK;
-        if (f->kind == FILE_RITTERFS && f->writable)
+        if ((f->kind == FILE_RITTERFS || f->kind == FILE_MEMORY) && f->writable)
             f->append = arg & OPEN_APPEND;
+    } else if (cmd == FCNTL_GETLK || cmd == FCNTL_SETLK || cmd == FCNTL_SETLKW) {
+        /* (43b-4) Record locks, outside p->fds (SETLKW waits): the open
+         * file held meanwhile. */
+        __atomic_add_fetch(&f->holds, 1, __ATOMIC_SEQ_CST);
+        spin_unlock(&p->fds, s);
+        r = record_lock(p, f, cmd, arg);
+        file_release(f);
+        return r;
+    } else if (cmd == FCNTL_ADD_SEALS || cmd == FCNTL_GET_SEALS) {
+        /* (43b-3) Outside p->fds: sealing may look at every process. */
+        struct anon_obj *o = f->kind == FILE_MEMORY ? f->memory : 0;
+        bool writable = f->writable;
+        if (o)
+            mmap_memory_hold(o);
+        spin_unlock(&p->fds, s);
+        if (!o)
+            return -ERR_INVAL;
+        r = cmd == FCNTL_GET_SEALS ? (int64_t)mmap_memory_seals(o)
+            : !writable ? -ERR_PERM : mmap_memory_seal(o, (unsigned)arg);
+        mmap_memory_put(o);
+        return r;
     } else {
         r = -ERR_INVAL;
     }
@@ -2989,7 +3827,7 @@ static int64_t dup_to(struct process *p, uint64_t old, int64_t new, int64_t min)
         fds_change_end(p);
     spin_unlock(&p->fds, s);
     if (before && before->kind != FILE_CLOSED)
-        file_put(before);
+        descriptor_put(p, before);
     return new;
 }
 
@@ -3255,7 +4093,7 @@ static int64_t sys_spawn(struct process *p, uint64_t path_addr, uint64_t argv_ad
 static int64_t sys_wait(struct process *p, int64_t pid, uint64_t status_addr, uint64_t flags)
 {
     int status = 0;
-    int id = process_wait(p, (int)pid, &status, flags & WAIT_NO_HANG);
+    int id = process_wait(p, (int)pid, &status, flags & (WAIT_NO_HANG | WAIT_UNTRACED | WAIT_CONTINUED));
     if (id > 0 && status_addr && !copy_user(p, status_addr, &status, sizeof(status), true))
         return -ERR_FAULT;
     return id;
@@ -3281,15 +4119,19 @@ static int64_t sys_sleep(uint64_t ms)
      * alone they ended a 60 ms sleep early; each tick only wakes it to
      * look again. */
     uint64_t end = arch_counter() + ms / 1000 * hz + (ms % 1000 * hz + 999) / 1000;
+    if (self->sleep_end)                        /* (44a) made again after a stop: its end */
+        end = self->sleep_end;
+    self->sleep_end = 0;
     for (;;) {
         uint64_t now = arch_counter();
-        if (self->stop_requested)
+        if (self->stop_requested) {
+            self->sleep_end = end;              /* (44a: for a restart; dropped otherwise) */
             return -ERR_INTR;
+        }
         if (now >= end)
             return 0;
-        uint64_t left = end - now;
-        uint64_t wait = left / hz * TIMER_HZ + (left % hz * TIMER_HZ + hz - 1) / hz;
-        wait_event_until(&sleepers, self->stop_requested, timer_ticks() + (wait ? wait : 1));
+        /* (45a) Woken at its end by this core's timer, not the next tick. */
+        wait_event_until_at(&sleepers, self->stop_requested, end);
     }
 }
 
@@ -3329,8 +4171,19 @@ static int64_t sys_stat(struct process *p, uint64_t path_addr, uint64_t out, boo
         st.links = 1;
         return copy_user(p, out, &st, sizeof(st), true) ? 0 : -ERR_FAULT;
     }
+    if (shm_name_of(path))                          /* (43b-3) */
+        return (error = stat_shm(shm_name_of(path), &st)) ? error
+               : copy_user(p, out, &st, sizeof(st), true) ? 0 : -ERR_FAULT;
     if (in_devices(path)) {
         struct block_device *d = device_at(path);
+        bool shm = !strcmp(path, SHM_DIR);
+        if (shm) {
+            memset(&st, 0, sizeof(st));
+            st.type = FILE_TYPE_DIR;
+            st.mode = 01777;
+            st.links = 1;
+            return copy_user(p, out, &st, sizeof(st), true) ? 0 : -ERR_FAULT;
+        }
         if (!d && strcmp(path, DEVICE_DIR) != 0)
             return -ERR_NOENT;
         memset(&st, 0, sizeof(st));
@@ -3429,8 +4282,10 @@ static int64_t sys_termios(struct process *p, uint64_t fd, uint64_t op, uint64_t
             terminal_termios_get(&m);
         if (!copy_user(p, addr, &m, sizeof(m), true))
             r = -ERR_FAULT;
-    } else if (p->group != (t ? pty_foreground(t) : terminal_foreground())) {
-        r = -ERR_PERM;
+    } else if (p->group != (t ? pty_foreground(t) : terminal_foreground()) &&
+               (!controls(p, t) || (r = background_check(p, t, SIGTTOU)))) {
+        if (!r)
+            r = -ERR_PERM;                          /* (another's terminal; 44b: or SIGTTOU) */
     } else if (op == TERMIOS_FLUSH) {
         if (t)
             pty_flush(t);
@@ -3450,7 +4305,7 @@ static int64_t sys_termios(struct process *p, uint64_t fd, uint64_t op, uint64_t
 }
 
 /* What one descriptor would report to poll (52d), interrupts on. */
-static int poll_one(struct process *p, int fd)
+static int poll_one(struct process *p, int fd, uint64_t *wake)
 {
     struct socket *sock = socket_grab(p, (uint64_t)fd);
     if (sock) {
@@ -3490,6 +4345,12 @@ static int poll_one(struct process *p, int fd)
     case FILE_TAP:
         r = tap_poll(f->tap) & ((f->readable ? POLLIN : 0) | (f->writable ? POLLOUT : 0));
         break;
+    case FILE_EVENT:                                /* (43b-4) */
+        r = eventfd_poll(f->event);
+        break;
+    case FILE_TIMER:
+        r = timerfd_poll(f->timer, wake);           /* (its next expiry lowers the wait's end) */
+        break;
     default:                                        /* files and devices never wait */
         r = (f->readable ? POLLIN : 0) | (f->writable ? POLLOUT : 0);
         break;
@@ -3523,8 +4384,8 @@ static int64_t poll_loop(struct process *p, uint64_t addr, struct sys_pollfd *fd
     size_t bytes = count * sizeof(fds[0]);
     if (count && !copy_user(p, addr, fds, bytes, false))
         return -ERR_FAULT;
-    uint64_t deadline = timeout_ms > 0 ? timer_ticks() +
-                        ((uint64_t)timeout_ms * TIMER_HZ + 999) / 1000 : 0;
+    /* (45a) A precise deadline (arch_counter): until 45a the tick after it. */
+    uint64_t deadline = timeout_ms > 0 ? sched_counter_after_ns((uint64_t)timeout_ms * 1000000) : 0;
     /* (65e) The queues the descriptors would be woken on: at most 4 each. */
     struct poll_table *pt = poll_table_new((int)count * 4 + 4);
     if (!pt)
@@ -3535,11 +4396,12 @@ static int64_t poll_loop(struct process *p, uint64_t addr, struct sys_pollfd *fd
     for (;;) {
         poll_table_reset(pt);
         int ready = 0;
+        uint64_t wake = 0;                          /* (43b-4) a timer's next expiry (45a: a counter value) */
         for (uint64_t i = 0; i < count; i++) {
             fds[i].revents = 0;
             if (fds[i].fd < 0)
                 continue;
-            int found = poll_one(p, fds[i].fd);
+            int found = poll_one(p, fds[i].fd, &wake);
             int asked = fds[i].events | (fds[i].events & POLLRDNORM ? POLLIN : 0) |
                         (fds[i].events & POLLWRNORM ? POLLOUT : 0);
             int r = found & (asked | POLLERR | POLLHUP | POLLNVAL);
@@ -3550,16 +4412,16 @@ static int64_t poll_loop(struct process *p, uint64_t addr, struct sys_pollfd *fd
             fds[i].revents = (int16_t)r;
             ready += r != 0;
         }
-        if (ready || timeout_ms == 0 || (deadline && timer_ticks() >= deadline)) {
+        if (ready || timeout_ms == 0 || (deadline && arch_counter() >= deadline)) {
             result = ready;
             break;
         }
-        if (!poll_table_wait(pt, deadline)) {
+        if (!poll_table_wait_at(pt, wake && (!deadline || wake < deadline) ? wake : deadline)) {
             if (self->stop_requested) {
                 result = -ERR_INTR;
                 goto out;
             }
-            if (deadline && timer_ticks() >= deadline) {
+            if (deadline && arch_counter() >= deadline) {
                 result = 0;
                 break;
             }
@@ -3600,7 +4462,15 @@ static int64_t sys_fstat(struct process *p, uint64_t fd, uint64_t out)
     case FILE_VOLUMES:
     case FILE_DEVICES:
         st.type = FILE_TYPE_DIR;
-        st.mode = 0755;
+        st.mode = f->shm_dir ? 01777 : 0755;
+        break;
+    case FILE_MEMORY:
+        st.type = FILE_TYPE_FILE;
+        st.id = (uint64_t)(uintptr_t)f->memory >> 4;
+        st.size = mmap_memory_size(f->memory);
+        st.uid = f->memory_uid;
+        st.gid = f->memory_gid;
+        st.mode = f->memory_mode;
         break;
     case FILE_DEVICE:
         st.type = FILE_TYPE_BLOCK;
@@ -3633,7 +4503,7 @@ static int64_t sys_fstat(struct process *p, uint64_t fd, uint64_t out)
         st.type = FILE_TYPE_FILE;                   /* (a shared buffer) */
         break;
     }
-    if (!r && f->kind != FILE_RITTERFS)
+    if (!r && f->kind != FILE_RITTERFS && f->kind != FILE_MEMORY)
         st.uid = p->uid, st.gid = p->gid;           /* (not files: the caller's own) */
     file_release(f);
     if (r)
@@ -3717,6 +4587,14 @@ static int64_t readdir_file(struct process *p, struct open_file *f, uint64_t out
         f->offset++;
         return copy_user(p, out, &e, sizeof(e), true) ? 1 : -ERR_FAULT;
     }
+    if (f && f->kind == FILE_DEVICES && f->shm_dir) {   /* (43b-3) */
+        struct sys_dirent e;
+        memset(&e, 0, sizeof(e));
+        if (!shm_entry(f->offset, &e))
+            return 0;
+        f->offset++;
+        return copy_user(p, out, &e, sizeof(e), true) ? 1 : -ERR_FAULT;
+    }
     if (f && f->kind == FILE_DEVICES) {
         struct sys_device *d = kmalloc(sizeof(*d));
         if (!d)
@@ -3732,11 +4610,21 @@ static int64_t readdir_file(struct process *p, struct open_file *f, uint64_t out
             f->offset++;
         }
         kfree(d);
-        /* (52l) After the disks: null, zero, tty, then each sound device,
-         * then (50e) each USB serial port, (38a) then each tap. */
-        static const char *const specials[] = { "null", "zero", "tty" };
-        while (!found && f->made_up < 3 + 8 + 8 + TAP_MAX) {
+        /* (52l) After the disks: null, zero, tty, (43b-3) the folder shm,
+         * then each sound device, then (50e) each USB serial port, (38a)
+         * then each tap. */
+        static const char *const specials[] = { "null", "zero", "tty", "shm" };
+        while (!found && f->made_up < 4 + 8 + 8 + TAP_MAX) {
             int k = f->made_up++;
+            if (k == 3) {
+                ksnprintf(e.name, sizeof(e.name), "%s", specials[k]);
+                e.name_length = (uint32_t)strlen(e.name);
+                e.type = FILE_TYPE_DIR;
+                found = true;
+                break;
+            }
+            if (k > 3)
+                k--;                                /* (the numbers below are as before) */
             if (k < 3)
                 ksnprintf(e.name, sizeof(e.name), "%s", specials[k]);
             else if (k < 3 + 8 && sound_present(k - 3))
@@ -3767,6 +4655,10 @@ static int64_t readdir_file(struct process *p, struct open_file *f, uint64_t out
     }
     if (!f || f->kind != FILE_RITTERFS)
         return -ERR_BADF;
+    /* (43b-1) The folder as it is now: one opened before names were added
+     * had listed its first contents (fdopendir, openat's folders). */
+    if (!refresh(f))
+        return 0;                                   /* (removed meanwhile: nothing more) */
     if (f->inode.type != RFS_TYPE_DIR)
         return -ERR_NOTDIR;
     struct sys_dirent e;
@@ -3795,8 +4687,8 @@ static int64_t sys_chdir(struct process *p, uint64_t path_addr)
     struct vfs *fs;
     bool snapshots;
     if (in_devices(path)) {
-        if (strcmp(path, DEVICE_DIR) != 0)
-            return device_at(path) ? -ERR_NOTDIR : -ERR_NOENT;
+        if (strcmp(path, DEVICE_DIR) != 0 && strcmp(path, SHM_DIR) != 0)
+            return device_at(path) || shm_name_of(path) ? -ERR_NOTDIR : -ERR_NOENT;
         memcpy(p->cwd, path, sizeof(p->cwd));
         return 0;
     }
@@ -3862,7 +4754,7 @@ static int64_t sys_signal(struct process *p, uint64_t signal, uint64_t action)
 static int64_t sys_sigaction(struct process *p, uint64_t signal, uint64_t new_action,
                              uint64_t old_action, uint64_t restorer)
 {
-    if (signal == 0 || signal >= SIGNALS || signal == SIGKILL)
+    if (signal == 0 || signal >= SIGNALS || signal == SIGKILL || (signal == SIGSTOP && new_action))
         return -ERR_INVAL;
     struct sys_sigaction now = { 0 }, want;
     if (new_action) {
@@ -3879,8 +4771,10 @@ static int64_t sys_sigaction(struct process *p, uint64_t signal, uint64_t new_ac
     now.flags = p->handler_flags[signal];
     if (new_action) {
         p->handlers[signal] = want.handler > SIGNAL_IGNORE ? want.handler : 0;
-        p->handler_masks[signal] = want.mask & ~(1ULL << SIGKILL);
-        p->handler_flags[signal] = (uint8_t)(want.flags & (SIGACTION_RESETHAND | SIGACTION_NODEFER));
+        p->handler_masks[signal] = want.mask & ~((1ULL << SIGKILL) | (1ULL << SIGSTOP));
+        p->handler_flags[signal] = (uint8_t)(want.flags & (SIGACTION_RESETHAND | SIGACTION_NODEFER |
+                                                           SIGACTION_ONSTACK | SIGACTION_SIGINFO |
+                                                           SIGACTION_NOCLDSTOP));
         if (want.handler == SIGNAL_IGNORE)
             p->ignored |= 1u << signal;
         else
@@ -3937,15 +4831,24 @@ static int64_t seek_file(struct open_file *f, int64_t offset, uint64_t whence)
 {
     if (f->kind == FILE_NULL || f->kind == FILE_ZERO)
         return 0;                           /* (52c: always at 0, as Unix's) */
-    if (f->kind != FILE_RITTERFS && f->kind != FILE_DEVICE)
+    if (f->kind != FILE_RITTERFS && f->kind != FILE_DEVICE && f->kind != FILE_MEMORY)
         return -ERR_INVAL;                  /* the terminal and the directories have none */
     int64_t end = f->kind == FILE_DEVICE ? (int64_t)(f->device->block_count *
                                                      f->device->block_size)
+                : f->kind == FILE_MEMORY ? (int64_t)mmap_memory_size(f->memory)
                                          : (int64_t)f->inode.size;
     int64_t base = whence == SEEK_SET ? 0 : whence == SEEK_CUR ? (int64_t)f->offset
                  : whence == SEEK_END ? end : -1;
-    if (base < 0 || base + offset < 0 || f->inode.type == RFS_TYPE_DIR)
+    if (base < 0 || base + offset < 0)
         return -ERR_INVAL;
+    if (f->kind == FILE_RITTERFS && f->inode.type == RFS_TYPE_DIR) {
+        /* (43b-1) a folder's place in its listing (telldir's, seekdir's,
+         * rewinddir's): where it is, or one it gave before */
+        if (whence == SEEK_END || (whence == SEEK_CUR && offset) || (base + offset) % 8)
+            return -ERR_INVAL;                      /* (entries lie at multiples of 8) */
+        if (whence == SEEK_SET && offset == 0)
+            f->made_up = 0;                         /* (the root's extra names again too) */
+    }
     f->offset = (uint64_t)(base + offset);
     return (int64_t)f->offset;
 }
@@ -4194,7 +5097,11 @@ static int64_t sys_mkdir(struct process *p, uint64_t path_addr, uint64_t mode)
 static int64_t sys_remove(struct process *p, uint64_t path_addr, bool directory)
 {
     char path[PATH_MAX];
-    int64_t error = change_path(p, path_addr, path, false);
+    int64_t error = user_path_as(p, path_addr, path, false);
+    if (!error && shm_name_of(path))                /* (43b-3) shm_unlink */
+        return directory ? -ERR_NOTDIR : remove_shm(p, shm_name_of(path));
+    if (!error)
+        error = in_snapshots(path) || in_devices(path) ? -ERR_ROFS : 0;
     if (error)
         return error;
     uint64_t id;
@@ -4652,6 +5559,20 @@ static struct netdev *card_named(const char *name)
     return 0;
 }
 
+/* (68l) set_time: the clock set to ns since 1970 UTC (root only): the
+ * running clock and the firmware's (uefi_clock_set), logged. */
+static int64_t sys_set_time(struct process *p, uint64_t ns)
+{
+    if (p->uid != 0)
+        return -ERR_PERM;
+    char when[32];
+    uefi_ns_text(ns, when, sizeof(when));
+    bool firmware = uefi_clock_set(ns);
+    kprintf("clock: set to %s UTC by %s (pid %d); %s\n", when, p->name, p->pid,
+            firmware ? "the firmware's clock too" : "the firmware's clock could not be set");
+    return 0;
+}
+
 /* netset: a card's IPv4 settings (root only): fixed (net up) or from DHCP
  * (NETSET_LEASED: the elf dhclient, which logs them itself). */
 static int64_t sys_netset(struct process *p, uint64_t addr)
@@ -4937,6 +5858,23 @@ static int64_t sys_power_eval(struct process *p, uint64_t path_addr, uint64_t ad
     return text_end(c);
 }
 
+/* (69a) POWER_SETTINGS and POWER_CLOCK: read a settings file again and
+ * apply it; the lines the kernel logs go to the program too. */
+static int64_t sys_power_reread(struct process *p, uint64_t op, uint64_t addr, uint64_t size)
+{
+    if (p->uid != 0)
+        return -ERR_PERM;
+    struct text_copy *c = kzalloc(sizeof(*c));
+    if (!c)
+        return -ERR_NOMEM;
+    c->p = p, c->addr = addr, c->size = size;
+    if (op == POWER_SETTINGS)
+        acpi_events_settings(text_line, c);
+    else
+        cpu_clock_load(text_line, c);
+    return text_end(c);
+}
+
 static int64_t sys_swap(struct process *p, uint64_t op, uint64_t addr)
 {
     if (op == SWAP_STATUS) {
@@ -5028,7 +5966,8 @@ static int64_t sys_wlan(struct process *p, uint64_t op, uint64_t name_addr, uint
 }
 
 /* A free descriptor for a socket: its number, or -ERR_MFILE. */
-static int64_t socket_fd(struct process *p, struct socket *s)
+/* (43b-1: flags OPEN_CLOEXEC, OPEN_NONBLOCK: socket's, accept4's) */
+static int64_t socket_fd_as(struct process *p, struct socket *s, uint64_t flags)
 {
     int fd = fd_claim(p);
     if (fd < 0) {
@@ -5039,9 +5978,11 @@ static int64_t socket_fd(struct process *p, struct socket *s)
     f.kind = FILE_SOCKET;
     f.socket = s;
     f.readable = f.writable = true;
-    fd_install(p, fd, &f);
+    f.nonblock = flags & OPEN_NONBLOCK;
+    fd_install_as(p, fd, &f, flags & OPEN_CLOEXEC);
     return fd;
 }
+
 
 /* Install a shared buffer (SYS_SHARE) as a descriptor; it takes over the
  * reference the caller holds. The descriptor, or -ERR_* (then the reference
@@ -5071,19 +6012,26 @@ static int64_t sys_mmap(struct process *p, uint64_t addr, uint64_t length, uint6
     if (!(flags & MMAP_ANONYMOUS)) {
         uint64_t state = spin_lock(&p->fds);
         struct open_file *f = file(p, fd);
-        int64_t error = !f ? -ERR_BADF : f->kind != FILE_RITTERFS ? -ERR_ACCES : 0;
+        int64_t error = !f ? -ERR_BADF
+                      : f->kind != FILE_RITTERFS && f->kind != FILE_MEMORY ? -ERR_ACCES : 0;
         if (!error) {
             from.fs = f->fs;
             from.object_id = f->object_id;
             from.readable = f->readable;
             from.writable = f->writable;
+            from.memory = f->kind == FILE_MEMORY ? f->memory : 0;
+            if (from.memory)
+                mmap_memory_hold(from.memory);      /* (the descriptor may close meanwhile) */
         }
         spin_unlock(&p->fds, state);
         if (error)
             return error;
     }
-    return mmap_map(&p->mm, p->space, addr, length, (unsigned)access, (unsigned)flags,
-                    (flags & MMAP_ANONYMOUS) ? 0 : &from, offset);
+    int64_t r = mmap_map(&p->mm, p->space, addr, length, (unsigned)access, (unsigned)flags,
+                         (flags & MMAP_ANONYMOUS) ? 0 : &from, offset);
+    if (!(flags & MMAP_ANONYMOUS) && from.memory)
+        mmap_memory_put(from.memory);
+    return r;
 }
 
 static int64_t sys_share(struct process *p, uint64_t op, uint64_t a, uint64_t b)
@@ -5232,18 +6180,23 @@ static bool at_console(struct process *p)
  * job (their shell, or windowd started from it)? Their programs may play
  * sound wherever they run (term's shells have pseudo-terminals); another
  * user's, logged in over SSH, may not (49k: like a desktop's seat). */
-static bool console_user(struct process *p)
+static bool console_uid(int uid)
 {
     int foreground = terminal_foreground();
     bool same = false;
     uint64_t state = spin_lock(&table);
     for (struct process *q = all_processes; q; q = q->next)
         if (q->group == foreground && q->state != PROCESS_ZOMBIE) {
-            same = q->uid == p->uid;
+            same = (int)q->uid == uid;
             break;
         }
     spin_unlock(&table, state);
     return same;
+}
+
+static bool console_user(struct process *p)
+{
+    return console_uid(p->uid);
 }
 
 static int64_t sys_display(struct process *p, uint64_t op, uint64_t a, uint64_t b)
@@ -5291,13 +6244,17 @@ static int64_t sys_display(struct process *p, uint64_t op, uint64_t a, uint64_t 
         return r;
     }
     case DISPLAY_RELEASE:
-        if (display_owner != p->pid)
+        mutex_lock(&display_changes);               /* (69i) not beside a flip */
+        if (display_owner != p->pid) {
+            mutex_unlock(&display_changes);
             return -ERR_PERM;
+        }
         gpu_screen_back();                          /* (66d-1) the console's buffer shown */
         screen_unmap(p);                            /* (66d-2) */
         winput_release();
         console_display_release();
         display_owner = 0;
+        mutex_unlock(&display_changes);
         return 0;
     case DISPLAY_EVENT: {
         if (display_owner != p->pid)
@@ -5341,10 +6298,18 @@ static int64_t sys_display(struct process *p, uint64_t op, uint64_t a, uint64_t 
         return copy_user(p, a, &d, sizeof(d), true) ? 0 : -ERR_FAULT;
     }
     case DISPLAY_FLIP: {                          /* (66d-1) the screen's owner */
-        if (display_owner != p->pid)
+        /* (69i) The owner looked at and the flip made in one hold of the
+         * mutex a release takes: windowd's compositor flipped while its other
+         * thread gave the screen back, and buffer 1 stayed shown over the
+         * console (the VivoBook's frozen picture). */
+        mutex_lock(&display_changes);
+        if (display_owner != p->pid) {
+            mutex_unlock(&display_changes);
             return -ERR_PERM;
+        }
         uint64_t frame = 0;
         int r = gpu_flip((int)a, &frame);
+        mutex_unlock(&display_changes);
         if (r > 0 && b && !copy_user(p, b, &frame, sizeof(frame), true))
             return -ERR_FAULT;
         return r;
@@ -5412,12 +6377,16 @@ static void screen_unmap(struct process *p)
 static void display_process_ended(int pid)
 {
     screen_unmap(current_process());                /* (66d-2; it ends on its own thread) */
+    if (display_owner != pid)                       /* (it cannot become the owner now) */
+        return;
+    mutex_lock(&display_changes);                   /* (69i) as DISPLAY_RELEASE */
     if (display_owner == pid) {
         gpu_screen_back();                          /* (66d-1) */
         winput_release();
         console_display_release();
         display_owner = 0;
     }
+    mutex_unlock(&display_changes);
 }
 
 /* Ctrl-Alt-Delete (from the keyboard interrupt): end the screen's owner. Its
@@ -5482,8 +6451,10 @@ static int64_t sys_pty(struct process *p, uint64_t op, uint64_t a, uint64_t b, u
 }
 
 /* pipe(int fds[2]): fds[0] the read end, fds[1] the write end. */
-static int64_t sys_pipe(struct process *p, uint64_t out)
+static int64_t sys_pipe(struct process *p, uint64_t out, uint64_t flags)
 {
+    if (flags & ~(uint64_t)(OPEN_CLOEXEC | OPEN_NONBLOCK))      /* (43b-1: pipe2's) */
+        return -ERR_INVAL;
     int fds[2];
     fds[0] = fd_claim(p);                           /* two slots, each claimed atomically (49b) */
     if (fds[0] < 0)
@@ -5512,7 +6483,8 @@ static int64_t sys_pipe(struct process *p, uint64_t out)
         f.pipe = pp;
         f.readable = i == 0;                        /* fds[0] reads, fds[1] writes */
         f.writable = i == 1;
-        fd_install(p, fds[i], &f);
+        f.nonblock = flags & OPEN_NONBLOCK;
+        fd_install_as(p, fds[i], &f, flags & OPEN_CLOEXEC);
     }
     return 0;
 }
@@ -5609,6 +6581,8 @@ static int64_t sys_execve(struct process *p, uint64_t path_addr, uint64_t argv_a
         p->handler_flags[i] = 0;
     }
     p->restorer = 0;
+    thread_current()->alt_set = false;              /* (43b-5: as Linux's exec) */
+    thread_current()->sig_pending = 0;
     spin_unlock(&table, state);
 
     /* FD_CLOEXEC descriptors close; shared buffers leave the old space. */
@@ -5624,7 +6598,7 @@ static int64_t sys_execve(struct process *p, uint64_t path_addr, uint64_t argv_a
         }
         spin_unlock(&p->fds, s);
         if (close_it) {
-            file_put(f);
+            descriptor_put(p, f);
         } else if (f && f->kind == FILE_SHARE && f->shbuf_va) {
             for (unsigned i = 0; i < shbuf_pages(f->shbuf); i++)
                 paging_user_unmap(p->space, f->shbuf_va + (uint64_t)i * PAGE_SIZE);
@@ -5667,10 +6641,12 @@ static int64_t sys_execve(struct process *p, uint64_t path_addr, uint64_t argv_a
     size_t n = strlen(name) < sizeof(p->name) - 1 ? strlen(name) : sizeof(p->name) - 1;
     memcpy(p->name, name, n);
     p->name[n] = 0;
+    ksnprintf(p->program, sizeof(p->program), "%s", full);
     p->carry_length = 0;
     p->execed = true;
     struct start_info start;
-    int r2 = load(p, full, &start);
+    p->clock_va = 0;                                /* (68p) a new place, as the window's */
+    int r2 = clock_map(p) ? load(p, full, &start) : ERR_NOMEM;
     if (!r2 && !(p->user_sp = push_arguments(p, argc, argv, envc, envp, &start)))
         r2 = ERR_2BIG;
     kfree(strings), kfree(env_strings), kfree(argv), kfree(envp), kfree(full), kfree(interp),
@@ -5704,6 +6680,8 @@ struct fork_start {
     struct process *p;
     int slot;                                       /* the caller's thread number: the child's */
     uint64_t tp, blocked;
+    uint64_t alt_sp, alt_size;                      /* (43b-5) its alternate stack */
+    bool alt_set;
     uint64_t size;
     uint8_t fpu[ARCH_FPU_STATE_SIZE];
     uint8_t frame[ARCH_FRAME_MAX];
@@ -5731,6 +6709,7 @@ static void fork_thread(void *arg)
     arch_set_thread_pointer(s->tp);
     t->tp = s->tp;
     t->sig_blocked = s->blocked;
+    t->alt_sp = s->alt_sp, t->alt_size = s->alt_size, t->alt_set = s->alt_set;
     s->p->threads[s->slot] = t;
     spin_unlock(&table, state);
     kfree(s);
@@ -5769,6 +6748,7 @@ int64_t process_fork(const void *frame, uint64_t size)
         return -ERR_NOMEM;
     }
     memcpy(c->name, p->name, sizeof(c->name));
+    memcpy(c->program, p->program, sizeof(c->program));
     c->fs = p->fs;
     c->fds.name = "fds";
     c->uid = p->uid;
@@ -5785,6 +6765,7 @@ int64_t process_fork(const void *frame, uint64_t size)
     c->tty = p->tty;
     c->no_terminal = p->no_terminal;
     c->share_next = p->share_next;
+    c->clock_va = p->clock_va;                      /* (68p: the library has its address) */
     c->stack_top = p->stack_top;
     c->bias = p->bias;
     c->image_lo = p->image_lo;
@@ -5798,6 +6779,8 @@ int64_t process_fork(const void *frame, uint64_t size)
     mmap_init(&c->mm);
     c->space = paging_user_create();
     int64_t r = c->space ? mmap_fork(&p->mm, p->space, &c->mm, c->space) : -ERR_NOMEM;
+    if (!r && c->clock_va && !clock_map(c))
+        r = -ERR_NOMEM;
     if (r) {
         kfree(s);
         fork_undo(c);
@@ -5825,6 +6808,7 @@ int64_t process_fork(const void *frame, uint64_t size)
     memcpy(s->fpu, self->fpu, ARCH_FPU_STATE_SIZE);
     s->tp = self->tp;
     s->blocked = self->sig_blocked;
+    s->alt_sp = self->alt_sp, s->alt_size = self->alt_size, s->alt_set = self->alt_set;
     s->size = size;
     memcpy(s->frame, frame, size);
     s->p = c;
@@ -6089,6 +7073,495 @@ static int64_t sys_chown(struct process *p, uint64_t path_addr, uint64_t uid, ui
     return finish_change(fs, vfs_chown(fs, id, (uint32_t)uid, (uint32_t)gid));
 }
 
+/* --- (43b-2) passing open files over local sockets --- */
+
+#define MSG_CHUNK (64 * 1024)                       /* a call's bytes at most */
+
+/* A passed file nobody will receive: its in-flight reference goes. */
+static void drop_passed(void *item)
+{
+    file_put(item);
+}
+
+static int64_t sys_sendmsg(struct process *p, uint64_t fd, uint64_t msg_addr)
+{
+    struct sys_msghdr m;
+    if (!copy_user(p, msg_addr, &m, sizeof(m), false))
+        return -ERR_FAULT;
+    if (m.fd_count > LOCAL_ITEMS_MAX || (m.fd_count && !m.length))
+        return -ERR_INVAL;
+    int fds[LOCAL_ITEMS_MAX];
+    if (m.fd_count && !copy_user(p, m.fds, fds, sizeof(int) * m.fd_count, false))
+        return -ERR_FAULT;
+    struct socket *s = socket_grab(p, fd);
+    if (!s)
+        return -ERR_BADF;
+    local_set_dropper(drop_passed);
+    /* Each file passed takes a reference of its own, as a descriptor
+     * does: the sender may close its descriptor before it is received. */
+    void *items[LOCAL_ITEMS_MAX];
+    int taken = 0;
+    int64_t r = 0;
+    uint64_t state = spin_lock(&p->fds);
+    for (uint32_t i = 0; i < m.fd_count; i++) {
+        struct open_file *f = fds[i] >= 0 ? file(p, (uint64_t)fds[i]) : 0;
+        if (!f) {
+            r = -ERR_BADF;
+            break;
+        }
+        if (f->kind == FILE_SHARE || f == &console_terminal) {
+            r = -ERR_INVAL;                         /* (mapped by this program; the console) */
+            break;
+        }
+        __atomic_add_fetch(&f->refs, 1, __ATOMIC_SEQ_CST);
+        items[taken++] = f;
+    }
+    spin_unlock(&p->fds, state);
+    uint64_t length = m.length < MSG_CHUNK ? m.length : MSG_CHUNK;
+    if (!r && socket_packets(s) && m.length > LOCAL_PACKET_MAX)
+        r = -ERR_MSGSIZE;                           /* (45b: never a message in pieces) */
+    uint8_t *data = r ? 0 : kmalloc(length ? length : 1);
+    if (!r && !data)
+        r = -ERR_NOMEM;
+    if (!r && length && !copy_user(p, m.data, data, length, false))
+        r = -ERR_FAULT;
+    if (!r)
+        r = socket_send_with(s, data, length, items, taken);
+    if (r <= 0)
+        for (int i = 0; i < taken; i++)             /* (not sent: still the sender's) */
+            file_put(items[i]);
+    kfree(data);
+    socket_close(s);
+    return r;
+}
+
+/* A received file as a new descriptor of p (its in-flight reference
+ * becomes the descriptor's): the number, or -ERR_MFILE. */
+static int fd_adopt(struct process *p, struct open_file *f, bool cloexec)
+{
+    uint64_t s = spin_lock(&p->fds);
+    int fd = 0;
+    while (fd < FD_MAX && p->files[fd])
+        fd++;
+    if (fd < FD_MAX) {
+        if (cloexec)
+            p->cloexec[fd / 8] |= (uint8_t)(1u << (fd % 8));
+        else
+            p->cloexec[fd / 8] &= (uint8_t)~(1u << (fd % 8));
+        __atomic_store_n(&p->files[fd], f, __ATOMIC_RELEASE);
+    }
+    spin_unlock(&p->fds, s);
+    return fd < FD_MAX ? fd : -ERR_MFILE;
+}
+
+static int64_t sys_recvmsg(struct process *p, uint64_t fd, uint64_t msg_addr)
+{
+    struct sys_msghdr m;
+    if (!copy_user(p, msg_addr, &m, sizeof(m), false))
+        return -ERR_FAULT;
+    struct socket *s = socket_grab(p, fd);
+    if (!s)
+        return -ERR_BADF;
+    local_set_dropper(drop_passed);
+    uint64_t length = m.length < MSG_CHUNK ? m.length : MSG_CHUNK;
+    uint8_t *data = kmalloc(length ? length : 1);
+    if (!data) {
+        socket_close(s);
+        return -ERR_NOMEM;
+    }
+    void *items[LOCAL_ITEMS_MAX];
+    int got = 0;
+    bool cut = false, trunc = false;
+    int max = m.fd_count < LOCAL_ITEMS_MAX ? (int)m.fd_count : LOCAL_ITEMS_MAX;
+    int64_t r = socket_recv_with(s, data, length, items, max, &got, &cut, &trunc);
+    socket_close(s);
+    int numbers[LOCAL_ITEMS_MAX], installed = 0;
+    for (int i = 0; i < got; i++) {
+        int n = fd_adopt(p, items[i], m.flags & MSGHDR_CLOEXEC);
+        if (n < 0) {
+            file_put(items[i]);                     /* (no room: as cut off) */
+            cut = true;
+        } else {
+            numbers[installed++] = n;
+        }
+    }
+    if (r > 0 && !copy_user(p, m.data, data, (uint64_t)r, true))
+        r = -ERR_FAULT;
+    kfree(data);
+    m.fd_count = (uint32_t)installed;
+    m.flags = (cut ? MSGHDR_CUT : 0) | (trunc ? MSGHDR_TRUNC : 0);
+    if ((installed && !copy_user(p, m.fds, numbers, sizeof(int) * (uint64_t)installed, true)) ||
+        !copy_user(p, msg_addr, &m, sizeof(m), true))
+        r = -ERR_FAULT;                             /* (the descriptors stay: closed at exit) */
+    return r;
+}
+
+static int64_t sys_socketpair(struct process *p, uint64_t kind, uint64_t out)
+{
+    uint64_t flags = kind & (OPEN_CLOEXEC | OPEN_NONBLOCK);
+    uint64_t type = kind & ~flags;
+    if (type != SOCKET_LOCAL && type != SOCKET_LOCAL_SEQPACKET)
+        return -ERR_INVAL;                          /* (local sockets only; 45b: packets too) */
+    struct socket *a, *b;
+    int e = socket_pair((int)p->uid, p->program, (int)type, &a, &b);
+    if (e)
+        return -e;
+    int64_t x = socket_fd_as(p, a, flags);
+    if (x < 0) {
+        socket_close(b);
+        return x;
+    }
+    int64_t y = socket_fd_as(p, b, flags);
+    if (y < 0) {
+        sys_close(p, (uint64_t)x);
+        return y;
+    }
+    int fds[2] = { (int)x, (int)y };
+    if (!copy_user(p, out, fds, sizeof(fds), true)) {
+        sys_close(p, (uint64_t)x);
+        sys_close(p, (uint64_t)y);
+        return -ERR_FAULT;
+    }
+    return 0;
+}
+
+/* --- (43b-3) memory files and madvise --- */
+
+static int64_t sys_memfd(struct process *p, uint64_t name_addr, uint64_t flags)
+{
+    char name[250];
+    int64_t error = copy_string_from_user(p, name_addr, name, sizeof(name));
+    if (error)
+        return error == -ERR_NAMETOOLONG ? -ERR_INVAL : error;
+    if (flags & ~(uint64_t)OPEN_CLOEXEC)
+        return -ERR_INVAL;
+    int fd = fd_claim(p);
+    if (fd < 0)
+        return fd;
+    struct open_file f = {0};
+    f.kind = FILE_MEMORY;
+    f.memory = mmap_memory_new();
+    if (!f.memory) {
+        fd_release(p, fd);
+        return -ERR_NOMEM;
+    }
+    f.memory_uid = p->uid;
+    f.memory_gid = p->gid;
+    f.memory_mode = 0777;                           /* (Linux's: what the descriptor allows) */
+    f.readable = f.writable = true;
+    fd_install_as(p, fd, &f, flags & OPEN_CLOEXEC);
+    return fd;
+}
+
+/* --- (43b-6) getsid, threads' names --- */
+
+static int64_t sys_getpgrp(struct process *p, int64_t pid, bool session)
+{
+    if (!pid)
+        return session ? p->session : p->group;
+    int64_t r = -ERR_SRCH;
+    uint64_t state = spin_lock(&table);
+    for (struct process *q = all_processes; q && r < 0; q = q->next)
+        if (q->pid == pid && q->state != PROCESS_ZOMBIE)
+            r = session ? q->session : q->group;
+    spin_unlock(&table, state);
+    return r;
+}
+
+static int64_t sys_thread_name(struct process *p, uint64_t number, uint64_t set, uint64_t buffer,
+                               uint64_t size)
+{
+    char name[16];
+    if (number >= PROCESS_THREADS)
+        return -ERR_SRCH;
+    if (set) {
+        int64_t e = copy_string_from_user(p, buffer, name, sizeof(name));
+        if (e)
+            return e == -ERR_NAMETOOLONG ? -ERR_INVAL : e;
+    } else if (size < sizeof(name)) {
+        return -ERR_INVAL;
+    }
+    uint64_t state = spin_lock(&table);
+    struct thread *t = p->slots[number] == SLOT_RUNNING ? p->threads[number] : 0;
+    if (t && set)
+        thread_set_name(t, name);
+    else if (t)
+        thread_get_name(t, name);
+    spin_unlock(&table, state);
+    if (!t)
+        return -ERR_SRCH;
+    return set || copy_user(p, buffer, name, sizeof(name), true) ? 0 : -ERR_FAULT;
+}
+
+/* --- (43b-4) eventfd, timerfd, flock --- */
+
+static int64_t install_new(struct process *p, struct open_file *f, uint64_t flags)
+{
+    int fd = fd_claim(p);
+    if (fd < 0)
+        return fd;
+    f->readable = f->writable = true;
+    f->nonblock = flags & OPEN_NONBLOCK;
+    fd_install_as(p, fd, f, flags & OPEN_CLOEXEC);
+    return fd;
+}
+
+static int64_t sys_eventfd(struct process *p, uint64_t initial, uint64_t flags, uint64_t semaphore)
+{
+    if ((flags & ~(uint64_t)(OPEN_CLOEXEC | OPEN_NONBLOCK)) || initial > 0xFFFFFFFFULL)
+        return -ERR_INVAL;                          /* (Linux's: an unsigned int to start) */
+    struct open_file f = {0};
+    f.kind = FILE_EVENT;
+    if (!(f.event = eventfd_new(initial, semaphore != 0)))
+        return -ERR_NOMEM;
+    int64_t fd = install_new(p, &f, flags);
+    if (fd < 0)
+        eventfd_free(f.event);
+    return fd;
+}
+
+static int64_t sys_timerfd(struct process *p, const uint64_t args[6])
+{
+    if (args[0] == TIMERFD_CREATE) {
+        uint64_t clock = args[1], flags = args[2];
+        if ((clock != 0 && clock != 1 && clock != 7) || (flags & ~(uint64_t)(OPEN_CLOEXEC | OPEN_NONBLOCK)))
+            return -ERR_INVAL;
+        struct open_file f = {0};
+        f.kind = FILE_TIMER;
+        if (!(f.timer = timerfd_new(clock != 0)))     /* (68p: monotonic and boot time apart) */
+            return -ERR_NOMEM;
+        int64_t fd = install_new(p, &f, flags);
+        if (fd < 0)
+            timerfd_free(f.timer);
+        return fd;
+    }
+    if (args[0] != TIMERFD_SET && args[0] != TIMERFD_GET)
+        return -ERR_INVAL;
+    struct open_file *f = file_get(p, args[1]);
+    if (!f)
+        return -ERR_BADF;
+    int64_t r = 0;
+    uint64_t out[2];
+    if (f->kind != FILE_TIMER)
+        r = -ERR_INVAL;
+    else if (args[0] == TIMERFD_GET)
+        timerfd_get(f->timer, &out[0], &out[1]);
+    else
+        timerfd_set(f->timer, args[2], args[3], args[4] != 0, &out[0], &out[1]);
+    file_release(f);
+    uint64_t at = args[0] == TIMERFD_GET ? args[2] : args[5];
+    if (!r && at && !copy_user(p, at, out, sizeof(out), true))
+        r = -ERR_FAULT;
+    return r;
+}
+
+static int64_t sys_flock(struct process *p, uint64_t fd, uint64_t op)
+{
+    struct open_file *f = file_get(p, fd);
+    if (!f)
+        return -ERR_BADF;
+    const void *object;
+    uint64_t id;
+    lock_file(f, &object, &id);
+    int64_t r = locks_flock(object, id, f, (unsigned)op);
+    file_release(f);
+    return r;
+}
+
+/* --- (43b-1) files for ported programs --- */
+
+/* A file's size set (truncate: path; ftruncate: an open descriptor, fd >=
+ * 0, open for writing). */
+static int64_t sys_truncate(struct process *p, uint64_t path_addr, int64_t fd, uint64_t size)
+{
+    if ((int64_t)size < 0)
+        return -ERR_INVAL;
+    struct vfs *fs;
+    uint64_t id;
+    struct rfs_inode inode;
+    if (fd < 0) {
+        char path[PATH_MAX];
+        bool snapshots;
+        int64_t error = change_path(p, path_addr, path, true);
+        if (error || (error = find(p, path, &fs, &id, &inode, &snapshots)))
+            return error;
+        if (inode.type == RFS_TYPE_DIR)
+            return -ERR_ISDIR;
+        if (!may(p, &inode, MAY_WRITE))
+            return -ERR_ACCES;
+        return finish_change(fs, vfs_set_size(fs, id, size));
+    }
+    struct open_file *f = file_get(p, (uint64_t)fd);
+    if (!f)
+        return -ERR_BADF;
+    int64_t r;
+    if (f->kind == FILE_MEMORY)                     /* (43b-3) */
+        r = f->writable ? mmap_memory_resize(f->memory, size) : -ERR_INVAL;
+    else if (f->kind != FILE_RITTERFS || !f->writable)
+        r = f->kind == FILE_RITTERFS ? -ERR_BADF : -ERR_INVAL;
+    else if (vfs_read_only(f->fs))
+        r = -ERR_ROFS;
+    else {
+        int e = vfs_set_size(f->fs, f->object_id, size);
+        refresh(f);
+        if (e == RFS_OK)
+            f->written = true;                      /* (committed at the close or fsync) */
+        else if (e == RFS_ERR_IO || e == RFS_ERR_NO_SPACE)
+            vfs_abort(f->fs);
+        r = e == RFS_OK ? 0 : fs_error(e);
+    }
+    file_release(f);
+    return r;
+}
+
+/* What was written through fd committed now. */
+static int64_t sys_fsync(struct process *p, uint64_t fd)
+{
+    struct open_file *f = file_get(p, fd);
+    if (!f)
+        return -ERR_BADF;
+    int64_t r = 0;
+    if (f->kind == FILE_RITTERFS && f->written) {
+        int e = vfs_commit(f->fs);
+        if (e == RFS_OK)
+            f->written = false, f->unsaved = 0;
+        r = e == RFS_OK ? 0 : fs_error(e);
+    } else if (f->kind == FILE_DEVICE && f->written) {
+        struct block_device *d = f->device;
+        r = !d->flush || d->flush(d) ? 0 : -ERR_IO;
+    } else if (f->kind == FILE_SOCKET || f->kind == FILE_PIPE) {
+        r = -ERR_INVAL;
+    }
+    file_release(f);
+    return r;
+}
+
+/* fchmod (chmod true: mode) and fchown (uid, gid) of an open file. */
+static int64_t sys_fchange(struct process *p, uint64_t fd, bool chmod, uint64_t a, uint64_t b)
+{
+    struct open_file *f = file_get(p, fd);
+    if (!f)
+        return -ERR_BADF;
+    if (f->kind == FILE_MEMORY) {
+        /* (43b-3) Its owner and mode: the descriptor's, and its name's in
+         * /dev/shm if it has one. */
+        int64_t r = 0;
+        if (chmod && (a & ~(uint64_t)0777))
+            r = -ERR_INVAL;
+        else if (chmod ? p->uid != 0 && p->uid != f->memory_uid : p->uid != 0)
+            r = -ERR_PERM;
+        else if (!chmod && (a > 0xFFFFFFFF || b > 0xFFFFFFFF))
+            r = -ERR_INVAL;
+        if (!r) {
+            mutex_lock(&shm_lock);
+            if (chmod)
+                f->memory_mode = (uint32_t)a;
+            else
+                f->memory_uid = (uint32_t)a, f->memory_gid = (uint32_t)b;
+            for (struct shm_name *s = shm_names; s; s = s->next)
+                if (s->memory == f->memory)
+                    s->uid = f->memory_uid, s->gid = f->memory_gid, s->mode = f->memory_mode;
+            mutex_unlock(&shm_lock);
+        }
+        file_release(f);
+        return r;
+    }
+    struct rfs_inode inode;
+    struct vfs *fs = f->fs;
+    uint64_t id = f->object_id;
+    bool file = f->kind == FILE_RITTERFS && vfs_get_inode(fs, id, &inode);
+    file_release(f);
+    if (!file)
+        return -ERR_INVAL;                          /* (a terminal, pipe, socket: none kept) */
+    if (chmod) {
+        if (a & ~(uint64_t)RFS_MODE_BITS)
+            return -ERR_INVAL;
+        if (p->uid != 0 && p->uid != inode.uid)
+            return -ERR_PERM;
+        return finish_change(fs, vfs_chmod(fs, id, (unsigned)a));
+    }
+    if (a > 0xFFFFFFFF || b > 0xFFFFFFFF)
+        return -ERR_INVAL;
+    if (p->uid != 0)
+        return -ERR_PERM;
+    unsigned mode = rfs_mode(inode.mode);           /* (50b: a program given away loses setuid) */
+    if ((mode & RFS_MODE_SETUID) && (inode.mode & RFS_MODE_SET)) {
+        int r = vfs_chmod(fs, id, mode & ~(unsigned)RFS_MODE_SETUID);
+        if (r)
+            return finish_change(fs, r);
+    }
+    return finish_change(fs, vfs_chown(fs, id, (uint32_t)a, (uint32_t)b));
+}
+
+static int64_t sys_fdpath(struct process *p, uint64_t fd, uint64_t buffer, uint64_t size)
+{
+    struct open_file *f = file_get(p, fd);
+    if (!f)
+        return -ERR_BADF;
+    int64_t r;
+    if (!f->path) {
+        r = -ERR_NOTDIR;                            /* (no path: a pipe, socket, device...) */
+    } else {
+        uint64_t n = strlen(f->path);
+        r = n + 1 > size ? -ERR_NAMETOOLONG
+            : copy_user(p, buffer, f->path, n + 1, true) ? (int64_t)n : -ERR_FAULT;
+    }
+    file_release(f);
+    return r;
+}
+
+/* (68v) A sound device's delay or reset (OSS's SNDCTL_DSP_GETODELAY and
+ * SNDCTL_DSP_RESET, through the library's ioctl). */
+static int64_t sys_sound(struct process *p, uint64_t fd, uint64_t op)
+{
+    if (op == SOUND_MAY_PLAY) {
+        /* (68z, the user's: sound only for local and root users) A sound
+         * server asks for the program at a connection's other end, by the
+         * rule /dev/pcmN's open keeps. */
+        struct socket *s = socket_grab(p, fd);
+        if (!s)
+            return -ERR_BADF;
+        int uid = socket_peer_uid(s);
+        socket_close(s);
+        if (uid < 0)
+            return -ERR_NOTCONN;
+        return uid == 0 || console_uid(uid);
+    }
+    struct open_file *f = file_get(p, fd);
+    if (!f)
+        return -ERR_BADF;
+    int64_t r = -ERR_NOTTY;
+    if (f->kind == FILE_PCM && op == SOUND_DELAY) {
+        long d = sound_delay(f->pcm);
+        r = d < 0 ? -ERR_NOTTY : d;
+    } else if (f->kind == FILE_PCM && op == SOUND_RESET) {
+        r = sound_reset(f->pcm) ? 0 : -ERR_NOTTY;
+    } else if (f->kind == FILE_PCM) {
+        r = -ERR_INVAL;
+    }
+    file_release(f);
+    return r;
+}
+
+static int64_t sys_statvfs(struct process *p, uint64_t path_addr, uint64_t out)
+{
+    char path[PATH_MAX];
+    int64_t error = user_path(p, path_addr, path);
+    struct vfs *fs;
+    uint64_t id;
+    struct rfs_inode inode;
+    bool snapshots;
+    if (error || (error = find(p, path, &fs, &id, &inode, &snapshots)))
+        return error;
+    struct sys_statvfs s = { 0 };
+    if (!vfs_space(fs, &s.block_size, &s.blocks, &s.free_blocks))
+        s.block_size = 512;                         /* (FAT, exFAT: not told yet) */
+    s.name_max = 255;
+    s.read_only = snapshots || vfs_read_only(fs);
+    s.device = mounts_fs_number(fs);
+    return copy_user(p, out, &s, sizeof(s), true) ? 0 : -ERR_FAULT;
+}
+
 static int64_t sys_sysinfo(struct process *p, uint64_t out)
 {
     /* Count the page cache's unused files (22g) and the heap's cached pages
@@ -6212,10 +7685,16 @@ static int64_t sys_futex(struct process *p, uint64_t addr, uint64_t op, uint64_t
 {
     if (addr & 3)
         return -ERR_INVAL;                      /* (a word: 4-byte aligned) */
+    /* (43b-3) A word in shared memory is the same for every process that
+     * maps it: keyed by the object and the place in it, as Linux's shared
+     * futexes (named semaphores, process-shared mutexes). */
+    const void *key = p;
+    uint64_t where = addr;
+    mmap_futex_key(&p->mm, addr, &key, &where);
     if (op == FUTEX_WAIT)
-        return futex_wait(p, addr, (uint32_t)value, timeout_ns);
+        return futex_wait(key, where, addr, (uint32_t)value, timeout_ns);
     if (op == FUTEX_WAKE)
-        return futex_wake(p, addr, (int64_t)value);
+        return futex_wake(key, where, (int64_t)value);
     return -ERR_INVAL;
 }
 
@@ -6229,16 +7708,36 @@ static int64_t sys_thread_self(struct process *p)
 
 static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t args[6]);
 
-int64_t process_syscall(uint64_t number, const uint64_t args[6])
+static int64_t syscall_run(uint64_t number, const uint64_t args[6])
 {
     struct process *p = current_process();
     bool may_wait = number == SYS_READ || number == SYS_WRITE || number == SYS_ACCEPT ||
+                    number == SYS_PREAD || number == SYS_PWRITE ||
+                    number == SYS_SENDMSG || number == SYS_RECVMSG ||
                     number == SYS_CONNECT || number == SYS_SENDTO || number == SYS_RECVFROM ||
                     number == SYS_ACCEPT6 || number == SYS_CONNECT6 || number == SYS_SENDTO6 ||
                     number == SYS_RECVFROM6;      /* (64c's: a non-blocking socket's too) */
     if (!may_wait || !p)
         return syscall_on(p, number, args);
     struct thread *t = thread_current();            /* (53b) */
+    if (number == SYS_PREAD || number == SYS_PWRITE) {
+        /* (43b-1) At an offset: files only, the position unmoved. */
+        struct fd_use u;
+        if (!fd_use_get(p, args[0], &u))
+            return -ERR_BADF;
+        int64_t r;
+        uint64_t at = args[3];
+        if ((int64_t)at < 0)
+            r = -ERR_INVAL;
+        else if (u.f->kind != FILE_RITTERFS && u.f->kind != FILE_MEMORY)
+            r = u.f->kind == FILE_SNAPSHOTS || u.f->kind == FILE_VOLUMES ? -ERR_ISDIR : -ERR_SPIPE;
+        else if (number == SYS_PREAD)
+            r = u.f->readable ? read_at(p, u.f, args[1], args[2], &at) : -ERR_BADF;
+        else
+            r = write_at(p, u.f, args[1], args[2], &at, false);
+        fd_use_put(&u);
+        return r;
+    }
     if (number == SYS_READ || number == SYS_WRITE) {
         /* (65e-40) The descriptor looked at once, O_NONBLOCK with it. */
         struct fd_use u;
@@ -6256,6 +7755,22 @@ int64_t process_syscall(uint64_t number, const uint64_t args[6])
                      number == SYS_RECVFROM6) && (args[5] & SOCKET_DONTWAIT));
     int64_t r = syscall_on(p, number, args);
     t->dont_wait = false;
+    return r;
+}
+
+int64_t process_syscall(uint64_t number, const uint64_t args[6])
+{
+    int64_t r = syscall_run(number, args);
+    /* (44a) A wait its process's stop interrupted: made again after
+     * SIGCONT unless a handler runs first (process_before_return), as
+     * Linux restarts a call no handler interrupted. */
+    struct process *p = current_process();
+    if (r == -ERR_INTR && p && __atomic_load_n(&p->stopped, __ATOMIC_ACQUIRE)) {
+        struct thread *t = thread_current();
+        t->restart = true;
+        t->restart_number = number;
+        t->restart_arg0 = args[0];
+    }
     return r;
 }
 
@@ -6278,9 +7793,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
     case SYS_WAIT:
         return sys_wait(p, (int64_t)args[0], args[1], args[2]);
     case SYS_KILL:
-        if ((int64_t)args[1] <= 0 || args[1] > 64)
-            return -ERR_INVAL;
-        return process_signal((int)args[0], (int)args[1], p->uid);
+        return sys_kill(p, (int64_t)args[0], (int64_t)args[1]);
     case SYS_GETPID:
         return p->pid;
     case SYS_SLEEP:
@@ -6302,7 +7815,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
     case SYS_GETCWD:
         return sys_getcwd(p, args[0], args[1]);
     case SYS_GETPGRP:
-        return p->group;
+        return sys_getpgrp(p, (int64_t)args[0], args[1] == 1);
     case SYS_GETPPID:
         return sys_getppid(p);
     case SYS_SETPGID:
@@ -6336,6 +7849,40 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
     }
     case SYS_FCNTL:
         return sys_fcntl(p, args[0], args[1], args[2]);
+    case SYS_SENDMSG:                               /* (43b-2) */
+        return sys_sendmsg(p, args[0], args[1]);
+    case SYS_RECVMSG:
+        return sys_recvmsg(p, args[0], args[1]);
+    case SYS_SOCKETPAIR:
+        return sys_socketpair(p, args[0], args[1]);
+    case SYS_EVENTFD:                               /* (43b-4) */
+        return sys_eventfd(p, args[0], args[1], args[2]);
+    case SYS_TIMERFD:
+        return sys_timerfd(p, args);
+    case SYS_FLOCK:
+        return sys_flock(p, args[0], args[1]);
+    case SYS_THREAD_NAME:                           /* (43b-6) */
+        return sys_thread_name(p, args[0], args[1], args[2], args[3]);
+    case SYS_SIGALTSTACK:                           /* (43b-5) */
+        return sys_sigaltstack(p, args[0], args[1]);
+    case SYS_MEMFD:                                 /* (43b-3) */
+        return sys_memfd(p, args[0], args[1]);
+    case SYS_MADVISE:
+        return mmap_advise(&p->mm, p->space, args[0], args[1], (unsigned)args[2]);
+    case SYS_TRUNCATE:                              /* (43b-1) */
+        return sys_truncate(p, args[0], -1, args[1]);
+    case SYS_FTRUNCATE:
+        return sys_truncate(p, 0, (int64_t)args[0], args[1]);
+    case SYS_FSYNC:
+        return sys_fsync(p, args[0]);
+    case SYS_FCHMOD:
+        return sys_fchange(p, args[0], true, args[1], 0);
+    case SYS_FCHOWN:
+        return sys_fchange(p, args[0], false, args[1], args[2]);
+    case SYS_FDPATH:
+        return sys_fdpath(p, args[0], args[1], args[2]);
+    case SYS_STATVFS:
+        return sys_statvfs(p, args[0], args[1]);
     case SYS_SHUTDOWN:
         return sys_shutdown(p, args[0], args[1]);
     case SYS_SOCKNAME:
@@ -6386,8 +7933,11 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
         return ok ? (int64_t)args[1] : -ERR_FAULT;
     }
     case SYS_ECHO:
-        if (p->group != foreground_of(p))
-            return -ERR_PERM;
+        if (p->group != foreground_of(p)) {
+            int64_t r = controls(p, p->tty) ? background_check(p, p->tty, SIGTTOU) : -ERR_PERM;
+            if (r)
+                return r;                           /* (44b: a SIGTTOU it ignores: it goes on) */
+        }
         if (p->tty)
             pty_set_echo(p->tty, args[0] != 0, p->pid);
         else
@@ -6396,7 +7946,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
     case SYS_PTY:
         return sys_pty(p, args[0], args[1], args[2], args[3]);
     case SYS_PIPE:
-        return sys_pipe(p, args[0]);
+        return sys_pipe(p, args[0], args[1]);
     case SYS_SHARE:
         return sys_share(p, args[0], args[1], args[2]);
     case SYS_MMAP:
@@ -6419,6 +7969,10 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
         return sys_display(p, args[0], args[1], args[2]);
     case SYS_TIME:
         return (int64_t)uefi_clock_ns();
+    case SYS_SET_TIME:
+        return sys_set_time(p, args[0]);
+    case SYS_SOUND:
+        return sys_sound(p, args[0], args[1]);
     case SYS_NETSET:
         return sys_netset(p, args[0]);
     case SYS_NETSET6:
@@ -6477,8 +8031,9 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
         return result;
     }
     case SYS_SOCKET: {
-        struct socket *s = socket_new((int)args[0]);
-        return s ? socket_fd(p, s) : -ERR_INVAL;
+        uint64_t flags = args[0] & (OPEN_CLOEXEC | OPEN_NONBLOCK);     /* (43b-1) */
+        struct socket *s = socket_new((int)(args[0] & ~(uint64_t)(OPEN_CLOEXEC | OPEN_NONBLOCK)));
+        return s ? socket_fd_as(p, s, flags) : -ERR_INVAL;
     }
     case SYS_BIND: {
         struct socket *s = socket_grab(p, args[0]);
@@ -6488,7 +8043,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
         if (socket_type(s) == SOCKET_LOCAL) {         /* bind(fd, name, length) */
             char name[LOCAL_PATH_MAX];
             int r = copy_local_name(p, args[1], args[2], name);
-            result = r ? -r : (r = socket_bind_local(s, name, p->uid)) ? -r : 0;
+            result = r ? -r : (r = socket_bind_local(s, name, p->uid, p->program)) ? -r : 0;
         } else if (args[1] && args[1] < 1024 && p->uid != 0) {
             result = -ERR_ACCES;                      /* ports below 1024: root's (49a) */
         } else {
@@ -6507,7 +8062,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
             char name[LOCAL_PATH_MAX];
             r = copy_local_name(p, args[1], args[2], name);
             if (!r)
-                r = socket_connect_local(s, name, p->uid);
+                r = socket_connect_local(s, name, p->uid, p->program);
         } else {
             struct inet_addr to = inet_v4((uint32_t)args[1]);
             r = socket_connect(s, &to, (uint16_t)args[2]);
@@ -6541,6 +8096,22 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
         socket_close(s);
         return r ? -r : 0;
     }
+    case SYS_PEER_PROGRAM: {                          /* (70c) the program at its other end */
+        struct socket *s = socket_grab(p, args[0]);
+        if (!s)
+            return -ERR_BADF;
+        const char *program = socket_peer_program(s);
+        int64_t r;
+        if (!program) {
+            r = -ERR_NOTCONN;
+        } else {
+            uint64_t n = strlen(program);
+            r = n + 1 > args[2] ? -ERR_NAMETOOLONG
+                : copy_user(p, args[1], (void *)program, n + 1, true) ? (int64_t)n : -ERR_FAULT;
+        }
+        socket_close(s);
+        return r;
+    }
     case SYS_PEER_UID: {                              /* the user at a local socket's other end */
         struct socket *s = socket_grab(p, args[0]);
         if (!s)
@@ -6567,7 +8138,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
                 return -ERR_FAULT;
             }
         }
-        return socket_fd(p, c);
+        return socket_fd_as(p, c, args[2] & (OPEN_CLOEXEC | OPEN_NONBLOCK));   /* (43b-1: accept4) */
     }
     case SYS_CONNECT6: {                              /* (64c) */
         struct inet_addr to;
@@ -6622,7 +8193,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
                 return -ERR_FAULT;
             }
         }
-        return socket_fd(p, c);
+        return socket_fd_as(p, c, args[2] & (OPEN_CLOEXEC | OPEN_NONBLOCK));   /* (43b-1: accept4) */
     }
     case SYS_SOCKNAME6: {
         struct socket *s = socket_grab(p, args[0]);
@@ -6702,7 +8273,7 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
     case SYS_GETEUID:
         return p->uid;                              /* the one whose rights apply */
     case SYS_CPUTIME:
-        return (int64_t)process_cpu_ns(p);
+        return (int64_t)process_cpu_ns(p, args[0] == 1);   /* (43b-6: 1, the thread's own) */
     case SYS_SIGACTION:
         return sys_sigaction(p, args[0], args[1], args[2], args[3]);
     case SYS_GETGID:
@@ -6722,6 +8293,8 @@ static int64_t syscall_on(struct process *p, uint64_t number, const uint64_t arg
             return sys_power_names(p, args[1], args[2]);
         if (args[0] == POWER_EVAL)
             return sys_power_eval(p, args[1], args[2], args[3]);
+        if (args[0] == POWER_SETTINGS || args[0] == POWER_CLOCK)
+            return sys_power_reread(p, args[0], args[1], args[2]);
         if (p->uid != 0)
             return -ERR_PERM;
         if (args[0] == POWER_SLEEP) {               /* (37g-4; 37g-7: 0 until woken) */

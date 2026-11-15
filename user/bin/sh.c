@@ -62,6 +62,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <threads.h>
 #include <unistd.h>
 #include "ritteros.h"
@@ -219,7 +220,7 @@ static struct program *prog;            /* the one running */
 
 /* The words of the command starting now, after expansion. */
 static char words_text[ARGS_BYTES];
-static char *words_end;
+static char *words_end = words_text;   /* (44c-2: a compound's redirection may be the first expansion) */
 
 static bool operator_char(char c)
 {
@@ -1567,36 +1568,226 @@ static void report(const char *name, int status)
         printf("%s: killed\n", name);
     } else if (WTERMSIG(status) != SIGSEGV && WTERMSIG(status) != SIGILL &&
                WTERMSIG(status) != SIGFPE && WTERMSIG(status) != SIGBUS) {
-        printf("%s: stopped by signal %d\n", name, WTERMSIG(status));
+        printf("%s: ended by signal %d\n", name, WTERMSIG(status));   /* (44c: not "stopped") */
     }
 }
 
-/* Background pipelines: only their last command is reported when it ends
- * (the others are waited for quietly). */
-#define QUIET_MAX 64
-static pid_t quiet[QUIET_MAX];
+/* --- (44c) jobs ------------------------------------------------------------
+ * A job is a pipeline in the background (`&`) or stopped (Ctrl-Z, a stop
+ * signal), numbered as POSIX's shells number them (%1, %2...: one past the
+ * highest in use). An interactive shell has job control: it ignores the
+ * stop signals itself, waits for a foreground job with WUNTRACED, and
+ * takes the terminal back (its own modes too) when the job stops; `jobs`,
+ * `fg` and `bg` act on the list. A script or sh -c keeps its background
+ * jobs here too, only to wait for them, reporting nothing (POSIX's). Only
+ * a job's last command is reported when it ends. */
+#define JOBS 32
+#define JOB_PIDS 16
+struct job {
+    int number;                         /* %N (0: a free entry) */
+    pid_t group;
+    pid_t pids[JOB_PIDS];               /* its processes not yet ended (0: ended) */
+    pid_t last_pid;                     /* its last command's (reported) */
+    int last_status;
+    bool stopped;
+    bool has_modes;                     /* the terminal's modes it had when it stopped */
+    struct termios modes;
+    unsigned seq;                       /* when it last stopped or went to the background */
+    char text[128];                     /* the command as typed */
+};
+static struct job jobs[JOBS];
+static unsigned job_seq;
+static bool job_control;                /* an interactive shell at a terminal */
+static struct termios shell_modes;      /* the terminal as the shell had it at its start */
+static bool have_shell_modes;
 
-static bool take_quiet(pid_t pid)
+/* A new job of the given processes (count of them, 0 or less: none), or 0
+ * when the list is full (they are waited for unlisted). */
+static struct job *job_new(pid_t group, const pid_t *pids, int count, const char *text, size_t length)
 {
-    for (int i = 0; i < QUIET_MAX; i++)
-        if (quiet[i] == pid) {
-            quiet[i] = 0;
+    int highest = 0;
+    struct job *free_one = 0;
+    for (int i = 0; i < JOBS; i++) {
+        if (jobs[i].number > highest)
+            highest = jobs[i].number;
+        if (!jobs[i].number && !free_one)
+            free_one = &jobs[i];
+    }
+    if (!free_one)
+        return 0;
+    struct job *j = free_one;
+    memset(j, 0, sizeof(*j));
+    j->number = highest + 1;
+    j->group = group;
+    for (int k = 0, n = 0; k < count && n < JOB_PIDS; k++)
+        if (pids[k] > 0)
+            j->pids[n++] = j->last_pid = pids[k];
+    while (length && (text[length - 1] == ' ' || text[length - 1] == '\t' || text[length - 1] == '\n'))
+        length--;
+    snprintf(j->text, sizeof(j->text), "%.*s", (int)length, text);
+    j->seq = ++job_seq;
+    return j;
+}
+
+static struct job *job_of(pid_t pid)
+{
+    for (int i = 0; i < JOBS; i++)
+        for (int k = 0; jobs[i].number && k < JOB_PIDS; k++)
+            if (jobs[i].pids[k] == pid)
+                return &jobs[i];
+    return 0;
+}
+
+static bool job_running(const struct job *j)
+{
+    for (int k = 0; k < JOB_PIDS; k++)
+        if (j->pids[k])
             return true;
-        }
     return false;
 }
 
+/* One of j's processes ended (its wait status). */
+static void job_member_ended(struct job *j, pid_t pid, int status)
+{
+    for (int k = 0; k < JOB_PIDS; k++)
+        if (j->pids[k] == pid)
+            j->pids[k] = 0;
+    if (pid == j->last_pid)
+        j->last_status = status;
+}
+
+/* "[N] done, exit code C" or "[N] ended by signal S" (interactive only). */
+static void job_report_end(const struct job *j)
+{
+    if (!interactive)
+        return;
+    if (WIFEXITED(j->last_status))
+        printf("[%d] done, exit code %d\n", j->number, WEXITSTATUS(j->last_status));
+    else
+        printf("[%d] ended by signal %d\n", j->number, WTERMSIG(j->last_status));
+}
+
+/* The job a shell means without a number: a stopped one before a running
+ * one, the latest first (it stopped, or went to the background, last);
+ * not skipped. */
+static struct job *job_best(const struct job *skipped)
+{
+    struct job *best = 0;
+    for (int i = 0; i < JOBS; i++) {
+        struct job *j = &jobs[i];
+        if (!j->number || j == skipped)
+            continue;
+        if (!best || (j->stopped && !best->stopped) || (j->stopped == best->stopped && j->seq > best->seq))
+            best = j;
+    }
+    return best;
+}
+
+/* %+ (the current job) or, with previous, %- (the one before it). */
+static struct job *job_current(bool previous)
+{
+    struct job *best = job_best(0);
+    return previous ? (best ? job_best(best) : 0) : best;
+}
+
+/* The job a word names (%N, %%, %+, %-; none: the current one), or 0 with
+ * a message from who. */
+static struct job *job_named(const char *who, const char *word)
+{
+    struct job *j = 0;
+    if (!word || !strcmp(word, "%%") || !strcmp(word, "%+") || !strcmp(word, "%")) {
+        if (!(j = job_current(false)))
+            dprintf(STDERR_FILENO, "%s: no current job\n", who);
+        return j;
+    }
+    if (!strcmp(word, "%-")) {
+        if (!(j = job_current(true)))
+            dprintf(STDERR_FILENO, "%s: no previous job\n", who);
+        return j;
+    }
+    const char *digits = word[0] == '%' ? word + 1 : word;
+    int n = 0;
+    for (const char *c = digits; *c >= '0' && *c <= '9' && n < 100000; c++)
+        n = n * 10 + (*c - '0');
+    for (int i = 0; n > 0 && *digits && digits[strspn(digits, "0123456789")] == 0 && i < JOBS; i++)
+        if (jobs[i].number == n)
+            return &jobs[i];
+    dprintf(STDERR_FILENO, "%s: %s: no such job\n", who, word);
+    return 0;
+}
+
+/* j stopped: listed as stopped and reported; in the foreground the
+ * shell takes the terminal back first, keeping the job's modes. */
+static void job_stopped(struct job *j, bool foreground, int signal)
+{
+    j->stopped = true;
+    j->seq = ++job_seq;
+    if (foreground) {
+        tcsetpgrp(STDIN_FILENO, shell_group);
+        j->has_modes = tcgetattr(STDIN_FILENO, &j->modes) == 0;
+        if (have_shell_modes)
+            tcsetattr(STDIN_FILENO, TCSANOW, &shell_modes);
+    }
+    if (interactive)
+        printf("%s[%d] stopped: %s\n", foreground && signal == SIGTSTP ? "^Z\n" : "", j->number, j->text);
+}
+
+/* Wait for job j in the foreground (it has the terminal): until its
+ * processes end (the shell takes the terminal back, the job leaves the
+ * list: the last command's wait status) or it stops (*stopped; it stays:
+ * 128 + the signal, the code POSIX's shells give). *interrupted: one
+ * ended by Ctrl-C. */
+static int job_foreground(struct job *j, bool *interrupted, bool *stopped)
+{
+    *stopped = false;
+    for (int k = 0; k < JOB_PIDS; k++) {
+        if (!j->pids[k])
+            continue;
+        int status = 0;
+        pid_t w;
+        while ((w = waitpid(j->pids[k], &status, WUNTRACED)) < 0 && errno == EINTR)
+            ;
+        if (w > 0 && WIFSTOPPED(status)) {
+            job_stopped(j, true, WSTOPSIG(status));
+            *stopped = true;
+            return 128 + WSTOPSIG(status);
+        }
+        if (w > 0 && !WIFEXITED(status) && WTERMSIG(status) == SIGINT)
+            *interrupted = true;
+        job_member_ended(j, j->pids[k], w > 0 ? status : 0);
+    }
+    tcsetpgrp(STDIN_FILENO, shell_group);
+    if (j->has_modes && have_shell_modes)
+        tcsetattr(STDIN_FILENO, TCSANOW, &shell_modes);   /* (a job fg brought back had its own) */
+    int status = j->last_status;
+    j->number = 0;
+    return status;
+}
+
+/* At the prompt: background jobs that ended (reported, and gone), and
+ * (job control) that stopped or went on. */
 static void reap_background(void)
 {
     int status;
     pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        if (take_quiet(pid) || !interactive)
-            continue;                           /* (scripts and sh -c report no jobs, as POSIX's) */
-        if (WIFEXITED(status))
-            printf("[%d] done, exit code %d\n", pid, WEXITSTATUS(status));
-        else
-            printf("[%d] stopped by signal %d\n", pid, WTERMSIG(status));
+    while ((pid = waitpid(-1, &status, WNOHANG | (job_control ? WUNTRACED | WCONTINUED : 0))) > 0) {
+        struct job *j = job_of(pid);
+        if (!j)
+            continue;                           /* (one not listed: nothing to say) */
+        if (WIFSTOPPED(status)) {
+            if (!j->stopped)
+                job_stopped(j, false, WSTOPSIG(status));
+            continue;
+        }
+        if (WIFCONTINUED(status)) {
+            j->stopped = false;
+            continue;
+        }
+        job_member_ended(j, pid, status);
+        if (!job_running(j)) {
+            job_report_end(j);
+            j->number = 0;
+        }
     }
 }
 
@@ -1911,6 +2102,8 @@ static void help(void)
     help_line("set shift read", "options -e -u -x -f, --; drop $1; read a line into names");
     help_line("break continue return", "leave a loop, its next round, a function");
     help_line("umask [-S] [MODE]", "the bits taken off new files' modes (0022: they get 0644)");
+    help_line("jobs", "the jobs in the background or stopped (Ctrl-Z stops the one running)");
+    help_line("fg [%N], bg [%N]", "a job on in the foreground, or in the background");
     bprintf("Programs (%s and %s):\n", bin_dir, apps_dir);
 
     enum { HELP_PROGRAMS = 256 };                         /* (65d: 96 cut the 97th off) */
@@ -2063,7 +2256,7 @@ static bool is_builtin(const char *w)
 {
     static const char *names[] = { "cd", "pwd", "exit", "help", "export", "unset", ":", ".",
                                    "eval", "exec", "set", "shift", "read", "break", "continue",
-                                   "return", "umask" };
+                                   "return", "umask", "jobs", "fg", "bg" };
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         if (!strcmp(w, names[i]))
             return true;
@@ -2123,6 +2316,14 @@ static pid_t fork_subshell(const char *text, size_t length, const int fds[3], pi
         builtin_out = STDOUT_FILENO;
         builtin_in = STDIN_FILENO;
         interactive = false;                        /* (as sh -c was: no job reports) */
+        if (job_control && !join_shell) {           /* (44c) the stop signals its own again (a */
+            job_control = false;                    /* $(...) in the shell's group keeps them off) */
+            signal(SIGTSTP, SIG_DFL);
+            signal(SIGTTIN, SIG_DFL);
+            signal(SIGTTOU, SIG_DFL);
+        }
+        job_control = false;
+        memset(jobs, 0, sizeof(jobs));              /* (the parent's, not its) */
         shell_group = getpgrp();
         condition_depth = loop_depth = breaking = continuing = 0;
         function_depth = dot_depth = list_depth = 0;
@@ -2134,7 +2335,11 @@ static pid_t fork_subshell(const char *text, size_t length, const int fds[3], pi
     close(sync[0]);
     if (!join_shell) {
         setpgid(pid, group ? group : pid);          /* (both: whichever comes first) */
-        if (!group && !background)
+        /* (69h) Only a shell that has the terminal gives it: a script
+         * run in the background has not (the kernel lets any process of
+         * the session set the foreground, so it once took the console
+         * from the shell at the prompt). */
+        if (!group && !background && tcgetpgrp(STDIN_FILENO) == shell_group)
             tcsetpgrp(STDIN_FILENO, pid);           /* (allowed or not, as spawn's foreground) */
     }
     close(sync[1]);
@@ -2388,10 +2593,61 @@ static char *read_file(const char *path, size_t *length)
 }
 
 /* A built-in command: its exit code. */
+/* (44c) jobs, fg and bg. */
+static int job_builtin(int count, char **words)
+{
+    const char *w = words[0];
+    if (!job_control && strcmp(w, "jobs")) {
+        dprintf(STDERR_FILENO, "%s: no job control in this shell\n", w);
+        return 1;
+    }
+    if (!strcmp(w, "jobs")) {
+        reap_background();                      /* (what ended is reported first) */
+        struct job *current = job_current(false), *previous = job_current(true);
+        for (int n = 1; n <= JOBS * 4; n++)     /* (by number) */
+            for (int i = 0; i < JOBS; i++)
+                if (jobs[i].number == n)
+                    bprintf("[%d]%s %s  %s\n", n, &jobs[i] == current ? "+" : &jobs[i] == previous ? "-" : " ",
+                            jobs[i].stopped ? "stopped" : "running", jobs[i].text);
+        return 0;
+    }
+    struct job *j = job_named(w, count > 1 ? words[1] : 0);
+    if (!j)
+        return 1;
+    if (!strcmp(w, "bg")) {
+        if (j->stopped) {
+            j->stopped = false;
+            j->seq = ++job_seq;
+            kill(-j->group, SIGCONT);
+        }
+        bprintf("[%d] %s &\n", j->number, j->text);
+        return 0;
+    }
+    bprintf("%s\n", j->text);
+    if (j->has_modes)
+        tcsetattr(STDIN_FILENO, TCSANOW, &j->modes);   /* (the modes it stopped with) */
+    tcsetpgrp(STDIN_FILENO, j->group);
+    j->stopped = false;
+    kill(-j->group, SIGCONT);
+    bool interrupted = false, stopped = false;
+    int status = job_foreground(j, &interrupted, &stopped);
+    if (stopped)
+        return status;
+    char name[64];                              /* (its first word, as the line's report says) */
+    snprintf(name, sizeof(name), "%.*s", (int)strcspn(j->text, " \t"), j->text);
+    if (interrupted)
+        bprintf("^C\n");
+    else
+        report(name, status);
+    return code_of(status);
+}
+
 static int builtin(int count, char **words)
 {
     char cwd[256];
     const char *w = words[0];
+    if (!strcmp(w, "jobs") || !strcmp(w, "fg") || !strcmp(w, "bg"))
+        return job_builtin(count, words);
     if (!strcmp(w, "cd")) {
         struct passwd *pw = count > 1 ? 0 : getpwuid(getuid());
         const char *dir = count > 1 ? words[1] : pw ? pw->pw_dir : "/";
@@ -2925,6 +3181,11 @@ static pid_t start_words(int c, int fds[3], pid_t group, bool background, bool a
             else
                 resolve(words[1], path, sizeof(path));
             signal(SIGINT, SIG_DFL);
+            if (job_control) {                      /* (44c) */
+                signal(SIGTSTP, SIG_DFL);
+                signal(SIGTTIN, SIG_DFL);
+                signal(SIGTTOU, SIG_DFL);
+            }
             execve(path, words + 1, environ);
             if (errno == ENOEXEC && is_script(path)) {     /* (52g: sh PATH ARGS) */
                 char shell[300];
@@ -2940,6 +3201,11 @@ static pid_t start_words(int c, int fds[3], pid_t group, bool background, bool a
             }
             int e = errno;
             signal(SIGINT, SIG_IGN);
+            if (job_control) {
+                signal(SIGTSTP, SIG_IGN);
+                signal(SIGTTIN, SIG_IGN);
+                signal(SIGTTOU, SIG_IGN);
+            }
             dprintf(STDERR_FILENO, "sh: %s: %s\n", words[1],
                     e == ENOENT && !strchr(words[1], '/') ? "command not found" : strerror(e));
             *status = e == ENOENT ? 127 : 126;
@@ -3014,6 +3280,11 @@ static int run_pipeline(int p, bool background)
     pid_t pids[count];                              /* (sized to it: the stack is 64 KiB, */
     int codes[count];                               /* and loops nest pipelines in it) */
     pid_t group = 0;
+    /* (69h) The terminal is taken back after a foreground job only by a
+     * shell that had it: a script in the background (the settings app's
+     * programs, `script &`) once made itself the console's foreground
+     * that way, and the shell at the prompt lost what was typed. */
+    bool had_terminal = !background && tcgetpgrp(STDIN_FILENO) == shell_group;
     int in = -1, i = 0;
     for (int c = first; c >= 0; c = NODES[c].next, i++) {
         int pipe_fds[2] = { -1, -1 };
@@ -3062,24 +3333,36 @@ static int run_pipeline(int p, bool background)
     int last = count - 1, code = codes[last];
     if (exit_requested >= 0)
         return code;
+    bool any = false;
+    for (int k = 0; k <= last; k++)
+        any |= pids[k] > 0;
+    size_t text_length = 0;
+    const char *text = any ? node_text(p, &text_length) : 0;
     if (background) {
-        for (int k = 0; k < last; k++)
-            for (int q = 0; q < QUIET_MAX && pids[k] > 0; q++)
-                if (!quiet[q]) {
-                    quiet[q] = pids[k];
-                    break;
-                }
+        struct job *j = any ? job_new(group, pids, count, text, text_length) : 0;   /* (44c) */
         if (pids[last] > 0) {
             if (interactive)
-                printf("[%d]\n", pids[last]);
+                printf("[%d] %d\n", j ? j->number : 0, pids[last]);
             last_background = pids[last];           /* $! */
         }
         return 0;
     }
     /* The job got the terminal as it started (SPAWN_FOREGROUND); the shell
-     * takes it back once all its commands have ended. */
-    bool started = false, interrupted = false;
-    for (int k = 0; k <= last; k++) {
+     * takes it back once all its commands have ended, (44c) or one stopped. */
+    bool started = false, interrupted = false, stopped = false;
+    struct job *j = any && job_control ? job_new(group, pids, count, text, text_length) : 0;
+    if (j) {
+        started = true;
+        int status = job_foreground(j, &interrupted, &stopped);
+        if (stopped) {
+            code = status;
+            last_raw = -1;                          /* (reported: "[N] stopped: ...") */
+        } else if (pids[last] > 0) {
+            code = code_of(status);
+            last_raw = status;
+        }
+    }
+    for (int k = 0; k <= last && !j; k++) {
         if (pids[k] <= 0)
             continue;
         started = true;
@@ -3090,7 +3373,7 @@ static int run_pipeline(int p, bool background)
             last_raw = status;
         }
     }
-    if (started)
+    if (started && !j && had_terminal)
         tcsetpgrp(STDIN_FILENO, shell_group);
     if (interrupted && interactive)
         printf("^C\n");                             /* (at once: the line goes on) */
@@ -3115,8 +3398,9 @@ static int run_and_or(int a)
         const char *text = node_text(a, &length);
         pid_t pid = fork_subshell(text, length, ctx, 0, true, false);
         if (pid > 0) {
+            struct job *j = job_new(pid, &pid, 1, text, length);    /* (44c) */
             if (interactive)
-                printf("[%d]\n", pid);
+                printf("[%d] %d\n", j ? j->number : 0, pid);
             last_background = pid;
         }
         return 0;
@@ -3188,6 +3472,7 @@ static bool loop_leave(void)
 static int run_compound(int n)
 {
     int fds[3] = { ctx[0], ctx[1], ctx[2] }, opened[8], open_count = 0;
+    words_end = words_text;                         /* (44c-2: as a simple command's words) */
     if (NODES[n].kind != N_FUNC &&
         redirect(NODES[n].redirs, NODES[n].redirs_end, fds, opened, &open_count) < 0) {
         close_all(opened, open_count);
@@ -3859,6 +4144,15 @@ int main(int argc, char **argv)
     }
 
     interactive = isatty(STDIN_FILENO);         /* (51a: then lines report how they ended) */
+    if (interactive && tcgetpgrp(STDIN_FILENO) >= 0) {
+        /* (44c) Job control: the stop signals are the jobs', not the
+         * shell's (it gives the terminal out and takes it back itself). */
+        job_control = true;
+        signal(SIGTSTP, SIG_IGN);
+        signal(SIGTTIN, SIG_IGN);
+        signal(SIGTTOU, SIG_IGN);
+        have_shell_modes = tcgetattr(STDIN_FILENO, &shell_modes) == 0;
+    }
     if (argc == 2 && strcmp(argv[1], "-l") == 0) {
         int code = run_login_file();
         if (code >= 0)

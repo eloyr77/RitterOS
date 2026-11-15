@@ -2,7 +2,7 @@
  * Mice, whatever their kind: names (mouse0, mouse1, ... in the order
  * found), a pointer position (clamped to the screen), the buttons held and
  * the counters the `mouse` rescue command shows. Drivers report relative
- * motion, a wheel step and a button bitmask; USB HID boot mice and the PS/2
+ * motion, wheel steps (both wheels) and a button bitmask; USB HID boot mice and the PS/2
  * mouse both reduce to that.
  *
  * There is no window server yet (roadmap item 15), so a mouse is not an
@@ -36,16 +36,18 @@ void mouse_drop(struct mouse *m);
 void mouse_remove(struct mouse *m);
 const char *mouse_name(const struct mouse *m);
 
-/* The pointer moved by (dx, dy) pixels and the wheel by `wheel` steps, with
- * `buttons` now held (MOUSE_* bits). A button that goes down counts as a
- * click. Interrupt context. */
-void mouse_event(struct mouse *m, int dx, int dy, int wheel, uint8_t buttons);
+/* The pointer moved by (dx, dy) pixels, the wheel by `wheel` steps
+ * (positive up, as USB's) and (68m-1) the horizontal wheel by `pan` steps
+ * (positive to the right, as HID's AC Pan), with `buttons` now held
+ * (MOUSE_* bits). A button that goes down counts as a click. Interrupt
+ * context. */
+void mouse_event(struct mouse *m, int dx, int dy, int wheel, int pan, uint8_t buttons);
 
 /* The pointer is at an absolute position: x in [0, x_range], y in [0, y_range]
  * (as an absolute pointing device such as a USB tablet reports), scaled to the
  * screen. Otherwise like mouse_event. Interrupt context. */
 void mouse_absolute(struct mouse *m, int x, int y, int x_range, int y_range, int wheel,
-                    uint8_t buttons);
+                    int pan, uint8_t buttons);
 
 /* (66b-5) The screen has a new size: every mouse's pointer is clamped to it
  * from now on (and moved inside it). Thread context. */

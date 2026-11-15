@@ -1,0 +1,24 @@
+# libpsl.so.5: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+symbol	psl_builtin	exported
+symbol	psl_builtin_file_time	exported
+symbol	psl_builtin_filename	exported
+symbol	psl_builtin_outdated	exported
+symbol	psl_builtin_sha1sum	exported
+symbol	psl_check_version_number	exported
+symbol	psl_dist_filename	exported
+symbol	psl_free	exported
+symbol	psl_free_string	exported
+symbol	psl_get_version	exported
+symbol	psl_is_cookie_domain_acceptable	exported
+symbol	psl_is_public_suffix	exported
+symbol	psl_is_public_suffix2	exported
+symbol	psl_latest	exported
+symbol	psl_load_file	exported
+symbol	psl_load_fp	exported
+symbol	psl_registrable_domain	exported
+symbol	psl_str_to_utf8lower	exported
+symbol	psl_suffix_count	exported
+symbol	psl_suffix_exception_count	exported
+symbol	psl_suffix_wildcard_count	exported
+symbol	psl_unregistrable_domain	exported

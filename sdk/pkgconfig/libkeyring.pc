@@ -1,0 +1,13 @@
+# libkeyring.pc (70b): libkeyring.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libkeyring
+Description: RitterOS's keyring (secrets kept for the user, through keyringd)
+Version: 1
+Requires: ritteros
+Cflags: -I${includedir}
+Libs: ${libdir}/libkeyring.so.1

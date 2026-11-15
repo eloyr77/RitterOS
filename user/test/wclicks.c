@@ -2,6 +2,7 @@
  * Test: where clicks land (15q, steady clicks). Opens a 300x200 window and
  * prints each press and release of the left button with its place in the
  * window, until COUNT presses came (default 3) or the window is closed.
+ * (68m-1) Also each wheel event's steps, sideways and down.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,8 @@ int main(int argc, char **argv)
     unsigned held = 0;
     int presses = 0;
     while (window_wait(win, &ev)) {
+        if (ev.type == WINDOW_SCROLL)
+            printf("wclicks: scroll %d,%d\n", ev.x, ev.y);
         if (ev.type != WINDOW_POINTER)
             continue;
         if ((ev.buttons & 1) && !(held & 1)) {

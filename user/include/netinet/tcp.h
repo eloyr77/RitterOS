@@ -3,8 +3,16 @@
 #ifndef RITTEROS_NETINET_TCP_H
 #define RITTEROS_NETINET_TCP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <netinet/in.h>
 
 #define TCP_NODELAY     1
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

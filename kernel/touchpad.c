@@ -5,8 +5,10 @@
  *   grows with the speed (GAIN_* below: slow moves are precise, fast ones
  *   cross the screen), with the fractions kept;
  * - two fingers moving together scroll: a wheel step per SCROLL_MM of their
- *   mean vertical movement, fingers up as the wheel down (the user's: the
- *   content follows the fingers);
+ *   mean movement, fingers up as the wheel down and (68m-1) fingers to the
+ *   left as the horizontal wheel to the right (the user's: the content
+ *   follows the fingers); each frame scrolls along the axis it moved more
+ *   on, so a vertical scroll's sideways drift scrolls nothing;
  * - the physical button is the left button, or the right one when two or
  *   more fingers are down as it closes (the two-finger click);
  * - a touch that ends within TAP_MS, moved less than TAP_MM and never
@@ -60,7 +62,7 @@ struct touchpad {
     /* outputs */
     uint8_t buttons;
     int64_t fx, fy;                     /* pointer motion not yet reported, 1/256 pixel */
-    int64_t scroll;                     /* units of scrolling not yet reported */
+    int64_t scroll, scroll_x;           /* units of scrolling not yet reported (y, x) */
     struct { uint64_t ms; int dx, dy; } moved[HISTORY];   /* recent pointer motion */
     int nmoved;
     int64_t hold;                       /* units the finger moved while the pointer is held */
@@ -79,11 +81,16 @@ struct touchpad *touchpad_new(struct mouse *m, int32_t x_units_per_mm, int32_t y
     return t;
 }
 
-static void emit(struct touchpad *t, int dx, int dy, int wheel)
+static void emit_scroll(struct touchpad *t, int dx, int dy, int wheel, int pan)
 {
     uint64_t state = arch_irq_save();           /* (the mouse layer expects interrupt context) */
-    mouse_event(t->mouse, dx, dy, wheel, t->buttons);
+    mouse_event(t->mouse, dx, dy, wheel, pan, t->buttons);
     arch_irq_restore(state);
+}
+
+static void emit(struct touchpad *t, int dx, int dy, int wheel)
+{
+    emit_scroll(t, dx, dy, wheel, 0);
 }
 
 static const struct finger *previous(const struct touchpad *t, uint8_t id)
@@ -117,19 +124,19 @@ void touchpad_frame(struct touchpad *t, const struct touch_contact *c, int n, bo
         t->touch_ms = ms;
         t->max_fingers = 0;
         t->travel = 0;
-        t->scroll = 0;
+        t->scroll = t->scroll_x = 0;
     }
     if (down > t->max_fingers)
         t->max_fingers = down;
 
     /* Movement of the fingers seen in the last frame too. */
-    int32_t sum_dy = 0, best_dx = 0, best_dy = 0, moved = 0;
+    int32_t sum_dx = 0, sum_dy = 0, best_dx = 0, best_dy = 0, moved = 0;
     for (int i = 0; i < down; i++) {
         const struct finger *p = previous(t, now[i].id);
         if (!p)
             continue;
         int32_t dx = now[i].x - p->x, dy = now[i].y - p->y;
-        sum_dy += dy, moved++;
+        sum_dx += dx, sum_dy += dy, moved++;
         t->travel += magnitude(dx) + magnitude(dy);
         if (magnitude(dx) + magnitude(dy) > magnitude(best_dx) + magnitude(best_dy))
             best_dx = dx, best_dy = dy;
@@ -192,13 +199,19 @@ void touchpad_frame(struct touchpad *t, const struct touch_contact *c, int n, bo
             t->nmoved++;
         }
     } else if (steady && moved && down == 2 && !button) {
-        /* scrolling: the mean vertical movement; fingers up (y falling) is the wheel down */
-        t->scroll += sum_dy / moved;
-        int32_t step = SCROLL_MM * t->yu;
-        int steps = (int)(t->scroll / step);
-        if (steps) {
+        /* scrolling: the mean movement along the axis this frame moved more
+         * on (in millimetres); fingers up (y falling) is the wheel down,
+         * fingers to the left (x falling) the horizontal wheel to the right */
+        if ((int64_t)magnitude(sum_dx) * t->yu > (int64_t)magnitude(sum_dy) * t->xu)
+            t->scroll_x -= sum_dx / moved;
+        else
+            t->scroll += sum_dy / moved;
+        int32_t step = SCROLL_MM * t->yu, step_x = SCROLL_MM * t->xu;
+        int steps = (int)(t->scroll / step), steps_x = (int)(t->scroll_x / step_x);
+        if (steps || steps_x) {
             t->scroll -= (int64_t)steps * step;
-            emit(t, 0, 0, steps);
+            t->scroll_x -= (int64_t)steps_x * step_x;
+            emit_scroll(t, 0, 0, steps, steps_x);
         }
     }
 

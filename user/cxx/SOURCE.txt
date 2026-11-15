@@ -1,0 +1,14 @@
+RitterOS's C++ libraries (43c): /system/<arch>/lib/libc++.so.1,
+libc++abi.so.1 and libunwind.so.1.
+
+They are LLVM's libc++, libc++abi and libunwind (LLVM 22.1.8), built
+unchanged from the sources Zig 0.17.0 ships (lib/libcxx, lib/libcxxabi,
+lib/libunwind, and lib/libcxx/libc, LLVM-libc's parts libc++ uses), the
+pinned toolchain scripts/setup-toolchain.sh installs into tools/zig. Only
+their configuration is RitterOS's: user/cxx/__config_site and the build
+rules in the Makefile ("C++").
+
+Licence: Apache License v2.0 with LLVM Exceptions (each library's
+LICENSE.TXT, installed as /system/doc/licences/libc++.txt, libc++abi.txt
+and libunwind.txt), an exception to RitterOS's licence rule agreed for
+item 43 (2026-11-11). Upstream: https://github.com/llvm/llvm-project

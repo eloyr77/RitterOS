@@ -1,0 +1,12 @@
+# ritteros.pc (43d): libritteros.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: ritteros
+Description: RitterOS's C library (C11, POSIX, BSD sockets, threads)
+Version: 1
+Cflags: -I${includedir}
+Libs: ${libdir}/libritteros.so.1

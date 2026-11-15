@@ -177,7 +177,7 @@ typedef enum {
 typedef struct {
     EFI_TABLE_HEADER Hdr;
     EFI_STATUS (EFIAPI *GetTime)(EFI_TIME *Time, void *Capabilities);
-    void *SetTime;
+    EFI_STATUS (EFIAPI *SetTime)(EFI_TIME *Time);
     void *GetWakeupTime;
     void *SetWakeupTime;
     EFI_STATUS (EFIAPI *SetVirtualAddressMap)(UINTN MemoryMapSize, UINTN DescriptorSize,

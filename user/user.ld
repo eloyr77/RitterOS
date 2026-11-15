@@ -33,10 +33,21 @@ SECTIONS
     .plt : { *(.plt) *(.iplt) }         /* calls into shared libraries */
     . = ALIGN(4096);
     .rodata : { *(.rodata .rodata.*) }
+    /* (43c) C++'s unwinding tables, for exceptions (C programs have none:
+     * -fno-asynchronous-unwind-tables); lld's --eh-frame-hdr makes the
+     * index libunwind finds through PT_GNU_EH_FRAME. */
+    .eh_frame_hdr : { *(.eh_frame_hdr) }
+    .eh_frame : { KEEP(*(.eh_frame)) }
+    .gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) }
     . = ALIGN(4096);
     .tdata : { *(.tdata .tdata.*) }     /* per-thread data's template (22i): read-only too */
     .tbss : { *(.tbss .tbss.*) }
     .data.rel.ro : { *(.data.rel.ro .data.rel.ro.*) }
+    /* (43c) Static constructors and destructors (C++'s; ld.so runs them):
+     * read-only after the start too. (No SORT: our ld's subset; a program's
+     * own init_priority order is not kept.) */
+    .init_array : { KEEP(*(.init_array .init_array.*)) }
+    .fini_array : { KEEP(*(.fini_array .fini_array.*)) }
     .dynamic : { *(.dynamic) }
     .got : { *(.got) }
     .got.plt : {
@@ -47,5 +58,5 @@ SECTIONS
     .bss : { *(.bss .bss.*) *(COMMON) }
     /* The program's help text (PROGRAM_HELP): in the file, not in memory. */
     .ritteros.help 0 (INFO) : { KEEP(*(.ritteros.help)) }
-    /DISCARD/ : { *(.comment) *(.note .note.*) *(.eh_frame*) }
+    /DISCARD/ : { *(.comment) *(.note .note.*) }
 }

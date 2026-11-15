@@ -221,7 +221,7 @@ int decode_png(const uint8_t *d, long n, struct image *out, int header_only)
         const uint8_t *type = d + at + 4, *body = d + at + 8;
         if (len > (uint32_t)(n - at - 12))
             goto bad;                           /* runs past the file */
-        if (crc32(type, (size_t)len + 4) != be32(body + len))
+        if (ritteros_crc32(type, (size_t)len + 4) != be32(body + len))
             goto bad;                           /* damaged */
         if (!memcmp(type, "IHDR", 4)) {
             if (len != 13 || header)
@@ -343,7 +343,7 @@ static void put_be32(uint8_t *p, uint32_t v)
 static size_t chunk_close(uint8_t *out, uint32_t len)
 {
     put_be32(out, len);
-    put_be32(out + 8 + len, crc32(out + 4, (size_t)len + 4));
+    put_be32(out + 8 + len, ritteros_crc32(out + 4, (size_t)len + 4));
     return (size_t)len + 12;
 }
 

@@ -20,6 +20,11 @@
  *                       SECONDS, woken by the RTC's alarm
  *   power sleep         (37g-7, root) asleep until the power button (or the
  *                       firmware's own wake: a laptop's lid opened) wakes it
+ *   power settings      (69a, root) /system/config/power read again and
+ *                       applied at once (the button, the lid, the screen's
+ *                       and sleep's minutes); prints what was applied
+ *   power clock         (69a, root) /system/config/cpu read again and its
+ *                       clock applied on every core; prints the line
  */
 #include <ctype.h>
 #include <errno.h>
@@ -30,7 +35,7 @@
 #include <unistd.h>
 #include "ritteros.h"
 
-PROGRAM_HELP("power [tables DIR | names | eval NAME | sleep [SECONDS]]",
+PROGRAM_HELP("power [tables DIR | names | eval NAME | sleep [SECONDS] | settings | clock]",
              "what the firmware offers for power management: sleep states, devices");
 
 static char text[8 * 1024];
@@ -175,6 +180,20 @@ static int sleep_seconds(const char *text)
     return 0;
 }
 
+/* (69a) A settings file read again and applied (POWER_SETTINGS or
+ * POWER_CLOCK): the kernel's lines printed. */
+static int reread(int64_t op, const char *what)
+{
+    char lines[2048];
+    int64_t n = syscall6(SYS_POWER, op, (int64_t)lines, sizeof(lines), 0, 0, 0);
+    if (n < 0) {
+        printf("power: %s: %s\n", what, n == -ERR_PERM ? "only root may" : "not applied");
+        return 1;
+    }
+    write(STDOUT_FILENO, lines, n < (int64_t)sizeof(lines) ? (size_t)n : sizeof(lines) - 1);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3 && !strcmp(argv[1], "tables"))
@@ -187,8 +206,12 @@ int main(int argc, char **argv)
         return sleep_seconds(argv[2]);
     if (argc == 2 && !strcmp(argv[1], "sleep"))
         return sleep_seconds(0);
+    if (argc == 2 && !strcmp(argv[1], "settings"))
+        return reread(POWER_SETTINGS, "settings");
+    if (argc == 2 && !strcmp(argv[1], "clock"))
+        return reread(POWER_CLOCK, "clock");
     if (argc != 1) {
-        printf("usage: power [tables DIR | names | eval NAME | sleep [SECONDS]]\n");
+        printf("usage: power [tables DIR | names | eval NAME | sleep [SECONDS] | settings | clock]\n");
         return 2;
     }
     int64_t n = ritteros_report(REPORT_POWER, text, sizeof(text));

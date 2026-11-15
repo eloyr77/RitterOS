@@ -1,0 +1,13 @@
+# libvideo.pc (43d): libvideo.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libvideo
+Description: RitterOS's video (RVID)
+Version: 1
+Requires: ritteros
+Cflags: -I${includedir}
+Libs: ${libdir}/libvideo.so.1

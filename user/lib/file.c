@@ -27,6 +27,7 @@
 #include "ritteros.h"
 #include "fpconv.h"
 #include "wideformat.h"
+#include "mbconv.h"
 #include <ctype.h>
 
 #define READING 1
@@ -48,7 +49,41 @@ struct ritteros_file {
     int pins;                           /* fflush(0)s waiting for it: not freed (list's lock) */
     bool unlinked, left;                /* fclose took it off the list; ended, freed by the last pin */
     struct ritteros_file *next;
+    /* (43a) A stream over functions instead of a descriptor (fopencookie,
+     * open_memstream, fmemopen): fd is -1 and every read, write, seek and
+     * the close go to them. */
+    cookie_io_functions_t io;
+    void *cookie;
+    bool by_functions;
+    wint_t pushed_wide;                 /* (43a-2) ungetwc's character past ASCII, or 0 */
 };
+
+/* The descriptor's calls, or the functions' (43a). */
+static ssize_t io_read(FILE *f, void *buf, size_t n)
+{
+    if (!f->by_functions)
+        return read(f->fd, buf, n);
+    return f->io.read ? f->io.read(f->cookie, buf, n) : 0;
+}
+
+static ssize_t io_write(FILE *f, const void *buf, size_t n)
+{
+    if (!f->by_functions)
+        return write(f->fd, buf, n);
+    return f->io.write ? f->io.write(f->cookie, buf, n) : (ssize_t)n;
+}
+
+static off_t io_seek(FILE *f, off_t offset, int whence)
+{
+    if (!f->by_functions)
+        return lseek(f->fd, offset, whence);
+    if (!f->io.seek) {
+        errno = ESPIPE;
+        return -1;
+    }
+    off64_t at = offset;
+    return f->io.seek(f->cookie, &at, whence) < 0 ? -1 : (off_t)at;
+}
 
 static struct ritteros_file std_in = { .fd = 0, .can_read = true, .pushed = -1 };
 static struct ritteros_file std_out = { .fd = 1, .can_write = true, .unbuffered = true, .pushed = -1 };
@@ -189,10 +224,10 @@ void __ritteros_stdio_child(void)
     list_lock = 0;
 }
 
-static bool write_all(int fd, const unsigned char *p, size_t n)
+static bool write_all(FILE *f, const unsigned char *p, size_t n)
 {
     while (n > 0) {
-        ssize_t w = write(fd, p, n);
+        ssize_t w = io_write(f, p, n);
         if (w <= 0)
             return false;
         p += w, n -= (size_t)w;
@@ -206,12 +241,12 @@ static int drain(FILE *f)
 {
     int r = 0;
     if (f->mode == WRITING && f->len) {
-        if (!write_all(f->fd, f->buf, f->len))
+        if (!write_all(f, f->buf, f->len))
             f->error = true, r = EOF;
     } else if (f->mode == READING) {
         off_t back = (off_t)(f->len - f->at) + (f->pushed >= 0);
         if (back)
-            lseek(f->fd, -back, SEEK_CUR);
+            io_seek(f, -back, SEEK_CUR);
     }
     f->at = f->len = 0;
     f->pushed = -1;
@@ -280,7 +315,7 @@ int fclose(FILE *f)
         return r;
     if (f->lock_owner == &this_thread)
         streams_held--;                         /* (closed while its flockfile held it) */
-    if (close(f->fd) < 0)
+    if (f->by_functions ? f->io.close && f->io.close(f->cookie) < 0 : close(f->fd) < 0)
         r = EOF;
     if (f->remove_at_close) {
         unlink(f->remove_at_close);
@@ -421,20 +456,80 @@ char *tmpnam(char *s)
     return fresh_name(out, (size_t)n) ? out : 0;
 }
 
-int mkstemp(char *name)
+/* (43a) The six X's before suffix bytes replaced until a new name is
+ * free; make: 'f' a file opened with flags (exclusively, 0600), 'd' a
+ * folder (0700), 'n' only the name. The descriptor, 0 or -1. */
+static int make_temp(char *name, int suffix, int flags, char kind)
 {
     size_t len = strlen(name);
-    if (len < 6 || strcmp(name + len - 6, "XXXXXX")) {
+    if (suffix < 0 || len < 6 + (size_t)suffix || strncmp(name + len - suffix - 6, "XXXXXX", 6)) {
         errno = EINVAL;
         return -1;
     }
+    char *x = name + len - suffix - 6;
+    struct stat st;
     for (int tries = 0; tries < 100; tries++) {     /* (52j: made exclusively) */
-        randomize(name + len - 6);
-        int fd = open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0 || errno != EEXIST)
-            return fd;
+        randomize(x);
+        if (kind == 'f') {
+            int fd = open(name, O_RDWR | O_CREAT | O_EXCL | (flags & ~O_ACCMODE), 0600);
+            if (fd >= 0 || errno != EEXIST)
+                return fd;
+        } else if (kind == 'd') {
+            if (mkdir(name, 0700) == 0)
+                return 0;
+            if (errno != EEXIST)
+                return -1;
+        } else if (lstat(name, &st) < 0) {
+            return 0;
+        }
     }
+    errno = EEXIST;
     return -1;
+}
+
+int mkstemp(char *name) { return make_temp(name, 0, 0, 'f'); }
+int mkostemp(char *name, int flags) { return make_temp(name, 0, flags, 'f'); }
+int mkstemps(char *name, int suffix_length) { return make_temp(name, suffix_length, 0, 'f'); }
+int mkostemps(char *name, int suffix_length, int flags) { return make_temp(name, suffix_length, flags, 'f'); }
+
+char *mkdtemp(char *name)
+{
+    return make_temp(name, 0, 0, 'd') < 0 ? 0 : name;
+}
+
+char *mktemp(char *name)
+{
+    if (make_temp(name, 0, 0, 'n') < 0)
+        name[0] = 0;
+    return name;
+}
+
+/* (43a) dir (or $TMPDIR, or the user's ~/.tmp) / prefix (up to 5 bytes)
+ * and six random characters. */
+char *tempnam(const char *dir, const char *prefix)
+{
+    char folder[L_tmpnam - 16];
+    struct stat st;
+    const char *env = getenv("TMPDIR");
+    if (env && stat(env, &st) == 0 && S_ISDIR(st.st_mode))
+        dir = env;
+    else if (!dir || stat(dir, &st) < 0 || !S_ISDIR(st.st_mode)) {
+        if (!tmp_folder(folder, sizeof(folder)))
+            return 0;
+        dir = folder;
+    }
+    size_t n = strlen(dir) + 16;
+    char *name = malloc(n);
+    if (!name) {
+        errno = ENOMEM;
+        return 0;
+    }
+    int len = snprintf(name, n, "%s/%.5sXXXXXX", dir, prefix ? prefix : "tmp");
+    if (!fresh_name(name, (size_t)len)) {
+        free(name);
+        return 0;
+    }
+    return name;
 }
 
 FILE *tmpfile(void)
@@ -478,7 +573,7 @@ static bool start_writing(FILE *f)
     if (f->mode == READING)
         drain(f);
     if (f->append && f->mode != WRITING)
-        lseek(f->fd, 0, SEEK_END);
+        io_seek(f, 0, SEEK_END);
     f->mode = WRITING;
     return true;
 }
@@ -495,7 +590,7 @@ int getc_unlocked(FILE *f)
     if (f->at == f->len) {
         if (f->eof)
             return EOF;
-        ssize_t r = read(f->fd, f->buf, sizeof(f->buf));
+        ssize_t r = io_read(f, f->buf, sizeof(f->buf));
         if (r <= 0) {
             r < 0 ? (void)(f->error = true) : (void)(f->eof = true);
             return EOF;
@@ -552,7 +647,7 @@ static size_t read_items(void *buf, size_t size, size_t count, FILE *f)
         if (f->eof)
             break;
         if (want - got >= sizeof(f->buf)) {     /* large reads straight into the caller's */
-            ssize_t r = read(f->fd, out + got, want - got);
+            ssize_t r = io_read(f, out + got, want - got);
             if (r <= 0) {
                 r < 0 ? (void)(f->error = true) : (void)(f->eof = true);
                 break;
@@ -560,7 +655,7 @@ static size_t read_items(void *buf, size_t size, size_t count, FILE *f)
             got += (size_t)r;
             continue;
         }
-        ssize_t r = read(f->fd, f->buf, sizeof(f->buf));
+        ssize_t r = io_read(f, f->buf, sizeof(f->buf));
         if (r <= 0) {
             r < 0 ? (void)(f->error = true) : (void)(f->eof = true);
             break;
@@ -604,7 +699,7 @@ static size_t write_items(const void *buf, size_t size, size_t count, FILE *f)
         return 0;
     const unsigned char *p = buf;
     if (f->unbuffered || total >= sizeof(f->buf)) {
-        if (drain(f) || !write_all(f->fd, p, total)) {
+        if (drain(f) || !write_all(f, p, total)) {
             f->error = true;
             return 0;
         }
@@ -651,11 +746,11 @@ int fputs(const char *s, FILE *f)
     return n == 0 || fwrite(s, 1, n, f) == n ? 0 : EOF;    /* (until 63e: == 1, EOF for most) */
 }
 
-static int seek(FILE *f, long offset, int whence)
+static int seek(FILE *f, off_t offset, int whence)
 {
     if (drain(f) < 0)
         return -1;
-    if (lseek(f->fd, offset, whence) < 0)
+    if (io_seek(f, offset, whence) < 0)
         return -1;
     f->eof = false;
     return 0;
@@ -669,16 +764,30 @@ int fseek(FILE *f, long offset, int whence)
     return r;
 }
 
-long ftell(FILE *f)
+/* (43a: off_t's, for fseeko and ftello; long is as wide here) */
+off_t ftello(FILE *f)
 {
     bool held = hold(f);
-    off_t at = lseek(f->fd, 0, SEEK_CUR);
+    off_t at = io_seek(f, 0, SEEK_CUR);
     if (at >= 0 && f->mode == READING)
         at -= (off_t)(f->len - f->at) + (f->pushed >= 0);
     else if (at >= 0 && f->mode == WRITING)
         at += (off_t)f->len;
     release(f, held);
-    return at < 0 ? -1 : (long)at;
+    return at < 0 ? -1 : at;
+}
+
+long ftell(FILE *f)
+{
+    return (long)ftello(f);
+}
+
+int fseeko(FILE *f, off_t offset, int whence)
+{
+    bool held = hold(f);
+    int r = seek(f, offset, whence);
+    release(f, held);
+    return r;
 }
 
 void rewind(FILE *f)
@@ -712,7 +821,14 @@ void clearerr(FILE *f)
     release(f, held);
 }
 
-int fileno(FILE *f) { return f->fd; }
+int fileno(FILE *f)
+{
+    if (f->by_functions) {
+        errno = EBADF;                          /* (43a: a stream of functions has none) */
+        return -1;
+    }
+    return f->fd;
+}
 
 static int print_stream(FILE *f, const struct format_text *format, va_list ap)
 {
@@ -1216,14 +1332,38 @@ int fwide(FILE *f, int mode)
     return r;
 }
 
+/* (43a-2) A character's bytes through the locale (UTF-8 in C.UTF-8). */
 wint_t fgetwc(FILE *f)
 {
     bool held = hold(f);
     if (!f->orientation)
         f->orientation = 1;
-    int c = getc_unlocked(f);
+    wint_t r = WEOF;
+    if (f->pushed_wide) {
+        r = f->pushed_wide;
+        f->pushed_wide = 0;
+        release(f, held);
+        return r;
+    }
+    mbstate_t state = { 0, 0 };
+    for (;;) {
+        int c = getc_unlocked(f);
+        if (c == EOF)
+            break;                              /* (inside a character too: WEOF) */
+        char b = (char)c;
+        wchar_t wc;
+        size_t k = mb_decode(&wc, &b, 1, &state);
+        if (k == (size_t)-2)
+            continue;
+        if (k == (size_t)-1) {
+            f->error = true;
+            break;
+        }
+        r = (wint_t)wc;
+        break;
+    }
     release(f, held);
-    return c == EOF ? WEOF : (wint_t)c;
+    return r;
 }
 
 wint_t getwc(FILE *f) { return fgetwc(f); }
@@ -1250,9 +1390,18 @@ wchar_t *fgetws(wchar_t *s, int size, FILE *f)
 
 wint_t ungetwc(wint_t wc, FILE *f)
 {
-    if (wc == WEOF || (unsigned)wc > 255)
+    if (wc == WEOF)
         return WEOF;
-    return ungetc((int)wc, f) == EOF ? WEOF : wc;
+    if ((unsigned)wc < 128 || (!mb_utf8() && (unsigned)wc <= 255))
+        return ungetc((int)wc, f) == EOF ? WEOF : wc;
+    if (!mb_utf8())
+        return WEOF;
+    bool held = hold(f);
+    wint_t r = f->pushed_wide ? WEOF : wc;      /* (43a-2: one character kept whole) */
+    if (!f->pushed_wide)
+        f->pushed_wide = wc, f->eof = false;
+    release(f, held);
+    return r;
 }
 
 wint_t fputwc(wchar_t wc, FILE *f)
@@ -1261,11 +1410,12 @@ wint_t fputwc(wchar_t wc, FILE *f)
     wint_t r = (wint_t)wc;
     if (!f->orientation)
         f->orientation = 1;
-    if ((unsigned)wc > 255) {
-        errno = EILSEQ;
+    char bytes[8];
+    size_t n = mb_encode(bytes, wc, 0);
+    if (n == (size_t)-1) {
         f->error = true;
         r = WEOF;
-    } else if (putc_unlocked((int)wc, f) == EOF) {
+    } else if (write_items(bytes, 1, n, f) != n) {
         r = WEOF;
     }
     release(f, held);
@@ -1392,4 +1542,307 @@ int fgetpos(FILE *f, fpos_t *pos)
 int fsetpos(FILE *f, const fpos_t *pos)
 {
     return fseek(f, *pos, SEEK_SET);
+}
+
+/* --- (43a) Lines, memory streams, streams of functions --- */
+
+ssize_t getdelim(char **line, size_t *size, int delimiter, FILE *f)
+{
+    if (!line || !size) {
+        errno = EINVAL;
+        return -1;
+    }
+    bool held = hold(f);
+    size_t n = 0;
+    for (;;) {
+        int c = getc_unlocked(f);
+        if (c == EOF)
+            break;
+        if (n + 2 > *size || !*line) {
+            size_t want = *size < 120 ? 120 : *size * 2;
+            char *bigger = realloc(*line, want);
+            if (!bigger) {
+                f->error = true;
+                release(f, held);
+                errno = ENOMEM;
+                return -1;
+            }
+            *line = bigger, *size = want;
+        }
+        (*line)[n++] = (char)c;
+        if (c == delimiter)
+            break;
+    }
+    release(f, held);
+    if (n == 0)
+        return -1;
+    (*line)[n] = 0;
+    return (ssize_t)n;
+}
+
+ssize_t getline(char **line, size_t *size, FILE *f)
+{
+    return getdelim(line, size, '\n', f);
+}
+
+/* A stream with no descriptor, on the list (fdopen's part). */
+static FILE *function_stream(const char *mode, cookie_io_functions_t io, void *cookie)
+{
+    FILE *f = fdopen(-1, mode);
+    if (!f)
+        return 0;
+    f->by_functions = true;
+    f->io = io;
+    f->cookie = cookie;
+    return f;
+}
+
+FILE *fopencookie(void *cookie, const char *mode, cookie_io_functions_t functions)
+{
+    return function_stream(mode, functions, cookie);
+}
+
+/* open_memstream's memory: what was written so far, the place written at,
+ * and where the caller wants to see it. */
+struct memstream {
+    char **buffer;
+    size_t *size;
+    char *data;
+    size_t length, room, at;
+};
+
+static ssize_t memstream_write(void *cookie, const char *buf, size_t n)
+{
+    struct memstream *m = cookie;
+    if (m->at + n + 1 > m->room) {
+        size_t want = m->room ? m->room : 256;
+        while (want < m->at + n + 1)
+            want *= 2;
+        char *bigger = realloc(m->data, want);
+        if (!bigger) {
+            errno = ENOMEM;
+            return -1;
+        }
+        memset(bigger + m->room, 0, want - m->room);
+        m->data = bigger, m->room = want;
+    }
+    memcpy(m->data + m->at, buf, n);
+    m->at += n;
+    if (m->at > m->length)
+        m->length = m->at;
+    m->data[m->length] = 0;
+    *m->buffer = m->data;
+    *m->size = m->at;
+    return (ssize_t)n;
+}
+
+static int memstream_seek(void *cookie, off64_t *offset, int whence)
+{
+    struct memstream *m = cookie;
+    off64_t base = whence == SEEK_SET ? 0 : whence == SEEK_CUR ? (off64_t)m->at : (off64_t)m->length;
+    if (base + *offset < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    m->at = (size_t)(base + *offset);
+    *offset = (off64_t)m->at;
+    *m->size = m->at;
+    return 0;
+}
+
+static int memstream_close(void *cookie)
+{
+    struct memstream *m = cookie;
+    if (!m->data)
+        m->data = calloc(1, 1);                 /* (an empty stream gives "") */
+    *m->buffer = m->data;
+    *m->size = m->at < m->length ? m->at : m->length;
+    free(m);
+    return 0;
+}
+
+FILE *open_memstream(char **buffer, size_t *size)
+{
+    if (!buffer || !size) {
+        errno = EINVAL;
+        return 0;
+    }
+    struct memstream *m = calloc(1, sizeof(*m));
+    if (!m) {
+        errno = ENOMEM;
+        return 0;
+    }
+    m->buffer = buffer, m->size = size;
+    *buffer = 0, *size = 0;
+    cookie_io_functions_t io = { 0, memstream_write, memstream_seek, memstream_close };
+    FILE *f = function_stream("w", io, m);
+    if (!f)
+        free(m);
+    return f;
+}
+
+/* fmemopen's buffer: size bytes, the data's end (length) and the place. */
+struct memfile {
+    unsigned char *buf;
+    size_t size, length, at;
+    bool own, append;
+};
+
+static ssize_t memfile_read(void *cookie, char *out, size_t n)
+{
+    struct memfile *m = cookie;
+    size_t left = m->at < m->length ? m->length - m->at : 0;
+    if (n > left)
+        n = left;
+    memcpy(out, m->buf + m->at, n);
+    m->at += n;
+    return (ssize_t)n;
+}
+
+static ssize_t memfile_write(void *cookie, const char *in, size_t n)
+{
+    struct memfile *m = cookie;
+    if (m->append)
+        m->at = m->length;
+    size_t left = m->size - m->at;
+    if (n > left)
+        n = left;
+    if (n == 0 && left == 0) {
+        errno = ENOSPC;
+        return -1;
+    }
+    memcpy(m->buf + m->at, in, n);
+    m->at += n;
+    if (m->at > m->length) {
+        m->length = m->at;
+        if (m->length < m->size)
+            m->buf[m->length] = 0;              /* (a NUL after the data while there is room) */
+    }
+    return (ssize_t)n;
+}
+
+static int memfile_seek(void *cookie, off64_t *offset, int whence)
+{
+    struct memfile *m = cookie;
+    off64_t base = whence == SEEK_SET ? 0 : whence == SEEK_CUR ? (off64_t)m->at : (off64_t)m->length;
+    off64_t to = base + *offset;
+    if (to < 0 || to > (off64_t)m->size) {
+        errno = EINVAL;
+        return -1;
+    }
+    m->at = (size_t)to;
+    *offset = to;
+    return 0;
+}
+
+static int memfile_close(void *cookie)
+{
+    struct memfile *m = cookie;
+    if (m->own)
+        free(m->buf);
+    free(m);
+    return 0;
+}
+
+FILE *fmemopen(void *buf, size_t size, const char *mode)
+{
+    if (size == 0 || !mode || !strchr("rwa", mode[0])) {
+        errno = EINVAL;
+        return 0;
+    }
+    struct memfile *m = calloc(1, sizeof(*m));
+    if (!m) {
+        errno = ENOMEM;
+        return 0;
+    }
+    m->own = !buf;
+    m->buf = buf ? buf : calloc(1, size);
+    if (!m->buf) {
+        free(m);
+        errno = ENOMEM;
+        return 0;
+    }
+    m->size = size;
+    if (mode[0] == 'r')
+        m->length = size;
+    else if (mode[0] == 'w')
+        m->buf[0] = 0;
+    else {
+        m->length = m->at = strnlen((const char *)m->buf, size);
+        m->append = true;
+    }
+    if (m->own && mode[0] == 'r' && !strchr(mode, '+'))
+        m->length = 0;
+    cookie_io_functions_t io = { memfile_read, memfile_write, memfile_seek, memfile_close };
+    FILE *f = function_stream(mode, io, m);
+    if (!f) {
+        memfile_close(m);
+        return 0;
+    }
+    return f;
+}
+
+/* The _unlocked forms (43a): the caller holds the stream. */
+int fgetc_unlocked(FILE *f) { return getc_unlocked(f); }
+int fputc_unlocked(int c, FILE *f) { return putc_unlocked(c, f); }
+
+size_t fread_unlocked(void *buf, size_t size, size_t count, FILE *f)
+{
+    return read_items(buf, size, count, f);
+}
+
+size_t fwrite_unlocked(const void *buf, size_t size, size_t count, FILE *f)
+{
+    return write_items(buf, size, count, f);
+}
+
+char *fgets_unlocked(char *s, int size, FILE *f)
+{
+    int n = 0;
+    while (n < size - 1) {
+        int c = getc_unlocked(f);
+        if (c == EOF)
+            break;
+        s[n++] = (char)c;
+        if (c == '\n')
+            break;
+    }
+    if (n == 0 || size <= 0)
+        return 0;
+    s[n] = 0;
+    return s;
+}
+
+int fputs_unlocked(const char *s, FILE *f)
+{
+    size_t n = strlen(s);
+    return n == 0 || write_items(s, 1, n, f) == n ? 0 : EOF;
+}
+
+int fflush_unlocked(FILE *f)
+{
+    return f->mode == WRITING ? drain(f) : 0;
+}
+
+int feof_unlocked(FILE *f) { return f->eof && f->pushed < 0; }
+int ferror_unlocked(FILE *f) { return f->error; }
+void clearerr_unlocked(FILE *f) { f->eof = f->error = false; }
+int fileno_unlocked(FILE *f) { return fileno(f); }
+
+void setbuffer(FILE *f, char *buf, size_t size)
+{
+    setvbuf(f, buf, buf ? _IOFBF : _IONBF, size);
+}
+
+void setlinebuf(FILE *f)
+{
+    setvbuf(f, 0, _IOLBF, 0);
+}
+
+char *ctermid(char *s)
+{
+    static char own[L_ctermid];
+    char *out = s ? s : own;
+    strcpy(out, "/dev/tty");
+    return out;
 }

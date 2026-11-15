@@ -8,6 +8,10 @@
 #ifndef RITTEROS_STDIO_H
 #define RITTEROS_STDIO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -128,5 +132,71 @@ int getc_unlocked(FILE *f);
 int getchar_unlocked(void);
 int putc_unlocked(int c, FILE *f);
 int putchar_unlocked(int c);
+
+/* (43a) What ported code expects beside C's:
+ * - fseeko/ftello: fseek and ftell with off_t positions;
+ * - getline/getdelim: a whole line (up to and with delimiter) into *line,
+ *   made bigger with realloc as needed (*size its room): its length, or -1
+ *   at the end;
+ * - open_memstream: a stream writing into memory: *buffer and *size give
+ *   what was written (NUL-terminated) after each fflush and at fclose,
+ *   then the buffer is the caller's to free; fmemopen: a stream over size
+ *   bytes of buf (a new buffer when buf is 0), read and written as a file;
+ * - fopencookie: GNU's stream over the caller's functions (read, write,
+ *   seek, close; any may be 0) and cookie, their first argument;
+ * - asprintf/vasprintf: printf into a new malloc'd string (*out); its
+ *   length, or -1;
+ * - the _unlocked forms of the stream functions (the caller holds the
+ *   stream with flockfile, or no other thread uses it);
+ * - setbuffer (setvbuf with size), setlinebuf (line-buffered), ctermid
+ *   ("/dev/tty"), tempnam (a temporary file's name in dir, the caller
+ *   frees it). */
+#include <sys/types.h>
+typedef int64_t off64_t;
+typedef ssize_t cookie_read_function_t(void *cookie, char *buf, size_t size);
+typedef ssize_t cookie_write_function_t(void *cookie, const char *buf, size_t size);
+typedef int cookie_seek_function_t(void *cookie, off64_t *offset, int whence);
+typedef int cookie_close_function_t(void *cookie);
+typedef struct {
+    cookie_read_function_t *read;
+    cookie_write_function_t *write;
+    cookie_seek_function_t *seek;
+    cookie_close_function_t *close;
+} cookie_io_functions_t;
+#define FILENAME_MAX    4096
+#define FOPEN_MAX       256
+#define P_tmpdir        "/tmp"
+#define L_ctermid       9
+int fseeko(FILE *f, off_t offset, int whence);
+off_t ftello(FILE *f);
+ssize_t getline(char **line, size_t *size, FILE *f);
+ssize_t getdelim(char **line, size_t *size, int delimiter, FILE *f);
+FILE *open_memstream(char **buffer, size_t *size);
+FILE *fmemopen(void *buf, size_t size, const char *mode);
+FILE *fopencookie(void *cookie, const char *mode, cookie_io_functions_t functions);
+int asprintf(char **out, const char *format, ...) __attribute__((format(printf, 2, 3)));
+int vasprintf(char **out, const char *format, va_list ap);
+int fgetc_unlocked(FILE *f);
+int fputc_unlocked(int c, FILE *f);
+size_t fread_unlocked(void *buf, size_t size, size_t count, FILE *f);
+size_t fwrite_unlocked(const void *buf, size_t size, size_t count, FILE *f);
+char *fgets_unlocked(char *s, int size, FILE *f);
+int fputs_unlocked(const char *s, FILE *f);
+int fflush_unlocked(FILE *f);
+int feof_unlocked(FILE *f);
+int ferror_unlocked(FILE *f);
+void clearerr_unlocked(FILE *f);
+int fileno_unlocked(FILE *f);
+void setbuffer(FILE *f, char *buf, size_t size);
+void setlinebuf(FILE *f);
+char *ctermid(char *s);
+char *tempnam(const char *dir, const char *prefix);
+
+/* (43b-1) rename with paths relative to folders' descriptors. */
+int renameat(int fromfd, const char *from, int tofd, const char *to);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

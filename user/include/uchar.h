@@ -18,11 +18,17 @@
 #ifndef RITTEROS_UCHAR_H
 #define RITTEROS_UCHAR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 
+#ifndef __cplusplus                     /* (43c: C++'s own types there) */
 typedef unsigned char char8_t;
 typedef __CHAR16_TYPE__ char16_t;
 typedef __CHAR32_TYPE__ char32_t;
+#endif
 
 #ifndef RITTEROS_MBSTATE_T
 #define RITTEROS_MBSTATE_T
@@ -31,11 +37,17 @@ typedef struct {
 } mbstate_t;
 #endif
 
+#if !defined(__cplusplus) || defined(__cpp_char8_t)   /* (C++ before 20 has no char8_t) */
 size_t mbrtoc8(char8_t *c, const char *s, size_t n, mbstate_t *state);
 size_t c8rtomb(char *s, char8_t c, mbstate_t *state);
+#endif
 size_t mbrtoc16(char16_t *c, const char *s, size_t n, mbstate_t *state);
 size_t c16rtomb(char *s, char16_t c, mbstate_t *state);
 size_t mbrtoc32(char32_t *c, const char *s, size_t n, mbstate_t *state);
 size_t c32rtomb(char *s, char32_t c, mbstate_t *state);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

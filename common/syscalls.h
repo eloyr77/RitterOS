@@ -24,14 +24,19 @@
 #define SYS_CLOSE       4       /* close(fd): 0 */
 #define SYS_SPAWN       5       /* spawn(path, argv, flags, fds, ids): the new child's ID */
 #define SYS_WAIT        6       /* wait(pid or -1, &status, flags): the ended child's ID */
-#define SYS_KILL        7       /* kill(pid, signal): 0 */
+#define SYS_KILL        7       /* kill(pid, signal): 0 (43b-5: pid 0 the caller's group,
+                                   -1 every process it may signal but itself and process 1,
+                                   below -1 the group -pid; signal 0 only asks: ERR_SRCH,
+                                   ERR_PERM) */
 #define SYS_GETPID      8       /* getpid(): the caller's process ID */
 #define SYS_SLEEP       9       /* sleep(milliseconds): 0 */
 #define SYS_STAT        10      /* stat(path, struct sys_stat *): 0 */
 #define SYS_READDIR     11      /* readdir(fd, struct sys_dirent *): 1, or 0 at the end */
 #define SYS_CHDIR       12      /* chdir(path): 0 */
 #define SYS_GETCWD      13      /* getcwd(buffer, size): length */
-#define SYS_GETPGRP     14      /* getpgrp(): the caller's process group */
+#define SYS_GETPGRP     14      /* getpgrp(pid, session): the caller's process group; (43b-6)
+                                   pid's (0: the caller), with session 1 its session's ID
+                                   (getsid): ERR_SRCH for no such process */
 #define SYS_FOREGROUND  15      /* foreground(group or 0): the terminal's foreground group */
 #define SYS_SIGNAL      16      /* signal(signal, action): 0 */
 #define SYS_SYSINFO     17      /* sysinfo(struct sys_info *): 0 */
@@ -106,6 +111,29 @@
                                  * program has a file open there or its directory there */
 #define SYS_TIME        44      /* time(): nanoseconds since 1970-01-01 UTC (0: unknown,
                                  * e.g. with noruntime) */
+
+/* (68p) The clock page: one page of the kernel's, mapped read-only into
+ * every program (its address is the auxiliary vector's AT_RITTEROS_CLOCK),
+ * so the library reads the clock without a system call, as Linux's vDSO
+ * data. The counter read (x86 rdtsc, ARM CNTVCT_EL0) plus `offset` is the
+ * kernel's own; nanoseconds since base_counter are delta / hz * 10^9 +
+ * delta % hz * 10^9 / hz, exactly as SYS_TIME counts them; the wall clock
+ * is base_ns plus that (base_ns 0: unknown), the monotonic clock that alone
+ * (date -s moves only base_ns). The kernel makes `sequence` odd while it
+ * changes the rest (the clock set, the counter carried over a sleep): a
+ * reader reads it, the fields, and it again, and reads again if it was odd
+ * or changed. counter 0: no such counter here; ask SYS_TIME. */
+#define AT_RITTEROS_CLOCK 4096  /* past Linux's AT_* numbers */
+#define SYS_CLOCK_TSC   1       /* x86's time stamp counter */
+#define SYS_CLOCK_CNTVCT 2      /* ARM's virtual counter */
+struct sys_clock {
+    uint32_t sequence;
+    uint32_t counter;           /* SYS_CLOCK_* */
+    uint64_t offset;            /* added to what the counter reads */
+    uint64_t hz;
+    uint64_t base_counter;      /* the counter (with offset) when the clock started */
+    uint64_t base_ns;           /* the wall clock then, in ns since 1970 (0: unknown) */
+};
 /*
  * The network. Addresses are IPv4, in host byte order (10.0.2.15 is
  * 0x0A00020F).
@@ -224,6 +252,125 @@
                                    ERR_IO */
 #define SYS_UNAME       116     /* uname(struct sys_utsname *) (68i): 0; the system's name,
                                    release (VERSION), commit and machine */
+/* (43b-2) Passing open files between programs (item 43): a local
+ * socket's bytes with descriptors (SCM_RIGHTS), and a connected pair. */
+#define SYS_SENDMSG     118     /* sendmsg(fd, struct sys_msghdr *, 0): the bytes, with the
+                                   descriptors fds[0..fd_count) passed along (a local socket;
+                                   at most 64; the receiver gets the same open files, as dup
+                                   gives); the bytes sent. Shared buffers (SYS_SHARE) cannot
+                                   go this way: ERR_INVAL */
+#define SYS_RECVMSG     119     /* recvmsg(fd, struct sys_msghdr *, 0): bytes, and the
+                                   descriptors passed with the first of them, as new ones of
+                                   this program (fds[], fd_count set to how many;
+                                   MSGHDR_CLOEXEC: marked FD_CLOEXEC; MSGHDR_CUT: more came
+                                   than fd_count had room for, the rest closed); a read stops
+                                   before the next message carrying descriptors */
+#define SYS_SOCKETPAIR  120     /* socketpair(SOCKET_LOCAL | OPEN_CLOEXEC/OPEN_NONBLOCK,
+                                   int fds[2]): two local sockets connected to each other */
+struct sys_msghdr {
+    uint64_t data;              /* the bytes (the program's address) and their length */
+    uint64_t length;
+    uint64_t fds;               /* an int array: the descriptors */
+    uint32_t fd_count;          /* sendmsg: how many; recvmsg: room, then how many came */
+    uint32_t flags;             /* MSGHDR_* */
+};
+#define MSGHDR_CLOEXEC  1       /* recvmsg: the descriptors received close at exec */
+#define MSGHDR_CUT      2       /* recvmsg (out): descriptors were cut off */
+#define MSGHDR_TRUNC    4       /* (45b) recvmsg (out): a packet socket's message was longer */
+
+/* (43b-3) Memory files (item 43): shared memory with a size, read and
+ * written through descriptors (FILE_MEMORY) and mapped MAP_SHARED by every
+ * program given one (sendmsg, fork). shm_open's are named in /dev/shm
+ * (open, unlink, ls there; owned by their maker, mode as a file's). */
+#define SYS_MEMFD       121     /* memfd(name, OPEN_CLOEXEC): a new, empty, unnamed memory
+                                   file open for reading and writing (name: what it is for, at
+                                   most 249 bytes, kept nowhere) */
+#define SYS_MADVISE     125     /* madvise(addr, length, MADVISE_*): DONTNEED and FREE take the
+                                   pages out (anonymous memory zeroed at the next touch, a
+                                   private file mapping's copies the file's again, shared
+                                   memory's content kept); WILLNEED does nothing */
+#define MADVISE_WILLNEED 3      /* (Linux's numbers) */
+#define MADVISE_DONTNEED 4
+#define MADVISE_FREE    8
+
+/* (43b-4) Waiting on counters, timers and locks (item 43). */
+#define SYS_EVENTFD     122     /* eventfd(initial, OPEN_CLOEXEC/OPEN_NONBLOCK, semaphore): an
+                                   event counter (FILE_EVENT): read takes it (8 bytes; with
+                                   semaphore 1 just 1), waiting while it is 0; write adds a
+                                   uint64_t, waiting while it would pass 2^64 - 2; poll */
+#define SYS_TIMERFD     123     /* timerfd(TIMERFD_*, ...): timers as descriptors (FILE_TIMER) */
+#define TIMERFD_CREATE  0       /* (clock, OPEN_CLOEXEC/OPEN_NONBLOCK): a disarmed timer; clock
+                                   Linux's CLOCK_REALTIME 0, _MONOTONIC 1 or _BOOTTIME 7 (68p:
+                                   1 and 7 the clock page's monotonic clock, 0 the date's) */
+#define TIMERFD_SET     1       /* (fd, value_ns, interval_ns, absolute, uint64_t old[2]): first
+                                   expiry value_ns from now (absolute: at that time of the
+                                   clock), then every interval_ns (0: once); value 0 disarms;
+                                   old: the time left and the interval before */
+#define TIMERFD_GET     2       /* (fd, uint64_t out[2]): the time left (0: disarmed), the interval */
+#define SYS_FLOCK       124     /* flock(fd, op): a whole-file lock held by the open file, op
+                                   Linux's LOCK_SH 1, LOCK_EX 2, LOCK_UN 8 (| LOCK_NB 4:
+                                   ERR_AGAIN instead of waiting) */
+/* FCNTL_GETLK, _SETLK, _SETLKW's struct (record locks, POSIX's: held by
+ * the process; Linux's command and type numbers). */
+#define FCNTL_GETLK     5       /* the first lock in the way of *l, or type FCNTL_UNLCK */
+#define FCNTL_SETLK     6       /* set or (FCNTL_UNLCK) let go of: ERR_AGAIN if in another's way */
+#define FCNTL_SETLKW    7       /* ... waiting until it is not */
+#define FCNTL_RDLCK     0
+#define FCNTL_WRLCK     1
+#define FCNTL_UNLCK     2
+struct sys_flock {
+    uint64_t start;             /* the first byte (absolute: the library works out whence) */
+    uint64_t length;            /* bytes, 0: to the end, however long the file gets */
+    uint32_t type;              /* FCNTL_RDLCK, _WRLCK, _UNLCK */
+    uint32_t pid;               /* (GETLK) the holder */
+};
+
+/* (43b-6) Threads and the system for ported programs (item 43). */
+#define SYS_THREAD_NAME 127     /* thread_name(number, set, buffer, size): a thread of the
+                                   calling program's name, as `threads` lists it: set (1) from
+                                   the string at buffer (at most 15 bytes: ERR_INVAL past), or
+                                   read (0) into buffer (16 bytes room: ERR_INVAL below);
+                                   ERR_SRCH for no such thread */
+
+/* (43b-1) Files for ported programs (item 43). */
+#define SYS_PREAD       128     /* pread(fd, buffer, size, offset): read at offset without
+                                   moving the descriptor's position (a file: ERR_SPIPE for
+                                   pipes, sockets, terminals) */
+#define SYS_PWRITE      129     /* pwrite(fd, buffer, size, offset): write at offset (even
+                                   with O_APPEND), the position unmoved */
+#define SYS_TRUNCATE    130     /* truncate(path, size): the file at path made size bytes long
+                                   (longer: zeros); who may write it */
+#define SYS_FTRUNCATE   131     /* ftruncate(fd, size): the same for a file open for writing */
+#define SYS_FSYNC       132     /* fsync(fd): what was written through fd committed now */
+#define SYS_FCHMOD      133     /* fchmod(fd, mode): chmod of an open file */
+#define SYS_FCHOWN      134     /* fchown(fd, uid, gid): chown of an open file (root) */
+#define SYS_FDPATH      135     /* fdpath(fd, buffer, size): the path the file or folder was
+                                   opened by (resolved: absolute; a rename since is not seen),
+                                   its length; ERR_NOTDIR... for a descriptor without one
+                                   (the library's *at calls start from it) */
+#define SYS_STATVFS     136     /* statvfs(path, struct sys_statvfs *): the file system the
+                                   path is on: its block size, blocks and free blocks */
+#define SYS_SET_TIME    137     /* set_time(ns): (68l) the clock set to ns since 1970 UTC,
+                                   and the firmware's clock (root only): 0, -ERR_PERM */
+#define SYS_SOUND       138     /* sound(fd, op): (68v) on an open /dev/pcmN: SOUND_DELAY the
+                                   bytes written and not yet played (0 once all played),
+                                   SOUND_RESET what is buffered dropped at once (silence; the
+                                   next write starts again, a close does not wait); -ERR_NOTTY
+                                   on any other descriptor or a card that cannot.
+                                   (68z) SOUND_MAY_PLAY on a connected local socket: 1 if
+                                   the program at its other end may play sound (root, or
+                                   the user at the console: /dev/pcmN's rule), else 0;
+                                   for a sound server (soundd) */
+#define SOUND_DELAY     0
+#define SOUND_RESET     1
+#define SOUND_MAY_PLAY  2
+#define SYS_PEER_PROGRAM 139    /* peer_program(fd, buffer, size): (70c) the program at the
+                                   other end of a connected local socket: the full path of
+                                   the file its process ran when it connected (a client) or
+                                   bound the name (a server); a #! script's interpreter. The
+                                   path's length; -ERR_NOTCONN, -ERR_NAMETOOLONG (size too
+                                   small for it and its NUL), -ERR_BADF */
+#define PROGRAM_PATH_MAX 256    /* (70c) a program's path, with its NUL */
 #define SYS_NETINFO6    110     /* netinfo6(struct sys_netinfo6 *): 0; a card's IPv6
                                    addresses, router, DNS server and MTU (64d), by name
                                    or by place as netinfo */
@@ -302,8 +449,9 @@
                                  * with an environment (22t: an array of "NAME=value"
                                  * strings ended by a null pointer, on the child's stack
                                  * after its arguments) */
-#define SYS_CPUTIME     75      /* cputime(): the CPU time the calling program has run, all
-                                 * its threads, in nanoseconds (22o: C's clock) */
+#define SYS_CPUTIME     75      /* cputime(which): the CPU time the calling program has run,
+                                 * all its threads, in nanoseconds (22o: C's clock); (43b-6)
+                                 * which 1: the calling thread's alone */
 #define SYS_SIGACTION   76      /* sigaction(signal, struct sys_sigaction *new or 0, *old or 0,
                                  * restorer): a signal's handler (22r; restorer: where a
                                  * handler returns to, the library's call of SYS_SIGRETURN) */
@@ -366,6 +514,9 @@
                                  * signal handler (its own stack, all signals blocked) */
 #define THREAD_INTERRUPT_WAKE  0
 #define THREAD_INTERRUPT_ENTER 1
+#define THREAD_INTERRUPT_SIGNAL 2   /* (43b-5, pthread_kill) the signal `entry` to that thread
+                                       alone: its handler runs there; 0 only asks whether it
+                                       is there */
 #define SYS_FCNTL       90      /* fcntl(fd, FCNTL_*, arg): a descriptor's flags (53b): see below */
 #define SYS_SHUTDOWN    87      /* shutdown(fd, SHUTDOWN_*): 0; a connection's sending or
                                  * receiving side ended, the descriptor kept (53a) */
@@ -496,7 +647,9 @@ struct sys_pollfd {
 #define INPUT_POINTER   1       /* the pointer moved or a button changed */
 #define INPUT_KEY       2       /* a key: `key` is the byte the terminal would have received */
 #define INPUT_WHEEL     3       /* the mouse wheel turned: `key` holds the steps as a signed byte,
-                                 * negative up (away from the user); x, y the pointer (15o) */
+                                 * negative up (away from the user); x, y the pointer (15o);
+                                 * (68m-1) `buttons` the horizontal wheel's steps as a signed
+                                 * byte, positive to the right; `modifiers` the keys held */
 #define INPUT_KEYCODE   4       /* a physical key pressed (buttons 1) or released (buttons 0):
                                  * `key` is its USB HID usage ID, modifiers too (15p) */
 #define INPUT_SCREEN    5       /* (66b-5) the screen has a new mode (DISPLAY_SET_MODE): x, y
@@ -589,6 +742,11 @@ struct sys_display_set_mode {
 #define FCNTL_GETFL     3
 #define FCNTL_SETFL     4
 #define FCNTL_DUPFD_CLOEXEC 1030
+#define FCNTL_ADD_SEALS 1033    /* (43b-3) a memory file's seals, Linux's F_SEAL_* bits: SEAL 1
+                                   (no more), SHRINK 2, GROW 4, WRITE 8 (ERR_BUSY while a
+                                   program maps it writable), FUTURE_WRITE 16; ERR_PERM after
+                                   SEAL, ERR_INVAL on another kind of file */
+#define FCNTL_GET_SEALS 1034
 #define FCNTL_CLOEXEC   1
 #define SOCKET_DONTWAIT 1
 #define SHUTDOWN_READ   0
@@ -614,6 +772,9 @@ struct sys_display_set_mode {
 #define SOCKET_INET6    0x100   /* (64c) with SOCKET_UDP or SOCKET_TCP: an IPv6 socket */
 #define SOCKET_LOCAL    3       /* a local (Unix-domain) stream socket, named by a path-like
                                  * string in a kernel registry (not a file on the disk) */
+#define SOCKET_LOCAL_SEQPACKET 4 /* (45b) a local socket that keeps its messages whole
+                                 * (SOCK_SEQPACKET): socket, socketpair and SO_TYPE; its
+                                 * sockname's type is SOCKET_LOCAL */
 #define LOCAL_PATH_MAX  108     /* a local socket's name, with its NUL (like Unix sun_path) */
 
 struct sys_sockname {           /* (53a) sockname's answer */
@@ -1078,6 +1239,8 @@ struct sys_snapshot {
  * standard input, output and error (int32 each; -1: the caller's own fd
  * 0, 1 or 2). Without them the child gets the caller's 0, 1 and 2. */
 #define WAIT_NO_HANG    1       /* wait flag: return 0 at once if no child has ended */
+#define WAIT_UNTRACED   2       /* (44a) also a child stopped since the last report (WUNTRACED) */
+#define WAIT_CONTINUED  8       /* (44a) also a child continued since the last report (WCONTINUED) */
 
 /* signal() actions (SYS_SIGNAL, the call before 22r's SYS_SIGACTION; kept
  * for older programs). SIGNAL_IGNORE (SIGINT and SIGTERM only there): the
@@ -1102,6 +1265,14 @@ struct sys_snapshot {
                                    woken by the RTC's alarm; (37g-7) 0: until woken (the power
                                    button): 0 once awake again, ERR_INVAL for more than a day, ERR_IO when it did not sleep (the kernel's
                                    log says why: a driver that cannot); root only */
+#define POWER_SETTINGS  6       /* (69a) /system/config/power read again and applied at once
+                                   (the power button, the lid, screen_off, screen_dim,
+                                   sleep_after; power settings), what was applied as text
+                                   lines into buffer (args[1], size args[2]): the full length;
+                                   root only */
+#define POWER_CLOCK     7       /* (69a) /system/config/cpu read again and its clock applied on
+                                   every core (power clock); its line as POWER_SETTINGS's; root
+                                   only */
 
 /*
  * foreground(group): make group (of the caller's session) the terminal's
@@ -1128,6 +1299,17 @@ struct sys_stat {
     uint32_t mode;              /* permissions: rwxrwxrwx bits */
     uint32_t device;            /* which file system: 1 the system's, then each volume
                                  * (a mount point differs from its parent); 0 for /dev */
+};
+
+/* (43b-1) SYS_STATVFS's answer: a file system's sizes, in blocks of
+ * block_size bytes (a RitterFS: 4 KiB; the room snapshots hold back counts
+ * as used). */
+struct sys_statvfs {
+    uint64_t block_size;
+    uint64_t blocks, free_blocks;
+    uint64_t name_max;          /* a name's longest */
+    uint32_t read_only;         /* 1: a snapshot's view, a read-only medium */
+    uint32_t device;            /* as sys_stat's */
 };
 
 /* (63m) SYS_UTIMENS's times. */
@@ -1181,7 +1363,24 @@ struct sys_info {
 #define SIGPIPE         13
 #define SIGALRM         14
 #define SIGTERM         15
-#define SIGCHLD         17
+#define SIGSTKFLT       16      /* (43b-5: the rest of Linux's numbers) */
+#define SIGCHLD         17      /* a child ended (43b-5: sent to its parent; ignored unless
+                                   handled) */
+#define SIGCONT         18      /* (44a) a stopped process goes on (also when ignored or
+                                   blocked); its handler runs, if it has one */
+#define SIGSTOP         19      /* (44a) the stop signals: the process stops (its threads */
+#define SIGTSTP         20      /* park until SIGCONT); SIGSTOP cannot be handled, ignored */
+#define SIGTTIN         21      /* or blocked, the others stop it only by default */
+#define SIGTTOU         22
+#define SIGURG          23      /* (ignored unless handled) */
+#define SIGXCPU         24
+#define SIGXFSZ         25
+#define SIGVTALRM       26
+#define SIGPROF         27
+#define SIGWINCH        28      /* (ignored unless handled) */
+#define SIGIO           29
+#define SIGPWR          30
+#define SIGSYS          31
 #define SIGNALS         32      /* signals are 1 to 31 */
 #define SIGMASK_BLOCK   0       /* sigprocmask (52f): add set, take it away, or set it */
 #define SIGMASK_UNBLOCK 1
@@ -1199,8 +1398,50 @@ struct sys_sigaction {
 };
 #define SIGACTION_RESETHAND 1
 #define SIGACTION_NODEFER   2
+#define SIGACTION_ONSTACK   4   /* (43b-5) on the thread's alternate stack (SYS_SIGALTSTACK) */
+#define SIGACTION_SIGINFO   8   /* (43b-5) kept for the program; every handler is given the
+                                   info and the context (rsi/rdx, x1/x2) */
+#define SIGACTION_NOCLDSTOP 16  /* (44a) SIGCHLD's: none for a child's stop or continuing */
+
+/* (43b-5) What a handler is told, its second argument (the third is its
+ * context: the library's ucontext_t, the registers it may read and change
+ * for sigreturn): Linux's siginfo_t layout, 128 bytes. */
+struct sys_siginfo {
+    int32_t signo, error, code, pad;
+    uint64_t a;                 /* si_pid | si_uid << 32 (kill, SIGCHLD); a fault's si_addr */
+    uint64_t b;                 /* SIGCHLD's si_status (the exit code, or the signal) */
+    uint64_t unused[12];
+};
+#define SI_USER         0       /* (si_code) kill */
+#define SI_KERNEL       0x80    /* the system: the terminal, a pipe */
+#define SI_TKILL        (-6)    /* pthread_kill */
+#define CLD_EXITED      1       /* SIGCHLD: it called exit */
+#define CLD_KILLED      2       /* ... a signal ended it */
+#define CLD_STOPPED     5       /* (44a) ... a signal stopped it (si_status: which) */
+#define CLD_CONTINUED   6       /* (44a) ... SIGCONT made it go on */
+#define SEGV_MAPERR     1       /* nothing mapped there */
+#define SEGV_ACCERR     2       /* mapped without that access */
+#define BUS_ADRERR      2       /* past a mapped file's end */
+#define ILL_ILLOPC      1
+#define FPE_INTDIV      1
+
+/* (43b-5) A thread's alternate stack for handlers marked
+ * SIGACTION_ONSTACK: sigaltstack(const struct sys_sigstack *new or 0,
+ * struct sys_sigstack *old or 0); Linux's stack_t layout. */
+#define SYS_SIGALTSTACK 126
+struct sys_sigstack {
+    uint64_t sp;                /* its lowest address */
+    int32_t flags;              /* SIGSTACK_* */
+    int32_t pad;
+    uint64_t size;
+};
+#define SIGSTACK_ONSTACK 1      /* (old) the thread runs on it now */
+#define SIGSTACK_DISABLE 2      /* none */
+#define SIGSTACK_MIN    2048    /* the least size taken (MINSIGSTKSZ) */
 #define STATUS_EXITED(code)     (((code) & 0xFF) << 8)
 #define STATUS_SIGNALED(sig)    ((sig) & 0x7F)
+#define STATUS_STOPPED(sig)     ((((sig) & 0xFF) << 8) | 0x7F)  /* (44a) as Linux's */
+#define STATUS_CONTINUED        0xFFFF
 
 /* open() flags: one of the three access modes, and any of the others. A
  * file that was written is committed when it is closed (also at a
@@ -1215,6 +1456,10 @@ struct sys_sigaction {
 #define OPEN_NONBLOCK   128     /* (53b) reads, writes, accept and connect never wait: EAGAIN
                                  * (connect: EINPROGRESS, then poll for POLLOUT) */
 #define OPEN_EXCLUSIVE  64      /* (52j) with OPEN_CREATE: ERR_EXIST if the name is taken (O_EXCL) */
+#define OPEN_CLOEXEC    512     /* (43b-1) the descriptor closes at exec (FD_CLOEXEC), set as it
+                                 * is made; also taken by SYS_SOCKET (or'd with its kind, with
+                                 * OPEN_NONBLOCK), SYS_ACCEPT (its third argument: accept4) and
+                                 * SYS_PIPE (its second: pipe2) */
 #define OPEN_MODE       32      /* (52b) the third argument is a created file's mode (open's
                                  * own: O_CREAT's mode argument); programs built before it
                                  * passed 0 there and get 0644 */
@@ -1239,7 +1484,8 @@ struct sys_sigaction {
 #define ERR_LOOP        40      /* (57a) more than 40 symbolic links in one path */
 #define ERR_NOTSOCK     88      /* (53a) a socket call on another kind of descriptor */
 #define ERR_DESTADDRREQ 89      /* (53a, the library's) a datagram without an address */
-#define ERR_MSGSIZE     90      /* (53a) a datagram too long */
+#define ERR_MSGSIZE     90      /* (53a) a datagram too long (45b: a packet socket's message) */
+#define ERR_PROTOTYPE   91      /* (45b) a local socket's kind is not its listener's */
 #define ERR_NOPROTOOPT  92      /* (53a) no such socket option */
 #define ERR_PROTONOSUPPORT 93   /* (53a) socket(): no such protocol for the family */
 #define ERR_SOCKTNOSUPPORT 94   /* (53a) socket(): no such type */
@@ -1265,6 +1511,7 @@ struct sys_sigaction {
 #define ERR_INVAL       22      /* an invalid argument */
 #define ERR_MFILE       24      /* too many open files */
 #define ERR_ROFS        30      /* the file system is read-only (for programs, so far) */
+#define ERR_SPIPE       29      /* (43b-1) not a file one can seek in (pread on a pipe) */
 #define ERR_NAMETOOLONG 36      /* a path that is too long */
 #define ERR_NOSYS       38      /* no such system call */
 #define ERR_NOTEMPTY    39      /* removing a directory that is not empty */

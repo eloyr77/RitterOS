@@ -1,0 +1,56 @@
+# ritteros.meson (43d): Meson's cross file for RitterOS programs, the same
+# build ritteros.mk makes: zig's clang for C and C++ (RitterOS's headers,
+# RitterOS's libc++ for C++), linked by zig's lld through sdk/ritteros-ld.
+#
+#   meson setup build --cross-file RITTEROS/sdk/ritteros.meson
+#   meson compile -C build
+#
+# For aarch64: a copy of it with arch = 'aarch64', and (it lies elsewhere)
+# ritteros = the checkout's path:
+#   sed -e "s/^arch = .*/arch = 'aarch64'/" -e "s|^ritteros = .*|ritteros = '$RITTEROS'|" \
+#       $RITTEROS/sdk/ritteros.meson > ritteros-aarch64.meson
+# It uses the checkout's own zig (tools/zig, from scripts/setup-toolchain.sh)
+# and RitterOS's libraries from its build: run `make sdk` there first.
+# dependency() finds RitterOS's libraries through pkg-config (sdk/pkgconfig),
+# (46e) the system libraries from upstream too (openssl, libcurl, zlib, ...:
+# their headers are on every compile line, as /system/include on the
+# machine; -lssl and the others resolve through sdk/ritteros-ld).
+# Programs are built on this computer only: RitterOS has no Meson. See
+# docs/porting.md.
+
+[constants]
+arch = 'x86_64'
+ritteros = '@DIRNAME@' / '..'
+zig = ritteros / 'tools/zig/zig'
+zig_lib = ritteros / 'tools/zig/lib'
+target = '--target=' + arch + '-unknown-none-elf'
+link = ['--target=' + arch + '-linux-gnu', '-nostdlib', '-fuse-ld=' + ritteros / 'sdk/ritteros-ld']
+
+[binaries]
+c = [zig, 'clang', target]
+cpp = [zig, 'clang', target]
+ar = [zig, 'ar']
+pkg-config = [ritteros / 'tools/venv/bin/pkgconf', '--define-variable=arch=' + arch]
+
+[built-in options]
+c_args = ['-ffreestanding', '-nostdinc', '-isystem', zig_lib / 'include', '-isystem', ritteros / 'user/include',
+          '-isystem', ritteros / 'build/upstream/include',
+          '-fno-stack-protector', '-fno-asynchronous-unwind-tables']
+cpp_args = ['-nostdinc', '-nostdinc++', '-include', ritteros / 'user/cxx/__config_site',
+            '-isystem', zig_lib / 'libcxx/include', '-isystem', zig_lib / 'libcxxabi/include',
+            '-isystem', ritteros / 'user/include', '-isystem', ritteros / 'build/upstream/include',
+            '-isystem', zig_lib / 'include', '-fno-stack-protector', '-funwind-tables']
+c_link_args = link
+cpp_link_args = link
+b_pie = true
+b_staticpic = true
+
+[properties]
+pkg_config_libdir = ritteros / 'sdk/pkgconfig'
+needs_exe_wrapper = true
+
+[host_machine]
+system = 'ritteros'
+cpu_family = arch
+cpu = arch
+endian = 'little'

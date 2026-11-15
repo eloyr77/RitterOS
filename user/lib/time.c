@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include "ritteros.h"
 
@@ -146,6 +147,21 @@ struct tm *localtime(const time_t *t)
 {
     static struct tm shared;
     return localtime_r(t, &shared);
+}
+
+/* (43a) The seconds of tm's date in UTC, its fields carried as mktime's. */
+time_t timegm(struct tm *tm)
+{
+    int64_t y = (int64_t)tm->tm_year + 1900 + floor_div(tm->tm_mon, 12);
+    int64_t mon = tm->tm_mon - floor_div(tm->tm_mon, 12) * 12;
+    int64_t days = days_to_year(y) + month_start[leap(y)][mon] + tm->tm_mday - 1;
+    int64_t t = days * 86400 + (int64_t)tm->tm_hour * 3600 + (int64_t)tm->tm_min * 60 + tm->tm_sec;
+    fill_date(t, 0, "UTC", tm);
+    return (time_t)t;
+}
+
+void tzset(void)
+{
 }
 
 time_t mktime(struct tm *tm)
@@ -304,9 +320,15 @@ size_t strftime(char *s, size_t max, const char *format, const struct tm *tm)
 char *asctime(const struct tm *tm)
 {
     static char text[64];
+    return asctime_r(tm, text);
+}
+
+/* (43a: asctime's, into the caller's 26 bytes) */
+char *asctime_r(const struct tm *tm, char *text)
+{
     int wday = tm->tm_wday >= 0 && tm->tm_wday < 7 ? tm->tm_wday : 0;
     int mon = tm->tm_mon >= 0 && tm->tm_mon < 12 ? tm->tm_mon : 0;
-    snprintf(text, sizeof(text), "%.3s %.3s%3d %.2d:%.2d:%.2d %d\n", day_names[wday],
+    snprintf(text, 26, "%.3s %.3s%3d %.2d:%.2d:%.2d %d\n", day_names[wday],
              month_names[mon], tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec,
              tm->tm_year + 1900);
     return text;
@@ -317,6 +339,12 @@ char *ctime(const time_t *t)
     return asctime(localtime(t));
 }
 
+char *ctime_r(const time_t *t, char *buf)
+{
+    struct tm tm;
+    return asctime_r(localtime_r(t, &tm), buf);
+}
+
 /* --- 22r: timespecs --- */
 
 static void to_timespec(uint64_t ns, struct timespec *ts)
@@ -325,10 +353,17 @@ static void to_timespec(uint64_t ns, struct timespec *ts)
     ts->tv_nsec = (long)(ns % 1000000000);
 }
 
-/* Nanoseconds that only go forward: the date's clock (the CPU's counter,
- * set from the firmware once), or the timer's ticks without one. */
+bool __ritteros_clock(uint64_t *since, uint64_t *base);   /* (syscalls.c) */
+
+/* Nanoseconds that only go forward: (68p) since the clock started, from the
+ * clock page (date -s does not move it); on a kernel without the page the
+ * date's clock (the CPU's counter, set from the firmware once), or the
+ * timer's ticks without one. */
 static uint64_t monotonic_ns(void)
 {
+    uint64_t since, base;
+    if (__ritteros_clock(&since, &base))
+        return since;
     uint64_t ns = ritteros_time();
     if (ns)
         return ns;
@@ -350,12 +385,18 @@ int timespec_get(struct timespec *ts, int base)
 int clock_gettime(clockid_t clock, struct timespec *ts)
 {
     int64_t ns;
+    if (clock == CLOCK_REALTIME_COARSE)
+        clock = CLOCK_REALTIME;                 /* (43a: Linux's other names) */
+    else if (clock == CLOCK_MONOTONIC_RAW || clock == CLOCK_MONOTONIC_COARSE || clock == CLOCK_BOOTTIME)
+        clock = CLOCK_MONOTONIC;
     if (clock == CLOCK_REALTIME)
         ns = (int64_t)ritteros_time();
     else if (clock == CLOCK_MONOTONIC)
         ns = (int64_t)monotonic_ns();
     else if (clock == CLOCK_PROCESS_CPUTIME_ID)
         ns = syscall6(SYS_CPUTIME, 0, 0, 0, 0, 0, 0);
+    else if (clock == CLOCK_THREAD_CPUTIME_ID)
+        ns = syscall6(SYS_CPUTIME, 1, 0, 0, 0, 0, 0);     /* (43b-6) */
     else
         ns = -1;
     if (ns < 0 || (ns == 0 && clock == CLOCK_REALTIME)) {
@@ -363,6 +404,24 @@ int clock_gettime(clockid_t clock, struct timespec *ts)
         return -1;
     }
     to_timespec((uint64_t)ns, ts);
+    return 0;
+}
+
+/* (68l) */
+int clock_settime(clockid_t clock, const struct timespec *ts)
+{
+    if (clock == CLOCK_REALTIME_COARSE)
+        clock = CLOCK_REALTIME;
+    if (clock != CLOCK_REALTIME || !ts || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000) {
+        errno = EINVAL;
+        return -1;
+    }
+    int64_t r = syscall6(SYS_SET_TIME, (int64_t)((uint64_t)ts->tv_sec * 1000000000ULL + (uint64_t)ts->tv_nsec),
+                         0, 0, 0, 0, 0);
+    if (r < 0) {
+        errno = (int)-r;
+        return -1;
+    }
     return 0;
 }
 
@@ -384,4 +443,253 @@ int nanosleep(const struct timespec *req, struct timespec *rem)
     }
     errno = (int)-r;
     return -1;
+}
+
+/* (43a) Every clock counts nanoseconds; the date's and the counter's are
+ * finer than a microsecond, the CPU time a tick's. */
+int clock_getres(clockid_t clock, struct timespec *resolution)
+{
+    struct timespec now;
+    if (clock_gettime(clock, &now) < 0)
+        return -1;
+    if (resolution) {
+        resolution->tv_sec = 0;
+        resolution->tv_nsec = clock == CLOCK_PROCESS_CPUTIME_ID || clock == CLOCK_THREAD_CPUTIME_ID ? 10000000 : 1;
+    }
+    return 0;
+}
+
+int clock_nanosleep(clockid_t clock, int flags, const struct timespec *request, struct timespec *remain)
+{
+    if (clock == CLOCK_THREAD_CPUTIME_ID || clock == CLOCK_PROCESS_CPUTIME_ID)
+        return EINVAL;
+    struct timespec now, wait = *request;
+    if (flags & TIMER_ABSTIME) {
+        if (clock_gettime(clock, &now) < 0)
+            return EINVAL;
+        int64_t ns = (int64_t)(request->tv_sec - now.tv_sec) * 1000000000 + (request->tv_nsec - now.tv_nsec);
+        if (ns <= 0)
+            return 0;
+        to_timespec((uint64_t)ns, &wait);
+        remain = 0;
+    }
+    int saved = errno;
+    int r = nanosleep(&wait, remain) < 0 ? errno : 0;
+    errno = saved;
+    return r;
+}
+
+/* --- (43a) strptime --- */
+
+/* A number of at most width digits (and a sign when signed) between lo
+ * and hi; the place after it, or 0. */
+static const char *number_at(const char *s, int width, int lo, int hi, int *out)
+{
+    while (*s == ' ' || *s == '\t' || *s == '\n')
+        s++;
+    bool negative = false;
+    if (lo < 0 && (*s == '-' || *s == '+'))
+        negative = *s++ == '-';
+    if (*s < '0' || *s > '9')
+        return 0;
+    long v = 0;
+    for (int i = 0; i < width && *s >= '0' && *s <= '9'; i++)
+        v = v * 10 + (*s++ - '0');
+    if (negative)
+        v = -v;
+    if (v < lo || v > hi)
+        return 0;
+    *out = (int)v;
+    return s;
+}
+
+/* One of names (count of them), or its first three letters, without
+ * case; its index into *out. */
+static const char *name_at(const char *s, const char *const *names, int count, int *out)
+{
+    for (int i = 0; i < count; i++) {
+        size_t n = strlen(names[i]);
+        if (strncasecmp(s, names[i], n) == 0) {
+            *out = i;
+            return s + n;
+        }
+    }
+    for (int i = 0; i < count; i++)
+        if (strncasecmp(s, names[i], 3) == 0) {
+            *out = i;
+            return s + 3;
+        }
+    return 0;
+}
+
+char *strptime(const char *s, const char *format, struct tm *tm)
+{
+    int v, century = -1, year_in_century = -1, pm = -1;
+    bool year = false, month = false, day = false;
+    for (const char *f = format; *f && s; f++) {
+        if (*f == ' ' || *f == '\t' || *f == '\n') {
+            while (*s == ' ' || *s == '\t' || *s == '\n')
+                s++;
+            continue;
+        }
+        if (*f != '%') {
+            if (*s != *f)
+                return 0;
+            s++;
+            continue;
+        }
+        f++;
+        if (*f == 'E' || *f == 'O')
+            f++;                                /* (the C locale's alternatives are the same) */
+        switch (*f) {
+        case '%':
+            if (*s != '%')
+                return 0;
+            s++;
+            break;
+        case 'a': case 'A':
+            s = name_at(s, day_names, 7, &tm->tm_wday);
+            break;
+        case 'b': case 'B': case 'h':
+            s = name_at(s, month_names, 12, &tm->tm_mon);
+            month = true;
+            break;
+        case 'c':
+            s = strptime(s, "%a %b %e %H:%M:%S %Y", tm);
+            break;
+        case 'C':
+            if ((s = number_at(s, 2, 0, 99, &v)))
+                century = v;
+            year = true;
+            break;
+        case 'd': case 'e':
+            s = number_at(s, 2, 1, 31, &tm->tm_mday);
+            day = true;
+            break;
+        case 'D': case 'x':
+            s = strptime(s, "%m/%d/%y", tm);
+            break;
+        case 'F':
+            s = strptime(s, "%Y-%m-%d", tm);
+            break;
+        case 'H': case 'k':
+            s = number_at(s, 2, 0, 23, &tm->tm_hour);
+            break;
+        case 'I': case 'l':
+            s = number_at(s, 2, 1, 12, &tm->tm_hour);
+            break;
+        case 'j':
+            if ((s = number_at(s, 3, 1, 366, &v)))
+                tm->tm_yday = v - 1;
+            break;
+        case 'm':
+            if ((s = number_at(s, 2, 1, 12, &v)))
+                tm->tm_mon = v - 1;
+            month = true;
+            break;
+        case 'M':
+            s = number_at(s, 2, 0, 59, &tm->tm_min);
+            break;
+        case 'n': case 't':
+            while (*s == ' ' || *s == '\t' || *s == '\n')
+                s++;
+            break;
+        case 'p':
+            if (strncasecmp(s, "AM", 2) == 0)
+                pm = 0, s += 2;
+            else if (strncasecmp(s, "PM", 2) == 0)
+                pm = 1, s += 2;
+            else
+                s = 0;
+            break;
+        case 'r':
+            s = strptime(s, "%I:%M:%S %p", tm);
+            break;
+        case 'R':
+            s = strptime(s, "%H:%M", tm);
+            break;
+        case 's': {
+            while (*s == ' ')
+                s++;
+            char *end;
+            long long secs = strtoll(s, &end, 10);
+            if (end == s)
+                return 0;
+            time_t t = (time_t)secs;
+            localtime_r(&t, tm);
+            s = end;
+            break;
+        }
+        case 'S':
+            s = number_at(s, 2, 0, 60, &tm->tm_sec);
+            break;
+        case 'T': case 'X':
+            s = strptime(s, "%H:%M:%S", tm);
+            break;
+        case 'u':
+            if ((s = number_at(s, 1, 1, 7, &v)))
+                tm->tm_wday = v % 7;
+            break;
+        case 'w':
+            s = number_at(s, 1, 0, 6, &tm->tm_wday);
+            break;
+        case 'U': case 'W': case 'V':
+            s = number_at(s, 2, 0, 53, &v);     /* (read, not used: as glibc) */
+            break;
+        case 'y':
+            if ((s = number_at(s, 2, 0, 99, &v)))
+                year_in_century = v;
+            year = true;
+            break;
+        case 'Y':
+            if ((s = number_at(s, 4, -9999, 9999, &v)))
+                tm->tm_year = v - 1900, century = year_in_century = -1;
+            year = true;
+            break;
+        case 'z': {
+            while (*s == ' ')
+                s++;
+            if (*s == 'Z') {
+                tm->tm_gmtoff = 0;
+                s++;
+                break;
+            }
+            if (*s != '+' && *s != '-')
+                return 0;
+            int sign = *s++ == '-' ? -1 : 1, h, m = 0;
+            if (!(s = number_at(s, 2, 0, 24, &h)))
+                return 0;
+            if (*s == ':')
+                s++;
+            if (*s >= '0' && *s <= '9' && !(s = number_at(s, 2, 0, 59, &m)))
+                return 0;
+            tm->tm_gmtoff = sign * (h * 3600L + m * 60L);
+            break;
+        }
+        case 'Z':
+            while ((*s >= 'A' && *s <= 'Z') || (*s >= 'a' && *s <= 'z'))
+                s++;
+            break;
+        default:
+            return 0;
+        }
+    }
+    if (!s)
+        return 0;
+    if (year_in_century >= 0)
+        tm->tm_year = (century >= 0 ? century * 100 + year_in_century
+                       : year_in_century + (year_in_century < 69 ? 2000 : 1900)) - 1900;
+    else if (century >= 0)
+        tm->tm_year = century * 100 - 1900;
+    if (pm >= 0)
+        tm->tm_hour = tm->tm_hour % 12 + (pm ? 12 : 0);
+    if (year && month && day && tm->tm_mon >= 0 && tm->tm_mon < 12) {
+        /* a whole date: its weekday and day of the year, as glibc's and
+         * the BSDs' strptime give them */
+        int64_t y = (int64_t)tm->tm_year + 1900;
+        int64_t days = days_to_year(y) + month_start[leap(y)][tm->tm_mon] + tm->tm_mday - 1;
+        tm->tm_wday = (int)(((days % 7) + 11) % 7);         /* (1970-01-01 was a Thursday) */
+        tm->tm_yday = month_start[leap(y)][tm->tm_mon] + tm->tm_mday - 1;
+    }
+    return (char *)s;
 }

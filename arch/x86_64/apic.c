@@ -13,7 +13,11 @@
  * and then masked completely; the IO APIC takes their place later.
  *
  * The APIC timer counts down at the (unknown) bus frequency, so it is
- * measured against the PIT first, then started in periodic mode.
+ * measured against the PIT first. (45a) It runs one-shot: every interrupt
+ * arms it for the earlier of the core's next tick (an exact schedule in
+ * time stamp counter counts, TIMER_HZ a second) and its earliest precise
+ * deadline (sched_precise_due, arch_timer_wake_at); until 45a it was
+ * periodic.
  *
  * PCI devices signal interrupts with messages (MSI-X): a memory write of the
  * vector number to 0xFEE00000 | (APIC ID << 12), which the Local APIC of
@@ -32,6 +36,7 @@
 #include "madt.h"
 #include "paging.h"
 #include "string.h"
+#include "cpus.h"
 #include "percpu.h"
 #include "sched.h"
 #include "timer.h"
@@ -84,6 +89,11 @@ static uint32_t lapic_id;
 void x86_tlb_serve(void);                   /* smp.c */
 void x86_sleep_park(void);                  /* sleep.c */
 static uint32_t timer_count;              /* (65c) every core's tick, in timer counts */
+static uint64_t timer_hz;                 /* (45a) the timer's counts a second */
+static uint64_t tick_period;              /* (45a) a tick in arch_counter() counts */
+static uint32_t ticks_hz;                 /* (68u) the ticks a second asked for */
+static uint64_t next_tick_at[MAX_CPUS];   /* (45a) each core's next tick (arch_counter) */
+static uint64_t armed_at[MAX_CPUS];       /* (45a) what each core's timer is armed for */
 static volatile uint32_t *ioapic;
 static uint32_t ioapic_gsi_base, ioapic_inputs;
 static unsigned next_vector = VECTOR_DEVICE_FIRST;
@@ -119,6 +129,57 @@ static void pic_disable(void)
     outb(PIC2_DATA, 0xFF);
 }
 
+/* (45a) This core's timer armed for at (one-shot; interrupts off): the
+ * counts rounded up, so it never fires before. */
+static void arm(uint64_t at)
+{
+    uint64_t now = arch_counter(), left = at > now ? at - now : 0, hz = arch_counter_hz();
+    if (left > hz)
+        left = hz;                          /* (at most a second: no overflow) */
+    uint64_t count = hz ? (left * timer_hz + hz - 1) / hz : timer_count;
+    if (count < 1)
+        count = 1;
+    if (count > 0xFFFFFFFF)
+        count = 0xFFFFFFFF;
+    armed_at[arch_this_cpu()->index] = at;
+    lapic_write(LAPIC_TIMER_INITIAL, (uint32_t)count);
+}
+
+void arch_timer_wake_at(uint64_t at)
+{
+    if (lapic && at < armed_at[arch_this_cpu()->index])
+        arm(at);
+}
+
+/* (45a) A tick when its time came (a 64th of one early counts: the two
+ * clocks were measured, not exact), the next one a period on (one fallen
+ * far behind starts again from now: as the periodic timer's lost ticks);
+ * then this core's precise deadlines; the earlier of the two armed. */
+static void timer_interrupt(void)
+{
+    int i = arch_this_cpu()->index;
+    uint64_t now = arch_counter();
+    if (now + tick_period / 64 >= next_tick_at[i]) {
+        next_tick_at[i] += tick_period;
+        if (next_tick_at[i] <= now)
+            next_tick_at[i] = now + tick_period;
+        arm(next_tick_at[i]);
+        timer_tick();
+    }
+    uint64_t precise = sched_precise_due();
+    arm(precise && precise < next_tick_at[i] ? precise : next_tick_at[i]);
+}
+
+/* (45a) This core's timer started: one-shot, its first tick a period on. */
+static void start_timer(void)
+{
+    int i = arch_this_cpu()->index;
+    lapic_write(LAPIC_TIMER_DIVIDE, DIVIDE_BY_16);
+    lapic_write(LAPIC_LVT_TIMER, VECTOR_TIMER);       /* (one-shot: no LVT_PERIODIC) */
+    next_tick_at[i] = arch_counter() + tick_period;
+    arm(next_tick_at[i]);
+}
+
 void apic_interrupt(uint64_t vector)
 {
     if (vector == VECTOR_SPURIOUS)
@@ -126,7 +187,7 @@ void apic_interrupt(uint64_t vector)
     if (vector >= VECTOR_DEVICE_FIRST && vector <= VECTOR_DEVICE_LAST)
         arch_this_cpu()->interrupts++;      /* (65d) `cpus` counts devices' per core */
     if (vector == VECTOR_TIMER)
-        timer_tick();
+        timer_interrupt();
     else if (vector == VECTOR_RESCHEDULE)
         sched_reschedule_interrupt();
     else if (vector == VECTOR_TLB)
@@ -365,13 +426,19 @@ void apic_shutdown_core(void)
     lapic_write(LAPIC_SVR, lapic_read(LAPIC_SVR) & ~SVR_ENABLE);
 }
 
+/* (68u) The counter's rate measured again: the ticks keep TIMER_HZ by it
+ * (each core's next tick moves by the new period from its next one on). */
+void x86_tick_counter_hz(uint64_t hz)
+{
+    if (ticks_hz)
+        __atomic_store_n(&tick_period, hz / ticks_hz, __ATOMIC_RELAXED);
+}
+
 void apic_init_core(void)
 {
     lapic_write(LAPIC_TPR, 0);
     lapic_write(LAPIC_SVR, SVR_ENABLE | VECTOR_SPURIOUS);
-    lapic_write(LAPIC_TIMER_DIVIDE, DIVIDE_BY_16);
-    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | VECTOR_TIMER);
-    lapic_write(LAPIC_TIMER_INITIAL, timer_count);
+    start_timer();
 }
 
 bool arch_interrupts_init(uint32_t hz)
@@ -410,8 +477,10 @@ bool arch_interrupts_init(uint32_t hz)
     }
     uint32_t count = (uint32_t)(frequency / hz);
     timer_count = count;
-    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | VECTOR_TIMER);
-    lapic_write(LAPIC_TIMER_INITIAL, count);
+    timer_hz = frequency;
+    tick_period = tsc_hz / hz;
+    ticks_hz = hz;
+    start_timer();
     kprintf("                 timer %lu kHz (bus / 16, measured with the PIT), "
             "vector 0x%02x every %u counts\n", frequency / 1000, VECTOR_TIMER, count);
     kprintf("                 time stamp counter %lu MHz (measured with the PIT)\n",

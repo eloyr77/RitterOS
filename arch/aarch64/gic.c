@@ -14,7 +14,9 @@
  *
  * The timer is the core's virtual timer (CNTV), whose interrupt is a PPI
  * (INTID 27 per the GTDT). It fires when the counter reaches CNTV_CVAL_EL0;
- * every tick moves that compare value one interval ahead.
+ * every tick moves the tick's own time one interval ahead, and (45a) the
+ * compare value is the earlier of that and the core's earliest precise
+ * deadline (sched_precise_due, arch_timer_wake_at).
  *
  * (65c) Every core has its own redistributor, CPU interface and timer
  * (gic_init_core). Cores interrupt each other with SGIs (INTID 0-15, sent
@@ -26,6 +28,17 @@
  * an SPI's INTID to its SETSPI register raises that SPI. The SPIs it covers
  * are configured in the distributor as edge-triggered and routed to this
  * core.
+ *
+ * (69j) A reset need not clear the GIC: UTM's in-kernel GIC (HVF's) kept a
+ * core's active priority across a warm reboot (SGI_STOP's handler never
+ * ended its interrupt, and the reboot had run on another core), so after it
+ * every device interrupt (below SGI_PRIORITY) waited for good and only the
+ * timer came: the boot crawled on NVMe commands' timeouts. So SGI_STOP's
+ * handler ends its interrupt before halting, and the start-up ends what an
+ * older kernel may have left: first an EOI for each priority ICC_RPR_EL1
+ * still shows (end_left_priorities: Apple's GIC kept RPR at 0x90 through
+ * Linux's clearing alone), then as Linux's GICv3 start-up every interrupt
+ * deactivated and disabled, ICC_AP1Rn cleared, EOImode 0.
  */
 #include "gic.h"
 #include "acpi.h"
@@ -49,6 +62,7 @@
 #define GICD_IGROUPR        0x0080          /* 1 bit per INTID */
 #define GICD_ISENABLER      0x0100          /* 1 bit per INTID */
 #define GICD_ICENABLER      0x0180          /* (writing 1 disables) */
+#define GICD_ICACTIVER      0x0380          /* (writing 1 deactivates) */
 #define GICD_IPRIORITYR     0x0400          /* 1 byte per INTID */
 #define GICD_ICFGR          0x0C00          /* 2 bits per INTID: edge or level */
 #define GICD_IROUTER        0x6000          /* 8 bytes per SPI: target core */
@@ -56,6 +70,8 @@
 #define V2M_MSI_TYPER       0x008           /* first SPI and how many */
 #define V2M_MSI_SETSPI      0x040           /* devices write an INTID here */
 
+#define GICR_CTLR           0x0000
+#define GICR_CTLR_RWP       (1u << 3)       /* register write pending */
 #define GICR_TYPER          0x0008          /* 64 bits: affinity, last frame */
 #define GICR_WAKER          0x0014
 #define GICR_WAKER_SLEEP    (1u << 1)       /* ProcessorSleep */
@@ -63,6 +79,8 @@
 #define GICR_SGI_BASE       0x10000         /* second 64 KiB frame: SGI/PPI registers */
 #define GICR_IGROUPR0       0x0080
 #define GICR_ISENABLER0     0x0100
+#define GICR_ICENABLER0     0x0180
+#define GICR_ICACTIVER0     0x0380
 #define GICR_IPRIORITYR     0x0400
 #define GICR_FRAME          0x20000         /* GICv3: 2 frames of 64 KiB per core */
 #define GICR_FRAME_VLPI     0x40000         /* GICv4: 4 frames */
@@ -85,8 +103,23 @@ static uint32_t gicr_length;
 static uint64_t boot_mpidr;                 /* (65c-2) where device interrupts go */
 static uint32_t timer_intid;
 static uint64_t interval;
-static uint64_t next_ticks[MAX_CPUS];       /* (65c) each core's next compare value */
+static uint64_t next_ticks[MAX_CPUS];       /* (65c) each core's next tick */
 #define next_tick (next_ticks[arch_this_cpu()->index])
+static uint64_t armed_values[MAX_CPUS];     /* (45a) each core's compare value now */
+#define armed (armed_values[arch_this_cpu()->index])
+
+static void arm(uint64_t at)
+{
+    write_sysreg(CNTV_CVAL_EL0, at);
+    isb();
+    armed = at;
+}
+
+void arch_timer_wake_at(uint64_t at)
+{
+    if (at < armed)
+        arm(at);
+}
 static uint64_t msi_frame;                  /* physical address, 0 if none */
 static uint32_t msi_next, msi_end;          /* free SPIs: [msi_next, msi_end) */
 static uint64_t unexpected;
@@ -133,6 +166,8 @@ void gic_handle_irq(void)
     if (intid >= 32)
         arch_this_cpu()->interrupts++;      /* (65d) `cpus` counts devices' (SPIs) per core */
     if (intid == SGI_STOP) {
+        write_sysreg(ICC_EOIR1_EL1, intid);         /* (69j) nothing left active */
+        isb();
         __asm__ volatile ("msr daifset, #0xf");
         for (;;)
             __asm__ volatile ("wfe");
@@ -140,23 +175,32 @@ void gic_handle_irq(void)
     if (intid == SGI_RESCHEDULE) {
         sched_reschedule_interrupt();
     } else if (intid == timer_intid) {
-        /* Next compare value. If this interrupt came late (the host did not
-         * run this virtual CPU for a while), the ticks that fell due
-         * meanwhile still count: the kernel's clock does not fall behind. */
-        next_tick += interval;
+        /* A tick when its time came: the next one an interval on. If this
+         * interrupt came late (the host did not run this virtual CPU for a
+         * while), the ticks that fell due meanwhile still count: the
+         * kernel's clock does not fall behind. (45a) Else (or also) a
+         * precise deadline. Then the earlier of the two is armed. */
         uint64_t now = read_sysreg(CNTVCT_EL0);
         unsigned late = 0;
-        while (next_tick <= now && late < 100) {
+        bool tick = now >= next_tick;
+        if (tick) {
             next_tick += interval;
-            late++;
+            while (next_tick <= now && late < 100) {
+                next_tick += interval;
+                late++;
+            }
+            if (next_tick <= now)
+                next_tick = now + interval;
         }
-        if (next_tick <= now)
-            next_tick = now + interval;
-        write_sysreg(CNTV_CVAL_EL0, next_tick);
-        isb();
-        timer_tick();
-        while (late--)
+        arm(next_tick);
+        if (tick) {
             timer_tick();
+            while (late--)
+                timer_tick();
+        }
+        uint64_t precise = sched_precise_due();
+        if (precise && precise < next_tick)
+            arm(precise);
     } else {
         int i = 0;
         while (i < handler_count && handlers[i].intid != intid)
@@ -265,6 +309,22 @@ static void find_msi_frame(void)
             (void *)phys, base, msi_end - 1);
 }
 
+/* (69j) A priority an older kernel left active on this core ended, before
+ * anything is deactivated (seen on Apple's GIC: deactivated first, the
+ * priority stayed): an EOI while ICC_RPR_EL1, the running priority, shows
+ * one (EOImode 0: the EOI deactivates too). */
+static void end_left_priorities(void)
+{
+    write_sysreg(ICC_SRE_EL1, read_sysreg(ICC_SRE_EL1) | 1);
+    isb();
+    write_sysreg(s3_0_c12_c12_4, read_sysreg(s3_0_c12_c12_4) & ~2ull);    /* ICC_CTLR_EL1 */
+    isb();
+    for (int n = 0; n < 32 && (read_sysreg(s3_0_c12_c11_3) & 0xFF) != 0xFF; n++) {
+        write_sysreg(ICC_EOIR1_EL1, SGI_STOP);
+        isb();
+    }
+}
+
 /* This core's redistributor awake, its SGIs and the timer's PPI on, and
  * its CPU interface taking every priority. */
 static void init_this_core(volatile uint8_t *r)
@@ -272,8 +332,13 @@ static void init_this_core(volatile uint8_t *r)
     w32(r, GICR_WAKER, r32(r, GICR_WAKER) & ~GICR_WAKER_SLEEP);
     while (r32(r, GICR_WAKER) & GICR_WAKER_ASLEEP)
         arch_cpu_relax();
+    end_left_priorities();
     volatile uint8_t *sgi = r + GICR_SGI_BASE;
     uint32_t mine = 1u << SGI_RESCHEDULE | 1u << SGI_STOP | 1u << timer_intid;
+    w32(sgi, GICR_ICENABLER0, 0xFFFFFFFF);         /* (69j) whatever came before: off, */
+    w32(sgi, GICR_ICACTIVER0, 0xFFFFFFFF);         /* not active */
+    while (r32(r, GICR_CTLR) & GICR_CTLR_RWP)
+        arch_cpu_relax();
     w32(sgi, GICR_IGROUPR0, r32(sgi, GICR_IGROUPR0) | mine);
     mmio_write8(sgi + GICR_IPRIORITYR + timer_intid, TIMER_PRIORITY);
     mmio_write8(sgi + GICR_IPRIORITYR + SGI_RESCHEDULE, SGI_PRIORITY);
@@ -282,6 +347,19 @@ static void init_this_core(volatile uint8_t *r)
 
     /* CPU interface: system registers on, every priority let through. */
     write_sysreg(ICC_SRE_EL1, read_sysreg(ICC_SRE_EL1) | 1);
+    isb();
+    /* (69j) No priority left active (ICC_AP1Rn_EL1, as many as ICC_CTLR_EL1's
+     * PRIbits make), and EOImode 0: an EOI also deactivates. */
+    uint64_t ctlr = read_sysreg(s3_0_c12_c12_4);    /* ICC_CTLR_EL1 */
+    write_sysreg(s3_0_c12_c12_4, ctlr & ~2ull);
+    unsigned pribits = (unsigned)(ctlr >> 8 & 7) + 1;
+    if (pribits >= 7) {
+        write_sysreg(s3_0_c12_c9_3, 0);             /* ICC_AP1R3_EL1 */
+        write_sysreg(s3_0_c12_c9_2, 0);
+    }
+    if (pribits >= 6)
+        write_sysreg(s3_0_c12_c9_1, 0);
+    write_sysreg(s3_0_c12_c9_0, 0);                 /* ICC_AP1R0_EL1 */
     isb();
     write_sysreg(ICC_PMR_EL1, 0xFF);
     write_sysreg(ICC_BPR1_EL1, 0);
@@ -293,8 +371,11 @@ static void init_this_core(volatile uint8_t *r)
 static void start_timer(void)
 {
     next_tick = read_sysreg(CNTVCT_EL0) + interval;
-    write_sysreg(CNTV_CVAL_EL0, next_tick);
+    arm(next_tick);
     write_sysreg(CNTV_CTL_EL0, CNTV_CTL_ENABLE);
+    /* (68p) Programs may read the virtual counter (EL0VCTEN), as on Linux:
+     * the library's clock reads it without a system call. */
+    write_sysreg(CNTKCTL_EL1, read_sysreg(CNTKCTL_EL1) | 2);
     isb();
 }
 
@@ -368,11 +449,18 @@ bool arch_interrupts_init(uint32_t hz)
     }
 
     /* Distributor: GICv3 mode, group 1 on. */
+    end_left_priorities();                          /* (69j) the boot core's, first */
     gicd = paging_map_mmio(gicd_phys, 0x10000);
     w32(gicd, GICD_CTLR, GICD_CTLR_ARE | GICD_CTLR_GRP1);
     while (r32(gicd, GICD_CTLR) & GICD_CTLR_RWP)
         arch_cpu_relax();
     unsigned lines = 32 * ((r32(gicd, GICD_TYPER) & 0x1F) + 1);
+    for (unsigned i = 32; i < lines; i += 32) {     /* (69j) every SPI off, not active */
+        w32(gicd, GICD_ICENABLER + i / 8, 0xFFFFFFFF);
+        w32(gicd, GICD_ICACTIVER + i / 8, 0xFFFFFFFF);
+    }
+    while (r32(gicd, GICD_CTLR) & GICD_CTLR_RWP)
+        arch_cpu_relax();
 
     /* The virtual timer's interrupt, from the GTDT (offset 64). */
     timer_intid = DEFAULT_TIMER_INTID;

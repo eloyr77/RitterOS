@@ -8,7 +8,9 @@
  */
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <locale.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -18,8 +20,10 @@
 #include <strings.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <wchar.h>
 #include "ritteros.h"
 #include "fpconv.h"
+#include "mbconv.h"
 
 /* --- ctype.h --- */
 
@@ -236,26 +240,6 @@ void ritteros_assert_failed(const char *expression, const char *file, int line,
 
 /* --- locale.h (22n): only the "C" locale --- */
 
-static char empty[] = "", dot[] = ".", c_name[] = "C";
-static struct lconv c_lconv = {
-    dot, empty, empty, empty, empty, empty, empty, empty, empty, empty,
-    127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
-};
-
-char *setlocale(int category, const char *locale)
-{
-    if (category < LC_CTYPE || category > LC_ALL)
-        return 0;
-    if (!locale || !locale[0] || !strcmp(locale, "C") || !strcmp(locale, "POSIX"))
-        return c_name;
-    return 0;
-}
-
-struct lconv *localeconv(void)
-{
-    return &c_lconv;
-}
-
 /* --- 22p: more of stdlib.h --- */
 
 long long atoll(const char *s)
@@ -300,24 +284,26 @@ static void swap_bytes(char *a, char *b, size_t size)
 /* Quicksort with the middle element of three as the pivot and insertion
  * sort for short runs; the shorter side is sorted by recursion, the longer
  * one by the loop, so the depth stays at most log2(count). */
-void qsort(void *base, size_t count, size_t size, int (*compare)(const void *, const void *))
+/* (43a) qsort_r's, and qsort through it */
+void qsort_r(void *base, size_t count, size_t size,
+             int (*compare)(const void *, const void *, void *), void *arg)
 {
     char *b = base;
     while (count > 8) {
         char *lo = b, *mid = b + count / 2 * size, *hi = b + (count - 1) * size;
-        if (compare(mid, lo) < 0)
+        if (compare(mid, lo, arg) < 0)
             swap_bytes(mid, lo, size);
-        if (compare(hi, mid) < 0) {
+        if (compare(hi, mid, arg) < 0) {
             swap_bytes(hi, mid, size);
-            if (compare(mid, lo) < 0)
+            if (compare(mid, lo, arg) < 0)
                 swap_bytes(mid, lo, size);
         }
         swap_bytes(mid, lo, size);                  /* the pivot to the front */
         size_t i = 1, j = count - 1;
         for (;;) {
-            while (i <= j && compare(b + i * size, lo) < 0)
+            while (i <= j && compare(b + i * size, lo, arg) < 0)
                 i++;
-            while (j >= i && compare(b + j * size, lo) > 0)
+            while (j >= i && compare(b + j * size, lo, arg) > 0)
                 j--;
             if (i >= j)
                 break;
@@ -328,17 +314,28 @@ void qsort(void *base, size_t count, size_t size, int (*compare)(const void *, c
         swap_bytes(lo, b + j * size, size);         /* the pivot at its place j */
         size_t left = j, right = count - j - 1;
         if (left < right) {
-            qsort(b, left, size, compare);
+            qsort_r(b, left, size, compare, arg);
             b += (j + 1) * size;
             count = right;
         } else {
-            qsort(b + (j + 1) * size, right, size, compare);
+            qsort_r(b + (j + 1) * size, right, size, compare, arg);
             count = left;
         }
     }
     for (size_t i = 1; i < count; i++)
-        for (size_t k = i; k > 0 && compare(b + (k - 1) * size, b + k * size) > 0; k--)
+        for (size_t k = i; k > 0 && compare(b + (k - 1) * size, b + k * size, arg) > 0; k--)
             swap_bytes(b + (k - 1) * size, b + k * size, size);
+}
+
+/* qsort's compare, handed to qsort_r as its argument */
+static int plain_compare(const void *a, const void *b, void *compare)
+{
+    return ((int (*)(const void *, const void *))compare)(a, b);
+}
+
+void qsort(void *base, size_t count, size_t size, int (*compare)(const void *, const void *))
+{
+    qsort_r(base, count, size, plain_compare, (void *)compare);
 }
 
 void *bsearch(const void *key, const void *base, size_t count, size_t size,
@@ -374,32 +371,16 @@ int rand(void)
     return (int)(rand_state >> 33);
 }
 
-#define EXIT_FUNCTIONS 32
-static void (*at_exit[EXIT_FUNCTIONS])(void), (*at_quick[EXIT_FUNCTIONS])(void);
-static int at_exit_count, at_quick_count;
-
-int atexit(void (*fn)(void))
-{
-    if (at_exit_count == EXIT_FUNCTIONS)
-        return -1;
-    at_exit[at_exit_count++] = fn;
-    return 0;
-}
+#define QUICK_FUNCTIONS 32
+static void (*at_quick[QUICK_FUNCTIONS])(void);
+static int at_quick_count;
 
 int at_quick_exit(void (*fn)(void))
 {
-    if (at_quick_count == EXIT_FUNCTIONS)
+    if (at_quick_count == QUICK_FUNCTIONS)
         return -1;
     at_quick[at_quick_count++] = fn;
     return 0;
-}
-
-/* exit's first steps (syscalls.c): the last function given runs first; one
- * that calls exit again does not see itself again. */
-void ritteros_run_atexit(void)
-{
-    while (at_exit_count > 0)
-        at_exit[--at_exit_count]();
 }
 
 void _Exit(int code)
@@ -426,54 +407,39 @@ int mblen(const char *s, size_t n)
     return mbtowc(0, s, n);
 }
 
+/* (43a-2: through the locale's conversion; these keep no state between
+ * calls but a character split over two calls fails, as C says) */
 int mbtowc(wchar_t *wc, const char *s, size_t n)
 {
     if (!s)
         return 0;                                   /* (no shift states) */
-    if (n == 0)
+    mbstate_t state = { 0, 0 };
+    size_t k = mb_decode(wc, s, n, &state);
+    if (k == (size_t)-2) {
+        errno = EILSEQ;
         return -1;
-    if (wc)
-        *wc = (wchar_t)(unsigned char)*s;
-    return *s ? 1 : 0;
+    }
+    return (int)k;
 }
 
 int wctomb(char *s, wchar_t wc)
 {
     if (!s)
         return 0;
-    if ((unsigned long)wc > 255) {
-        errno = EILSEQ;
-        return -1;
-    }
-    *s = (char)wc;
-    return 1;
+    size_t k = mb_encode(s, wc, 0);
+    return k == (size_t)-1 ? -1 : (int)k;
 }
 
 size_t mbstowcs(wchar_t *dst, const char *src, size_t n)
 {
-    size_t i = 0;
-    for (; src[i] && (!dst || i < n); i++)
-        if (dst)
-            dst[i] = (wchar_t)(unsigned char)src[i];
-    if (dst && i < n)
-        dst[i] = 0;
-    return i;
+    mbstate_t state = { 0, 0 };
+    return mbsrtowcs(dst, &src, n, &state);
 }
 
 size_t wcstombs(char *dst, const wchar_t *src, size_t n)
 {
-    size_t i = 0;
-    for (; src[i] && (!dst || i < n); i++) {
-        if ((unsigned long)src[i] > 255) {
-            errno = EILSEQ;
-            return (size_t)-1;
-        }
-        if (dst)
-            dst[i] = (char)src[i];
-    }
-    if (dst && i < n)
-        dst[i] = 0;
-    return i;
+    mbstate_t state = { 0, 0 };
+    return wcsrtombs(dst, &src, n, &state);
 }
 
 /* --- 22p: more of string.h --- */
@@ -548,4 +514,29 @@ size_t strxfrm(char *dst, const char *src, size_t n)
         dst[k] = 0;
     }
     return len;
+}
+
+/* (43a) */
+int isascii(int c) { return (unsigned)c < 128; }
+int toascii(int c) { return c & 0x7f; }
+
+intmax_t imaxabs(intmax_t v) { return v < 0 ? -v : v; }
+
+imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator)
+{
+    imaxdiv_t r = { numerator / denominator, numerator % denominator };
+    return r;
+}
+
+intmax_t strtoimax(const char *s, char **end, int base) { return strtoll(s, end, base); }
+uintmax_t strtoumax(const char *s, char **end, int base) { return strtoull(s, end, base); }
+intmax_t wcstoimax(const wchar_t *s, wchar_t **end, int base) { return wcstoll(s, end, base); }
+uintmax_t wcstoumax(const wchar_t *s, wchar_t **end, int base) { return wcstoull(s, end, base); }
+
+/* (43a-4) sigsetjmp's other half (sigsetjmp is setjmp.S's). */
+void siglongjmp(sigjmp_buf env, int value)
+{
+    if (env[22])
+        sigprocmask(SIG_SETMASK, (const sigset_t *)&env[23], 0);
+    longjmp(env, value);
 }

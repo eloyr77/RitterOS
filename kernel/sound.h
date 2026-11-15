@@ -30,6 +30,17 @@ long sound_write(int dev, const void *buf, size_t n);
  * Called when the player closes /dev/pcmN, so the last sound is not cut off. */
 void sound_drain(int dev);
 
+/* (68w) One opener a device at a time (OSS's, ALSA's hw: the sound server
+ * soundd holds it while anything plays): false when it is taken. */
+bool sound_take(int dev);
+void sound_give(int dev);
+
+/* (68v) The bytes written and not yet played; -1 if the card cannot say. */
+long sound_delay(int dev);
+
+/* (68v) Drop what is buffered at once (silence); false if the card cannot. */
+bool sound_reset(int dev);
+
 /* Play a short test tone on pcm0 (the `hdatone` boot option). */
 void sound_test_tone(void);
 

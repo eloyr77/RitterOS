@@ -1,0 +1,13 @@
+# libcrypto.pc (46e): libcrypto.so.3, a system library from upstream, for builds outside
+# the tree (sdk/ritteros.cmake and sdk/ritteros.meson set arch). Version:
+# user/upstream/versions' (sdk_shell_test compares them).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/build/upstream/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libcrypto
+Description: OpenSSL's cryptography
+Version: 3.5.9
+Cflags: -I${includedir}
+Libs: ${libdir}/libcrypto.so.3

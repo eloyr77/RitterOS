@@ -11,7 +11,15 @@
 #
 # RITTEROS is a RitterOS checkout (the source tree), APP the program's name
 # on RitterOS, KIND bin (a command-line program) or apps (a windowed one),
-# SRCS its C sources (default: APP.c). No comments after a value on the same
+# SRCS its C sources (default: APP.c), (43c) and C++ ones (NAME.cpp: then it
+# is linked with RitterOS's libc++, LINK=shared only; built on the Mac, not on
+# the machine, whose cc is C's). (43e) An app (KIND apps, LINK shared) looks
+# for libraries in its bundle's lib folder first (RUNPATH $ORIGIN/lib: the
+# app's own libraries, sdk/CLAUDE.md). (46e) LDLIBS: the system libraries
+# from upstream the program uses, by name on this computer (-lcurl -lssl
+# -lcrypto -lz -lnghttp2 -lbrotlidec -lpsl; their headers are on the compile
+# line already), by file on RitterOS itself (/system/x86_64/lib/libcurl.so.4:
+# the machine has no link names). No comments after a value on the same
 # line: make keeps the spaces before the # in the value.
 #
 # Then:
@@ -69,6 +77,17 @@ endif
 ifeq ($(filter $(ARCH),x86_64 aarch64),)
 $(error ARCH must be x86_64 or aarch64, not '$(ARCH)')
 endif
+# (43c) C++ sources: shared only (there are no static C++ libraries), and
+# not on the machine itself (its cc is C's).
+CXX_SRCS := $(filter %.cpp,$(SRCS))
+ifneq ($(CXX_SRCS),)
+ifeq ($(LINK),static)
+$(error C++ programs are linked shared only (LINK=shared): RitterOS has no static C++ libraries)
+endif
+ifeq ($(ON_RITTEROS),yes)
+$(error C++ ($(CXX_SRCS)) is built on another computer: RitterOS's own cc is C's)
+endif
+endif
 
 ifneq ($(ON_RITTEROS),yes)
 RITTEROS_DIR := $(abspath $(RITTEROS))
@@ -98,7 +117,21 @@ RITTEROS_CFLAGS := -target $(TARGET_$(ARCH)) -ffreestanding -nostdinc \
                    -O2 -std=c11 -Wall -Wextra
 # RitterOS's headers come after your CFLAGS (63e): your own -I folders are
 # searched first, so a header of yours named like one of RitterOS's wins.
-RITTEROS_INCLUDE := -I$(RITTEROS_DIR)/user/include
+RITTEROS_INCLUDE := -I$(RITTEROS_DIR)/user/include -isystem $(RITTEROS_DIR)/build/upstream/include
+# (43c) C++ (.cpp in SRCS): C++23 against RitterOS's libc++ (the pinned
+# Zig's, configured by RitterOS's user/cxx/__config_site), with the
+# unwinding tables exceptions need; add your own flags with CXXFLAGS (your
+# -I folders first, then libc++'s headers, RitterOS's and Zig's). Linked
+# with libc++.so.1, libc++abi.so.1 and libunwind.so.1 (in /system/ARCH/lib on
+# the machine) and the frames' index (--eh-frame-hdr).
+RITTEROS_CXXFLAGS := -target $(TARGET_$(ARCH)) -nostdinc -nostdinc++ -fPIE -fno-stack-protector \
+                     -funwind-tables -O2 -std=c++23 -Wall -Wextra
+RITTEROS_CXXINCLUDE := -include $(RITTEROS_DIR)/user/cxx/__config_site \
+                       -isystem $(ZIG_LIB)/libcxx/include -isystem $(ZIG_LIB)/libcxxabi/include \
+                       -isystem $(RITTEROS_DIR)/user/include -isystem $(RITTEROS_DIR)/build/upstream/include \
+                       -isystem $(ZIG_LIB)/include
+RITTEROS_CXX_LIBS := $(addprefix $(RITTEROS_DIR)/build/system/$(ARCH)/lib/,libc++.so.1 libc++abi.so.1 \
+                       libunwind.so.1)
 RITTEROS_LIB   := $(RITTEROS_DIR)/build/$(ARCH)/user/libritteros.a
 RITTEROS_LIB_PIC := $(RITTEROS_DIR)/build/$(ARCH)/user/libritteros-pic.a
 RITTEROS_START := $(RITTEROS_DIR)/build/$(ARCH)/user/user/arch/$(ARCH)/start.S.o
@@ -110,7 +143,7 @@ RITTEROS_START := $(RITTEROS_DIR)/build/$(ARCH)/user/user/arch/$(ARCH)/start.S.o
 # a fixed place).
 RITTEROS_SHARED := $(addprefix $(RITTEROS_DIR)/build/system/$(ARCH)/lib/,libritteros.so.1 \
                      libwindow.so.1 libimage.so.1 libaudio.so.1 libvideo.so.1 libdraw.so.1 libwidget.so.1 \
-                     libtls.so.1)
+                     libtls.so.1 libkeyring.so.1)
 ifeq ($(LINK),shared)
 RITTEROS_LDFLAGS := -T $(RITTEROS_DIR)/user/user.ld -nostdlib -z max-page-size=4096 -pie \
                     -dynamic-linker /system/$(ARCH)/lib/ld.so -z now -z relro -z nocopyreloc \
@@ -130,8 +163,8 @@ endif
 MACHINE_LIB := /system/$(ARCH)/lib
 ifeq ($(LINK),shared)
 MACHINE_LIBS := --as-needed $(addprefix $(MACHINE_LIB)/,libritteros.so.1 libwindow.so.1 \
-                  libimage.so.1 libaudio.so.1 libvideo.so.1 libdraw.so.1 libwidget.so.1 libtls.so.1) \
-                --no-as-needed $(MACHINE_LIB)/libritteros.a
+                  libimage.so.1 libaudio.so.1 libvideo.so.1 libdraw.so.1 libwidget.so.1 libtls.so.1 \
+                  libkeyring.so.1) --no-as-needed $(MACHINE_LIB)/libritteros.a
 MACHINE_LDFLAGS :=
 else
 MACHINE_LIBS := $(MACHINE_LIB)/libritteros.a
@@ -139,8 +172,11 @@ MACHINE_LDFLAGS := -static
 endif
 endif
 
+# (43e) An app's own libraries: APP.program/lib, beside the program.
+APP_RUNPATH := $(if $(filter apps,$(KIND)),$(if $(filter shared,$(LINK)),-rpath '$$ORIGIN/lib'))
+
 OUT  := build/$(ARCH)
-OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(SRCS))
+OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(filter %.c,$(SRCS))) $(patsubst %.cpp,$(OUT)/obj/%.o,$(CXX_SRCS))
 PROGRAM := $(OUT)/$(APP)
 ifeq ($(KIND),apps)
 BUNDLE := /system/$(ARCH)/apps/$(APP).program
@@ -174,8 +210,14 @@ $(OUT)/obj/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(ZIG_EXE) clang $(RITTEROS_CFLAGS) $(CFLAGS) $(RITTEROS_INCLUDE) -MMD -MP -c $< -o $@
 
+$(OUT)/obj/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(ZIG_EXE) clang -x c++ $(RITTEROS_CXXFLAGS) $(CXXFLAGS) $(RITTEROS_CXXINCLUDE) -MMD -MP -c $< -o $@
+
 $(PROGRAM): $(OBJS) ritteros-sdk
-	$(ZIG_EXE) ld.lld $(RITTEROS_LDFLAGS) -o $@ $(RITTEROS_START) $(OBJS) $(RITTEROS_LIBS)
+	$(ZIG_EXE) ld.lld $(RITTEROS_LDFLAGS) $(APP_RUNPATH) $(if $(CXX_SRCS),--eh-frame-hdr) -o $@ $(RITTEROS_START) $(OBJS) \
+	    -L$(RITTEROS_DIR)/build/sdk/$(ARCH)/lib $(LDLIBS) \
+	    $(if $(CXX_SRCS),--as-needed $(RITTEROS_CXX_LIBS)) $(RITTEROS_LIBS)
 else
 ritteros-sdk:
 
@@ -184,7 +226,7 @@ $(OUT)/obj/%.o: %.c
 	cc $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(PROGRAM): $(OBJS)
-	ld $(MACHINE_LDFLAGS) -o $@ $(MACHINE_LIB)/start.o $(OBJS) $(MACHINE_LIBS)
+	ld $(MACHINE_LDFLAGS) $(APP_RUNPATH) -o $@ $(MACHINE_LIB)/start.o $(OBJS) $(LDLIBS) $(MACHINE_LIBS)
 endif
 
 # (41h-7) The files deploy installs, staged as they go.

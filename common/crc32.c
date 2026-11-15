@@ -22,7 +22,7 @@ static uint32_t compute(const uint32_t *table, const void *data, size_t size)
     return crc ^ 0xFFFFFFFFu;
 }
 
-uint32_t crc32(const void *data, size_t size)
+uint32_t crc32_ieee(const void *data, size_t size)
 {
     if (table_ieee[1] == 0)
         build_table(table_ieee, 0xEDB88320u);         /* 0x04C11DB7 reflected */

@@ -1868,7 +1868,11 @@ static void gen_insn(int k)
             line("str xzr, [x14], #8");
             line("subs x15, x15, #1");
             line("b.ne .Lc%d", again);
-            at = n / 8 * 8;
+            /* (43a) the bytes left after the loop from where it stopped
+             * (x14): an offset past 4095 does not fit strb */
+            for (int k = n / 8 * 8; k < n; k++)
+                line("strb wzr, [x14], #1");
+            return;
         }
         for (; n - at >= 8; at += 8)
             line("str xzr, [x10, #%d]", at);

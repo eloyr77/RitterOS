@@ -92,6 +92,16 @@ int ritteros_peer_uid(int fd)
     return (int)check(syscall6(SYS_PEER_UID, fd, 0, 0, 0, 0, 0));
 }
 
+int ritteros_peer_program(int fd, char *path, size_t size)
+{
+    return (int)check(syscall6(SYS_PEER_PROGRAM, fd, (int64_t)path, (int64_t)size, 0, 0, 0));
+}
+
+int ritteros_sound_may_play(int fd)
+{
+    return (int)check(syscall6(SYS_SOUND, fd, SOUND_MAY_PLAY, 0, 0, 0, 0));
+}
+
 int ritteros_netcard(int index, struct sys_netinfo *info)
 {
     if (index < 0 || index > 0xFFFF) {

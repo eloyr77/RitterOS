@@ -25,7 +25,7 @@
 #include "../../common/elf.h"
 #include "ritteros.h"
 
-#define MODULES     32
+#define MODULES     512                 /* (43e) as many as ld.so's objects (32 before) */
 #define RESERVE     4096                /* for modules loaded later */
 #define HEADER      64                  /* x86: the header the thread pointer points at */
 
@@ -71,6 +71,13 @@ static uintptr_t thread_pointer(void)
     __asm__ volatile ("mrs %0, tpidr_el0" : "=r"(tp));
 #endif
     return tp;
+}
+
+/* (68q) This thread's pointer once the areas are set up, else 0 (thread_self
+ * keeps the thread's number in its header). */
+uintptr_t __ritteros_thread_area(void)
+{
+    return __atomic_load_n(&ready, __ATOMIC_ACQUIRE) ? thread_pointer() : 0;
 }
 
 int ritteros_set_thread_pointer(void *tp)
@@ -186,12 +193,39 @@ int __ritteros_tls_setup(const struct ritteros_tls_module *list, int count)
 void __ritteros_environ_set(char **envp);           /* env.c (22t) */
 void __ritteros_progname_set(const char *argv0);    /* env.c (41g-3) */
 
+static const long *auxv;               /* the kernel's vector, after the environment */
+uintptr_t __ritteros_main_stack_top;    /* (43a-4) */
+
+/* (43a-3) A value of the vector (sys/auxv.h). */
+unsigned long getauxval(unsigned long type)
+{
+    for (const long *p = auxv; p && p[0] != AT_NULL; p += 2)
+        if ((unsigned long)p[0] == type)
+            return (unsigned long)p[1];
+    errno = ENOENT;
+    return 0;
+}
+
 void __ritteros_start(long *sp)
 {
     /* The environment, after the arguments (also for a program ld.so
      * started, which has its per-thread data already). */
     __ritteros_environ_set((char **)(sp + 1 + sp[0] + 1));
     __ritteros_progname_set(sp[0] > 0 ? (const char *)sp[1] : 0);
+    {
+        const long *q = sp + 1 + sp[0] + 1;
+        while (*q)
+            q++;
+        auxv = q + 1;                   /* (43a-3: getauxval's) */
+        /* (43a-4) The main stack's top: the kernel puts the arguments'
+         * and environment's strings right under it, the top page-aligned
+         * (pthread_getattr_np's stacks are measured from it). */
+        uintptr_t end = (uintptr_t)sp;
+        for (const long *s = sp + 1; s < q; s++)
+            if (*s && (uintptr_t)*s + strlen((const char *)*s) + 1 > end)
+                end = (uintptr_t)*s + strlen((const char *)*s) + 1;
+        __ritteros_main_stack_top = (end + 4095) & ~(uintptr_t)4095;
+    }
     if (ready)
         return;
     long argc = sp[0];

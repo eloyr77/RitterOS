@@ -1,0 +1,16 @@
+RitterOS's zlib (46a): /system/<arch>/lib/libz.so.1, with the headers
+/system/include/zlib.h and zconf.h.
+
+It is zlib 1.4 by Jean-loup Gailly and Mark Adler, built unchanged from
+its source archive (https://zlib.net/zlib-1.4.tar.xz, SHA-256 in
+user/upstream/versions), which scripts/setup-toolchain.sh downloads into
+tools/src: none of its sources are kept in this repository. Only the
+build is RitterOS's: the Makefile's "System libraries from upstream"
+section compiles the library's files with its own flags (as zlib's
+configure does on Linux: -DHAVE_HIDDEN, zconf.h with unistd.h and
+stdarg.h) and links them with zlib's own version script, zlib.map.
+
+Licence: the zlib licence (user/upstream/LICENCE-zlib.txt, zlib's
+LICENSE; installed as /system/doc/licences/zlib.txt), compatible with
+the GPL; taking it in was agreed for item 46 (2026-11-12).
+Upstream: https://zlib.net, https://github.com/madler/zlib

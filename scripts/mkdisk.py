@@ -101,19 +101,21 @@ def system_files(system_dir, arch=None):
 
 
 # Programs that run as root whoever starts them (setuid, 50b): root's, 4755.
-SETUID_PROGRAMS = ("su", "sudo")
+SETUID_PROGRAMS = ("su", "sudo", "passwd")   # (69f: passwd, a user's own password)
 
 
 def layout(arch):
     """(57b, the user's) The Unix folders of a disk for one architecture:
-    links into /system, and /tmp for everyone (sticky). osinstall makes the
-    same."""
+    links into /system, and /tmp for everyone (sticky). (46b) And OpenSSL's
+    default CA file (OPENSSLDIR/cert.pem) a link to the system's roots.
+    osinstall makes the same."""
     if not arch:
         return {}
     return {"/bin": ritterfs.Link(f"/system/{arch}/bin"),
             "/usr/bin": ritterfs.Link(f"/system/{arch}/bin"),
             "/lib": ritterfs.Link(f"/system/{arch}/lib"),
             "/etc": ritterfs.Link("/system/config"),
+            "/system/config/openssl/cert.pem": ritterfs.Link("/system/certs/cacert.pem"),
             "/tmp": None}
 
 
@@ -161,6 +163,9 @@ The system's settings, one file per topic, plain text:
   wifi/       radio (country, powersave) and networks/, a file per saved
               network (wifi join)
   time        zone = -05:00: the local time's offset from UTC
+  openssl/    OpenSSL's folder (OPENSSLDIR): cert.pem, a link to the
+              system's roots (/system/certs/cacert.pem); no openssl.cnf
+              is needed (one put here is read)
 
 Files of settings are written as "key = value" lines; a line starting
 with # is a comment. Each file holds its settings at their defaults and
@@ -492,9 +497,27 @@ def main():
                 extra["/system/config/elves/netnamesd"] = (
                     b"# The network cards' names, switched off for this test image\n"
                     b"command = netnamesd\nstart = off\n")
+            # (68w) And soundd, the sound server login sets up: tests that
+            # play to /dev/pcm0 themselves would find it taken.
+            if os.environ.get("RITTEROS_TEST_SOUNDD_OFF"):
+                extra["/system/config/elves/soundd"] = (
+                    b"# The sound server, switched off for this test image\n"
+                    b"command = soundd\nstart = off\n")
+            modes = setuid_modes(system)
+            # (70b) And root's keyring at its login: keyringd's rounds and
+            # process in every test's session. Root's home as login makes it.
+            if os.environ.get("RITTEROS_TEST_KEYRING_OFF"):
+                extra["/home/root/.config/keyring"] = (
+                    b"# Root's keyring, not opened at login on this test image\n"
+                    b"open_at_login = no\n")
+                modes["/home/root"] = modes["/home/root/.config"] = 0o700
+                # (70d) and the system keyring's elf
+                extra["/system/config/elves/keyringd"] = (
+                    b"# The system keyring, switched off for this test image\n"
+                    b"command = keyringd -s\nstart = off\n")
             ritterfs.format(part, b"RitterOS", RITTERFS_UUID.bytes_le,
                             files={**initial_files(), **system, **extra},
-                            modes=setuid_modes(system))
+                            modes=modes)
             fs_state = (f"RitterFS formatted with "
                         f"{sum(p.startswith('/system/') for p in system)} file(s) in /system")
 

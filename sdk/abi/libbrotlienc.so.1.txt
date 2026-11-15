@@ -1,0 +1,15 @@
+# libbrotlienc.so.1: its interface, recorded by scripts/abicheck.py --update. Removing or
+# changing a line breaks programs built before: that needs a new major version.
+symbol	BrotliEncoderAttachPreparedDictionary	exported
+symbol	BrotliEncoderCompress	exported
+symbol	BrotliEncoderCompressStream	exported
+symbol	BrotliEncoderCreateInstance	exported
+symbol	BrotliEncoderDestroyInstance	exported
+symbol	BrotliEncoderDestroyPreparedDictionary	exported
+symbol	BrotliEncoderHasMoreOutput	exported
+symbol	BrotliEncoderIsFinished	exported
+symbol	BrotliEncoderMaxCompressedSize	exported
+symbol	BrotliEncoderPrepareDictionary	exported
+symbol	BrotliEncoderSetParameter	exported
+symbol	BrotliEncoderTakeOutput	exported
+symbol	BrotliEncoderVersion	exported

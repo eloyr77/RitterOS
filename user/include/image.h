@@ -8,6 +8,10 @@
 #ifndef RITTEROS_IMAGE_H
 #define RITTEROS_IMAGE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "media.h"
 
 /* Decode a file (or a buffer in memory) into *out (RGBA8888; pixels malloc'd).
@@ -27,5 +31,9 @@ void image_free(struct image *img);
 
 /* A scaled copy (nearest-neighbour) of w x h into *out. 0 or -1/errno. */
 int image_scale(const struct image *src, int w, int h, struct image *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

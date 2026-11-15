@@ -469,8 +469,9 @@ int gpu_buffers(struct sys_display_buffers *d, uint64_t *phys, uint64_t *slot)
 void gpu_screen_back(void)
 {
     uint64_t frame;
-    if (shown_buffer)
-        gpu_flip(0, &frame);
+    if (shown_buffer && gpu_flip(0, &frame) <= 0)     /* (69i) said: the console may be hidden */
+        kprintf("screen: the console's buffer not confirmed shown (screen buffer %d was)\n",
+                shown_buffer);
 }
 
 void gpu_backlight(bool on, char *said, size_t size)

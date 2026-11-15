@@ -7,7 +7,11 @@
 #ifndef RITTEROS_TERMIOS_H
 #define RITTEROS_TERMIOS_H
 
-#include "ritteros.h"           /* the TERMIOS_* numbers (common/syscalls.h) */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "../../common/syscalls.h"   /* the TERMIOS_* numbers (46b: not ritteros.h) */
 
 typedef unsigned int tcflag_t;
 typedef unsigned char cc_t;
@@ -88,5 +92,9 @@ speed_t cfgetispeed(const struct termios *t);
 speed_t cfgetospeed(const struct termios *t);
 int cfsetispeed(struct termios *t, speed_t speed);
 int cfsetospeed(struct termios *t, speed_t speed);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

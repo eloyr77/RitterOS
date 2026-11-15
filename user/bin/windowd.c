@@ -749,6 +749,7 @@ static int window_at(int x, int y)
  * is told to both windows (WMSG_HOVER), the lock held. */
 static int hover_win = -1;                      /* (declared above) */
 static void enqueue(int id, struct wmsg m);      /* (defined below) */
+static void settings_again(void);                /* (69b, defined below) */
 static void composite_rect(struct rect r);        /* (defined below) */
 
 static void hover_follow(int x, int y)
@@ -1087,6 +1088,11 @@ static int flip_hidden = 1;             /* the buffer drawn next (0, the console
 static struct rect flip_last;           /* the last frame's change */
 static int flip_last_any;
 
+/* (69b) A new `refresh` read again (settings_again): the compositor thread,
+ * the only one that flips, changes how frames come (frame_mode_apply). */
+static volatile int frame_change;
+static uint32_t frame_wanted_mhz;       /* the setting's rate; 0: auto (the screen's) */
+
 static void composite_all(void);
 
 /* Copy rectangle d of the back buffer into screen buffer k (holding the lock). */
@@ -1307,6 +1313,54 @@ static void on_usr1(int sig)
     syscall6(SYS_FUTEX, (int64_t)&dirty_seq, FUTEX_WAKE, 1, 0, 0, 0);
 }
 
+/* (69b) `refresh` read again: a rate (the timer, copying to the screen) or
+ * auto (the screen's: its vertical blanks, flipping where the driver has
+ * buffers), as main chooses at the start. Leaving flips, buffer 0 (the
+ * console's, where DISPLAY_FLUSH copies) is shown again first. The
+ * compositor's own, between frames. */
+static void frame_mode_apply(void)
+{
+    __atomic_store_n(&frame_change, 0, __ATOMIC_RELEASE);
+    take();
+    uint32_t want = frame_wanted_mhz;
+    give();
+    uint32_t mhz = want;
+    int vblank = 0, flip = 0;
+    struct sys_display_buffers sb;
+    if (!want) {
+        static struct sys_display_modes modes;
+        if (!headless && ritteros_display_modes(&modes) == 0 && modes.now.refresh_mhz)
+            mhz = modes.now.refresh_mhz;
+        if (!mhz)
+            mhz = 60000;
+        uint64_t vframe;
+        vblank = !headless && ritteros_display_vblank(&vframe, 100) == 1;
+        flip = vblank && ritteros_display_buffers(&sb) == 0 && sb.count >= 2 &&
+               sb.width == screen.width && sb.height == screen.height;
+    }
+    if (use_flip && !flip && flip_hidden == 0) {    /* buffer 1 shows: 0 again */
+        uint64_t frame;
+        ritteros_display_flip(0, &frame);
+        flip_hidden = 1;
+    }
+    take();
+    int was_flip = use_flip;
+    refresh_fixed = want != 0;
+    frame_us = 1000000000ull / mhz;
+    use_vblank = vblank;
+    use_flip = flip;
+    if (flip && !was_flip) {
+        screen_buffers = sb;
+        flip_hidden = 1;
+        flip_last_any = 0;
+    }
+    composite_all();                                /* every pixel in its new place */
+    give();
+    printf("windowd: refresh = %s: %u.%03u frames a second, %s\n", want ? "a rate" : "auto",
+           mhz / 1000, mhz % 1000, flip ? "page flipping" : vblank ? "at the vertical blanks"
+           : "by the timer");
+}
+
 /* The compositor: waits for a change, for the frame's time (a sleep lasts
  * whole 10 ms ticks, so the target moves one frame each time and a wake
  * within half a tick of it counts: 60 frames a second on average), then
@@ -1318,6 +1372,8 @@ static int compositor_thread(void *arg)
     sigprocmask(SIG_UNBLOCK, &usr1, 0);
     uint64_t next = 0;                  /* when the next frame is due */
     for (;;) {
+        if (__atomic_load_n(&frame_change, __ATOMIC_ACQUIRE))
+            frame_mode_apply();             /* (69b) */
         if (report_wanted)
             frame_report();
         take();
@@ -2101,10 +2157,13 @@ static void input_event(struct sys_input_event e)
         }
     } else if (e.type == INPUT_WHEEL) {               /* (15o) to the window under the pointer */
         int under = window_at(e.x, e.y);
+        int steps = (int8_t)e.key, steps_x = (int8_t)e.buttons;   /* (68m-1) and sideways */
+        if ((e.modifiers & INPUT_SHIFT) && !steps_x)  /* Shift + the wheel: sideways, down */
+            steps_x = steps, steps = 0;               /* to the right (as macOS, GTK) */
         if (under >= 0 && menu_win < 0 && !windows[under].minimized) {
             to = under;
             m.type = WMSG_SCROLL;
-            m.a = (uint32_t)(int32_t)(int8_t)e.key;  /* steps, negative up */
+            m.a = (uint16_t)steps | (uint32_t)(uint16_t)steps_x << 16;
             m.b = (uint32_t)(e.x - content_left(under));
             m.c = (uint32_t)(e.y - content_top(under));
         }
@@ -2440,8 +2499,18 @@ static void client_work(int sock)
     while (client_read(id, sock, &m, sizeof(m)) == 0) {
         if (m.type == WMSG_DAMAGE) {                  /* the client redrew: recomposite */
             take();
-            if (!windows[id].minimized)              /* hidden: nothing to show */
+            if (!windows[id].minimized && m.b == 0)  /* (hidden: nothing to show) */
                 composite_rect(rect_window(id));     /* just this window's area */
+            else if (!windows[id].minimized) {       /* (68s) only its rectangle, in the content */
+                uint32_t x = m.a & 0xFFFF, y = m.a >> 16, w = m.b & 0xFFFF, h = m.b >> 16;
+                if (x < windows[id].w && y < windows[id].h) {
+                    w = w < windows[id].w - x ? w : windows[id].w - x;
+                    h = h < windows[id].h - y ? h : windows[id].h - y;
+                    struct rect r = { content_left(id) + (int)x, content_top(id) + (int)y, (int)w, (int)h };
+                    if (w && h)
+                        composite_rect(r);
+                }
+            }
             give();
         } else if (m.type == WMSG_BUFFER) {          /* a new buffer after a resize */
             int nbufd = recv_shared(sock);
@@ -2470,6 +2539,8 @@ static void client_work(int sock)
                 break;
         } else if (m.type == WMSG_CLIP_GET) {
             clip_send(id, sock);
+        } else if (m.type == WMSG_SETTINGS) {        /* (69b) the settings changed: read again */
+            settings_again();
         } else if (m.type == WMSG_CURSOR) {          /* (41f-4) the pointer's shape over its content */
             take();
             windows[id].cursor = (int)m.a;
@@ -2612,7 +2683,7 @@ static void reap_clients(void)
  * Ctrl-Alt-Delete). */
 
 
-/* Spawn a program by command line (e.g. "owl", "term", "term echo hi"): a
+/* Spawn a program by command line (e.g. "Owl", "Term", "Term echo hi"): a
  * bare name is a windowed app (apps/) or else a plain program (bin/). Returns
  * its pid, or -1. The child shares windowd's console/log for its messages. */
 static int spawn_program(const char *name)
@@ -2677,6 +2748,95 @@ static int windows_setting(const char *key, char *value, size_t size)
     return r;
 }
 
+/* (69b) The window system's settings windowd uses itself: read at its start
+ * and again when a client asks (WMSG_SETTINGS: the settings app), without
+ * the lock (files); put in place holding it (settings_use). `startup`
+ * counts at the start only, `text_size` is the programs'. */
+struct look {
+    struct palette pal;
+    uint32_t selection;
+    uint64_t double_click_ns;
+    bool click_steady;
+    uint32_t refresh_mhz;               /* `refresh`'s rate; 0: auto */
+};
+
+static void settings_read(struct look *s)
+{
+    char theme[16], accent[16];                      /* (41g-5) as libwindow's window_color */
+    s->pal = windows_setting("theme", theme, sizeof(theme)) > 0 && !strcasecmp(theme, "light")
+             ? palette_light : palette_dark;
+    s->selection = 0x5E81AC;                         /* (both themes' SELECTION) */
+    if (windows_setting("accent", accent, sizeof(accent)) > 0) {
+        char *end;
+        unsigned long a = strtoul(accent, &end, 16);
+        if (strlen(accent) == 6 && *end == 0)
+            s->selection = (uint32_t)a;
+        else
+            printf("windowd: accent = %s: not RRGGBB\n", accent);
+    }
+    char ms[16];
+    s->double_click_ns = 500000000ull;
+    if (windows_setting("double_click", ms, sizeof(ms)) > 0) {    /* (15n) */
+        long v = 0;
+        for (const char *c = ms; *c >= '0' && *c <= '9'; c++)
+            v = v * 10 + (*c - '0');
+        if (v >= 100 && v <= 5000)
+            s->double_click_ns = (uint64_t)v * 1000000u;
+        else
+            printf("windowd: double_click = %s: not 100-5000 (ms); 500 it is\n", ms);
+    }
+    char steady_value[8];                            /* (15q) on unless "off" */
+    s->click_steady = !(windows_setting("click_steady", steady_value, sizeof(steady_value)) > 0 &&
+                        !strcmp(steady_value, "off"));
+    /* (65e-34b) The frame rate: the setting `refresh` (auto, or frames a
+     * second). */
+    char rv[16];
+    s->refresh_mhz = 0;
+    if (windows_setting("refresh", rv, sizeof(rv)) > 0 && strcmp(rv, "auto")) {
+        double hz = atof(rv);
+        if (hz >= 10 && hz <= 1000)
+            s->refresh_mhz = (uint32_t)(hz * 1000 + 0.5);
+        else
+            printf("windowd: refresh = %s: not auto or 10-1000 (frames a second)\n", rv);
+    }
+}
+
+static void settings_use(const struct look *s)  /* (holding the lock) */
+{
+    pal = s->pal;
+    selection = s->selection;
+    double_click_ns = s->double_click_ns;
+    click_steady = s->click_steady;
+}
+
+/* (69b) WMSG_SETTINGS: read again and used at once: the frames and menus
+ * drawn in the new colours, the compositor told a new rate, and every window
+ * told (WMSG_SETTINGS: its program draws again with window_color's new
+ * colours and its new text size). */
+static void settings_again(void)
+{
+    struct look s;
+    settings_read(&s);
+    take();
+    settings_use(&s);
+    int rate_changed = s.refresh_mhz != frame_wanted_mhz;
+    frame_wanted_mhz = s.refresh_mhz;
+    composite_all();
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (windows[i].used)
+            enqueue(i, (struct wmsg){ WMSG_SETTINGS, 0, 0, 0 });
+    give();
+    printf("windowd: settings read again: %s theme, accent %06X, double_click %u ms, "
+           "click_steady %s\n", s.pal.desktop == palette_light.desktop ? "the light" : "the dark",
+           (unsigned)s.selection, (unsigned)(s.double_click_ns / 1000000),
+           s.click_steady ? "on" : "off");
+    if (rate_changed) {                              /* (the compositor's to change) */
+        __atomic_store_n(&frame_change, 1, __ATOMIC_RELEASE);
+        __atomic_add_fetch(&dirty_seq, 1, __ATOMIC_RELEASE);
+        syscall6(SYS_FUTEX, (int64_t)&dirty_seq, FUTEX_WAKE, 1, 0, 0, 0);
+    }
+}
+
 /* (37e-1b) Its settings are the user's: ~/.config/windows, written with its
  * text (every key a comment at its default) when missing, as login does. */
 static void user_settings_ready(void)
@@ -2698,7 +2858,7 @@ static void start_session(void)
     char cmd[128];
     int r = windows_setting("startup", cmd, sizeof(cmd));
     if (r <= 0)
-        strcpy(cmd, "owl");                 /* no file or no key: the file browser by default */
+        strcpy(cmd, "Owl");                 /* no file or no key: the file browser by default */
     if (cmd[0] == '\0')
         return;                             /* startup = (empty): a bare compositor */
     if (spawn_program(cmd) < 0)             /* could not start it: the empty desktop waits */
@@ -2753,48 +2913,16 @@ int main(int argc, char **argv)
         return 1;
     }
     user_settings_ready();                           /* (37e-1b) */
-    char theme[16], accent[16];                      /* (41g-5) as libwindow's window_color */
-    pal = windows_setting("theme", theme, sizeof(theme)) > 0 && !strcasecmp(theme, "light")
-              ? palette_light : palette_dark;
-    selection = 0x5E81AC;                            /* (both themes' SELECTION) */
-    if (windows_setting("accent", accent, sizeof(accent)) > 0) {
-        char *end;
-        unsigned long a = strtoul(accent, &end, 16);
-        if (strlen(accent) == 6 && *end == 0)
-            selection = (uint32_t)a;
-        else
-            printf("windowd: accent = %s: not RRGGBB\n", accent);
-    }
-    char ms[16];
-    if (windows_setting("double_click", ms, sizeof(ms)) > 0) {    /* (15n) */
-        long v = 0;
-        for (const char *c = ms; *c >= '0' && *c <= '9'; c++)
-            v = v * 10 + (*c - '0');
-        if (v >= 100 && v <= 5000)
-            double_click_ns = (uint64_t)v * 1000000u;
-        else
-            printf("windowd: double_click = %s: not 100-5000 (ms); 500 it is\n", ms);
-    }
-    char steady_value[8];                            /* (15q) on unless "off" */
-    if (windows_setting("click_steady", steady_value, sizeof(steady_value)) > 0 &&
-        !strcmp(steady_value, "off"))
-        click_steady = false;
+    struct look look;                                /* (69b: also read again when asked) */
+    settings_read(&look);
+    settings_use(&look);
     /* (65e-34b) The frame rate: the setting `refresh` (auto, or frames a
      * second), auto the screen's own (its EDID through DISPLAY_MODES),
      * else 60. */
-    char rv[16];
-    uint32_t mhz = 0;
-    const char *from = "the default";
-    if (windows_setting("refresh", rv, sizeof(rv)) > 0 && strcmp(rv, "auto")) {
-        double hz = atof(rv);
-        if (hz >= 10 && hz <= 1000) {
-            mhz = (uint32_t)(hz * 1000 + 0.5);
-            from = "the refresh setting";
-            refresh_fixed = 1;
-        } else {
-            printf("windowd: refresh = %s: not auto or 10-1000 (frames a second)\n", rv);
-        }
-    }
+    uint32_t mhz = look.refresh_mhz;
+    const char *from = mhz ? "the refresh setting" : "the default";
+    refresh_fixed = mhz != 0;
+    frame_wanted_mhz = mhz;
     static struct sys_display_modes modes;
     if (!mhz && !headless && ritteros_display_modes(&modes) == 0 && modes.now.refresh_mhz) {
         mhz = modes.now.refresh_mhz;

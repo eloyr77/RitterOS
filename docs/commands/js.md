@@ -7,8 +7,7 @@ js -e CODE [ARG...]
 js
 ```
 
-Runs JavaScript with RitterOS's own engine (`user/lib/js/`), the one
-iBrowser runs its pages' scripts with: a script from FILE, the text after
+Runs JavaScript with RitterOS's own engine (`user/lib/js/`): a script from FILE, the text after
 `-e`, or, with neither, a prompt `js> ` that runs each line typed (or
 read from the standard input, up to 4096 bytes a line) and prints its
 value unless it is `undefined`; Ctrl-D ends it. The words after FILE or
@@ -74,4 +73,4 @@ js>
 
 ## See also
 
-[`ibrowser`](ibrowser.md), [`awk`](awk.md), [`sh`](sh.md)
+[`awk`](awk.md), [`sh`](sh.md)

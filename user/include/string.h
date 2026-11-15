@@ -1,6 +1,10 @@
 #ifndef RITTEROS_STRING_H
 #define RITTEROS_STRING_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 
 size_t strlen(const char *s);
@@ -43,6 +47,42 @@ int strcoll(const char *a, const char *b);
 size_t strxfrm(char *dst, const char *src, size_t n);
 
 /* The text for an error number, e.g. "No such file or directory". */
-const char *strerror(int error);
+char *strerror(int error);
+
+/* (43a) What ported code expects beside C's: strtok_r (strtok with the
+ * place kept in *save: threads may each use one), strerror_r (POSIX's: the
+ * text into buf, 0 or ERANGE when it does not fit), strsignal (a signal's
+ * name in words), strcasestr (strstr without case), strchrnul (strchr, or
+ * the string's end), stpncpy, mempcpy (the place after the copy), memmem
+ * (memory in memory), strsep (the next field of *s, ended by one of
+ * delimiters), strlcpy and strlcat (BSD's: always a NUL within size; the
+ * length they tried to make), explicit_bzero (zeroes that the compiler
+ * cannot leave out), strverscmp (GNU's: digits as numbers, "a9" < "a10"). */
+char *strtok_r(char *s, const char *delimiters, char **save);
+int strerror_r(int error, char *buf, size_t size);
+char *strsignal(int signal);
+char *strcasestr(const char *haystack, const char *needle);
+char *strchrnul(const char *s, int c);
+char *stpncpy(char *dst, const char *src, size_t n);
+void *mempcpy(void *dst, const void *src, size_t n);
+void *memmem(const void *haystack, size_t n, const void *needle, size_t m);
+char *strsep(char **s, const char *delimiters);
+size_t strlcpy(char *dst, const char *src, size_t size);
+size_t strlcat(char *dst, const char *src, size_t size);
+void explicit_bzero(void *s, size_t n);
+int strverscmp(const char *a, const char *b);
+
+/* (43a-2) The same in a given locale (every locale collates as C). */
+#ifndef RITTEROS_LOCALE_T
+#define RITTEROS_LOCALE_T
+typedef struct __locale_struct *locale_t;
+#endif
+int strcoll_l(const char *a, const char *b, locale_t l);
+size_t strxfrm_l(char *dst, const char *src, size_t n, locale_t l);
+char *strerror_l(int error, locale_t l);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

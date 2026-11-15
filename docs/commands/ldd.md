@@ -6,7 +6,11 @@ ldd PROGRAM...
 
 Shows, for each PROGRAM, the shared libraries it needs and where they are:
 the ones it names itself and the ones those name, each once, in the order
-`ld.so` loads them (breadth first), from `/system/<arch>/lib`. Then it
+`ld.so` loads them (breadth first), each where `ld.so` finds it: (43e) the
+folders of the RUNPATH of the file that needs it and of the program (an
+app's own libraries, `$ORIGIN/lib` in its bundle; `$ORIGIN` is the
+program's real folder, links followed, and is ignored for a setuid program
+that another user runs), then `/system/<arch>/lib`. Then it
 checks that every function the program and its libraries call is defined
 by one of them, searched as `ld.so` searches (the program first, then the
 libraries in load order), and names every one that is missing. A program
@@ -24,12 +28,12 @@ without) are not checked.
 - `0`: every library and every function each PROGRAM needs is there.
 - `1`: something is missing for at least one PROGRAM (the others are still
   listed):
-  - `    NAME => not found`: a library that is not in `/system/<arch>/lib`.
+  - `    NAME => not found`: a library that is in none of those folders.
   - `    OBJECT needs FUNCTION, which none of its libraries has`.
   - `ldd: PATH: No such file or directory`: no such program.
   - `ldd: PATH: Exec format error`: not an ELF program for this processor
     (a script, a text file, a program for the other architecture).
-  - `    (more than 15 libraries)`: the list stops there.
+  - `    (more than 511 libraries)`: the list stops there (ld.so's limit too).
 - `2`: no PROGRAM: `usage: ldd PROGRAM...`.
 
 Its reports, also the error lines, go to the output.
@@ -37,8 +41,8 @@ Its reports, also the error lines, go to the output.
 ## Examples
 
 ```
-ritteros:/$ ldd imageview
-/system/x86_64/apps/imageview.program/imageview:
+ritteros:/$ ldd Imageview
+/system/x86_64/apps/Imageview.program/Imageview:
     libritteros.so.1 => /system/x86_64/lib/libritteros.so.1
     libwindow.so.1 => /system/x86_64/lib/libwindow.so.1
     libimage.so.1 => /system/x86_64/lib/libimage.so.1
@@ -53,12 +57,12 @@ ldd: exit code 1
 A library removed from `/system/x86_64/lib` would show so:
 
 ```
-ritteros:/$ ldd imageview
-/system/x86_64/apps/imageview.program/imageview:
+ritteros:/$ ldd Imageview
+/system/x86_64/apps/Imageview.program/Imageview:
     libritteros.so.1 => /system/x86_64/lib/libritteros.so.1
     libwindow.so.1 => /system/x86_64/lib/libwindow.so.1
     libimage.so.1 => not found
-    imageview needs image_load, which none of its libraries has
+    Imageview needs image_load, which none of its libraries has
 ```
 
 ## See also

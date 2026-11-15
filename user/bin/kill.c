@@ -1,7 +1,8 @@
 /*
  * kill [-SIGNAL] PID...: ask processes to end. SIGNAL is TERM (the default),
  * KILL, INT, HUP, USR1, USR2 (66c-1: a program's own requests, windowd's
- * frame report; SIG may precede the name) or a number 1-31; the process
+ * frame report; SIG may precede the name), (44a) STOP, TSTP, TTIN, TTOU
+ * (stop it), CONT (go on) or a number 1-31; the process
  * numbers are those `ps` lists. Root may signal any process, the others only
  * their own (the kernel checks). A program ends at the signal unless it
  * ignores it or has a handler for it (signal handlers since 22r).
@@ -14,11 +15,13 @@
 #include "ritteros.h"
 
 PROGRAM_HELP("kill [-SIGNAL] PID...",
-             "ask processes to end (SIGNAL: TERM, KILL, INT, HUP, USR1, USR2 or a number)");
+             "ask processes to end, stop or go on (SIGNAL: TERM, KILL, INT, HUP, USR1, USR2, STOP, CONT or a number)");
 
 static const struct { const char *name; int number; } names[] = {
     { "HUP", SIGHUP }, { "INT", SIGINT }, { "KILL", SIGKILL }, { "TERM", SIGTERM },
     { "USR1", SIGUSR1 }, { "USR2", SIGUSR2 },
+    { "STOP", SIGSTOP }, { "TSTP", SIGTSTP }, { "TTIN", SIGTTIN }, { "TTOU", SIGTTOU },
+    { "CONT", SIGCONT },                        /* (44a) */
 };
 
 /* A whole decimal number (digits only), or -1. */
@@ -53,7 +56,8 @@ int main(int argc, char **argv)
     if (argc > 1 && argv[1][0] == '-') {
         sig = signal_named(argv[1] + 1);
         if (sig < 0) {
-            dprintf(STDERR_FILENO, "kill: %s: not a signal (TERM, KILL, INT, HUP, USR1, USR2 or 1-31)\n", argv[1] + 1);
+            dprintf(STDERR_FILENO, "kill: %s: not a signal (TERM, KILL, INT, HUP, USR1, USR2, STOP, CONT or 1-31)\n",
+                    argv[1] + 1);
             return 2;
         }
         first = 2;

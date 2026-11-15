@@ -11,6 +11,10 @@
 #ifndef RITTEROS_FENV_H
 #define RITTEROS_FENV_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* (The same numbers on both architectures; the library translates them
  * into the processor's bits.) */
 #define FE_INVALID      0x01
@@ -50,5 +54,9 @@ int fegetenv(fenv_t *env);
 int feholdexcept(fenv_t *env);
 int fesetenv(const fenv_t *env);
 int feupdateenv(const fenv_t *env);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

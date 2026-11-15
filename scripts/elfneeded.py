@@ -4,13 +4,15 @@ elfneeded.py FILE...: for each ELF file, its soname (a library) and the
 libraries it needs (DT_SONAME, DT_NEEDED of its dynamic section), one line
 each: "FILE: soname NAME; needs A B" ("static" for a file without one, or
 whose dynamic section is only for its own relocations: no loader, no soname,
-nothing needed -- ld.so since 22l, position-independent).
+nothing needed -- ld.so since 22l, position-independent); (43e) then
+"; runpath FOLDERS" when it has a DT_RUNPATH (or "; rpath" a DT_RPATH).
 The test's check of how RitterOS's programs and libraries link (22b-22c).
 """
 import struct
 import sys
 
 PT_DYNAMIC, PT_INTERP, DT_NULL, DT_NEEDED, DT_STRTAB, DT_SONAME = 2, 3, 0, 1, 5, 14
+DT_RPATH, DT_RUNPATH = 15, 29
 
 
 def describe(path):
@@ -53,7 +55,9 @@ def describe(path):
     needed = [string(v) for t, v in entries if t == DT_NEEDED]
     if not interp and not soname and not needed:
         return 'static'
-    return 'soname %s; needs %s' % (soname[0] if soname else '-', ' '.join(needed) or '-')
+    paths = ''.join('; %s %s' % ('runpath' if t == DT_RUNPATH else 'rpath', string(v))
+                    for t, v in entries if t in (DT_RUNPATH, DT_RPATH))
+    return 'soname %s; needs %s%s' % (soname[0] if soname else '-', ' '.join(needed) or '-', paths)
 
 
 for f in sys.argv[1:]:

@@ -30,7 +30,7 @@ ignored. It lists itself too.
 
 ```
 ritteros:/$ /system/x86_64/test/loop &
-[4]
+[1] 4
 loop: running until Ctrl-C
 ritteros:/$ ps
   pid  parent  group  state    name
@@ -40,7 +40,7 @@ ritteros:/$ ps
     4       3      4  running  loop
     5       3      5  running  ps
 ritteros:/$ kill 4
-[4] stopped by signal 15
+[1] ended by signal 15
 ```
 
 ## See also

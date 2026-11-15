@@ -42,6 +42,7 @@
 #define SD_LPIB     0x04
 #define SD_CBL      0x08
 #define SD_LVI      0x0C
+#define SD_FIFOS    0x10                                /* (68v) the stream's FIFO bytes - 1 */
 #define SD_FMT      0x12
 #define SD_BDPL     0x18
 #define SD_BDPU     0x1C
@@ -100,6 +101,10 @@ struct hda {
     int nouts;
     bool present, running;
     uint32_t wpos;                  /* logical write offset into the ring */
+    uint32_t cleared;               /* (68v) played bytes zeroed up to here */
+    uint32_t pending;               /* (68v) bytes not yet played after the last write */
+    uint64_t wrote_at;              /* (68v) when (arch_counter) */
+    struct wait_queue started;      /* (68v) the stream running: the sweeper looks */
     struct mutex lock;
 };
 
@@ -452,6 +457,9 @@ static void stream_setup(struct hda *h)
 
 static long hda_write(struct sound_card *card, const void *buf, size_t n);
 static void hda_drain(struct sound_card *card);
+static long hda_delay(struct sound_card *card);
+static void sweeper(void *arg);
+static void hda_reset(struct sound_card *card);
 
 /* A controller (the module's PCI table matches the class; the class is
  * checked again here): up, its outputs described, registered. A controller
@@ -473,6 +481,8 @@ static bool hda_start(struct pci_device *pci)
     card->priv = h;
     card->write = hda_write;
     card->drain = hda_drain;
+    card->delay = hda_delay;                        /* (68v) */
+    card->reset = hda_reset;
     ksnprintf(card->outputs, sizeof(card->outputs), "codec %d: ", h->codec);
     for (int i = 0; i < h->nouts; i++) {
         size_t at = strlen(card->outputs);
@@ -481,6 +491,8 @@ static bool hda_start(struct pci_device *pci)
                   i ? ", " : "", pin_kind(node(h, p->nids[0])), p->nids[0], p->nids[p->n - 1]);
     }
     sound_register(card);
+    if (!thread_create("hda sweep", sweeper, h))   /* (68v) */
+        kprintf("  hda:           no thread to zero what has played: an underrun replays\n");
     if (ncards < CARDS)
         cards[ncards++] = h;                        /* (37g-4) */
     return true;
@@ -525,7 +537,7 @@ static bool hda_resume(struct pci_device *pci)
         kprintf("  hda:           %02x:%02x.%x: codec %d did not answer after the sleep\n",
                 pci->bus, pci->device, pci->function, h->codec);
     }
-    h->wpos = 0;
+    h->wpos = h->cleared = h->pending = 0;
     h->running = false;
     mutex_unlock(&h->lock);
     return ok;
@@ -540,6 +552,8 @@ static void stream_run(struct hda *h, bool on)
         c &= ~0x02u;
     wr32(h, h->sd + SD_CTL, c);
     h->running = on;
+    if (on)
+        wait_queue_wake_all(&h->started);           /* (68v) the sweeper */
 }
 
 /* Stop the stream and reset (silence); the next write starts it again. */
@@ -548,9 +562,84 @@ static void stop(struct hda *h)
     mutex_lock(&h->lock);
     stream_run(h, false);
     memset(h->ring, 0, RING_SIZE);
-    h->wpos = 0;
+    h->wpos = h->cleared = h->pending = 0;
     wr32(h, h->sd + SD_CTL, (uint32_t)STREAM_TAG << 20);   /* keep the stream tag */
     mutex_unlock(&h->lock);
+}
+
+/* (68v) Bytes the stream has played since the last write, by the clock. */
+#define PLAYED_SLACK (SOUND_RATE * 4 / 50)         /* 20 ms: the card's crystal is not the clock */
+
+static uint64_t gone_since(struct hda *h, uint64_t hz)
+{
+    return (arch_counter() - h->wrote_at) * (uint64_t)(SOUND_RATE * 4) / hz;
+}
+
+/* (68v) Has the ring played everything written? The hardware's position
+ * cannot tell once it passed the writer (it goes on round the ring), so
+ * the time since the last write against what was left then decides, at
+ * the stream's 48 kHz x 4 bytes. Lock held. */
+static bool played_out(struct hda *h)
+{
+    uint64_t hz = arch_counter_hz();
+    if (!h->pending || !hz)
+        return true;
+    return gone_since(h, hz) >= h->pending + PLAYED_SLACK;
+}
+
+static long hda_delay(struct sound_card *card)
+{
+    struct hda *h = card->priv;
+    mutex_lock(&h->lock);
+    long d = 0;
+    if (h->running && !played_out(h)) {             /* (the hardware's, bounded by the clock's) */
+        uint32_t used = (h->wpos - rd32(h, h->sd + SD_LPIB)) & (RING_SIZE - 1);
+        uint64_t gone = gone_since(h, arch_counter_hz());
+        uint64_t left = gone < h->pending ? h->pending - gone : 0;
+        d = used < left ? used : (long)left;
+    }
+    mutex_unlock(&h->lock);
+    return d;
+}
+
+static void hda_reset(struct sound_card *card)
+{
+    struct hda *h = card->priv;
+    if (h->running)
+        stop(h);
+}
+
+/* (68v) The bytes played since the last look zeroed (from `cleared` up to
+ * the hardware's position), so a player that falls behind hears silence,
+ * not the ring's old sound again. Lock held. */
+static void clear_played(struct hda *h, uint32_t lpib)
+{
+    lpib &= RING_SIZE - 1;
+    uint32_t n = (lpib - h->cleared) & (RING_SIZE - 1);
+    uint32_t to_end = RING_SIZE - h->cleared;
+    if (n <= to_end) {
+        memset(h->ring + h->cleared, 0, n);
+    } else {
+        memset(h->ring + h->cleared, 0, to_end);
+        memset(h->ring, 0, n - to_end);
+    }
+    h->cleared = lpib;
+}
+
+/* (68v) While the stream runs, what has played is zeroed every 20 ms
+ * whether or not the player writes (after its last write the ring would
+ * play that sound again a lap later, 0.34 s); asleep while it is stopped. */
+static void sweeper(void *arg)
+{
+    struct hda *h = arg;
+    for (;;) {
+        wait_event(&h->started, h->running);
+        timer_sleep_ms(20);
+        mutex_lock(&h->lock);
+        if (h->running)
+            clear_played(h, rd32(h, h->sd + SD_LPIB));
+        mutex_unlock(&h->lock);
+    }
 }
 
 static void hda_drain(struct sound_card *card)
@@ -588,11 +677,22 @@ static long hda_write(struct sound_card *card, const void *buf, size_t n)
     size_t done = 0;
     mutex_lock(&h->lock);
     if (!h->running) {
-        h->wpos = 0;
+        h->wpos = h->cleared = 0;
         stream_run(h, true);
+    } else if (played_out(h)) {
+        /* (68v) The player fell behind: the hardware went past what was
+         * written and goes round the ring (silence: what played was
+         * zeroed). The new sound goes just ahead of where it reads, past
+         * what its FIFO has fetched already, not a whole ring later. */
+        memset(h->ring, 0, RING_SIZE);
+        uint32_t lpib = rd32(h, h->sd + SD_LPIB) & (RING_SIZE - 1);
+        uint32_t ahead = ((uint32_t)rd16(h, h->sd + SD_FIFOS) + 1 + 64 + 3) & ~3u;
+        h->wpos = (lpib + ahead) & (RING_SIZE - 1) & ~3u;
+        h->cleared = lpib & ~3u;
     }
     while (done < n) {
         uint32_t lpib = rd32(h, h->sd + SD_LPIB);   /* bytes the hardware has played */
+        clear_played(h, lpib);                      /* (68v: before anything is written there) */
         uint32_t used = (h->wpos - lpib) & (RING_SIZE - 1);
         uint32_t freeb = RING_SIZE - used - 1;      /* keep one byte so wpos != lpib means full */
         if (freeb == 0) {
@@ -612,6 +712,10 @@ static long hda_write(struct sound_card *card, const void *buf, size_t n)
         h->wpos = (h->wpos + chunk) & (RING_SIZE - 1);
         done += chunk;
     }
+    uint32_t lpib = rd32(h, h->sd + SD_LPIB);
+    clear_played(h, lpib);                          /* (68v) */
+    h->pending = (h->wpos - lpib) & (RING_SIZE - 1);
+    h->wrote_at = arch_counter();
     mutex_unlock(&h->lock);
     return (long)done;
 }

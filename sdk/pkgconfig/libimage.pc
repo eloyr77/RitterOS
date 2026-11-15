@@ -1,0 +1,13 @@
+# libimage.pc (43d): libimage.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libimage
+Description: RitterOS's images (PNG, JPEG, BMP, PPM: decoding; PNG writing)
+Version: 1
+Requires: ritteros
+Cflags: -I${includedir}
+Libs: ${libdir}/libimage.so.1

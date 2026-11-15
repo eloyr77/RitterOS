@@ -11,13 +11,15 @@
 #include <stdint.h>
 
 /* If the 32-bit word at addr (the calling program's) holds value, sleep
- * until futex_wake for it, timeout_ns nanoseconds (0: no limit) or a
- * signal: 0 when woken, -ERR_AGAIN if the word held something else,
- * -ERR_TIMEDOUT, -ERR_INTR, -ERR_FAULT. */
-int64_t futex_wait(const void *program, uint64_t addr, uint32_t value, uint64_t timeout_ns);
+ * until futex_wake for its key (program, where: the program and addr, or
+ * since 43b-3 a shared memory object and the place in it), timeout_ns
+ * nanoseconds (0: no limit) or a signal: 0 when woken, -ERR_AGAIN if the
+ * word held something else, -ERR_TIMEDOUT, -ERR_INTR, -ERR_FAULT. */
+int64_t futex_wait(const void *program, uint64_t where, uint64_t addr, uint32_t value,
+                   uint64_t timeout_ns);
 
-/* Wake up to n threads of program waiting on addr (the longest waiting
- * first): how many were woken. */
-int64_t futex_wake(const void *program, uint64_t addr, int64_t n);
+/* Wake up to n threads waiting on the key (program, where) (the longest
+ * waiting first): how many were woken. */
+int64_t futex_wake(const void *program, uint64_t where, int64_t n);
 
 #endif

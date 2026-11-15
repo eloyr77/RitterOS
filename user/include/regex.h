@@ -14,6 +14,10 @@
 #ifndef RITTEROS_REGEX_H
 #define RITTEROS_REGEX_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <sys/types.h>
 
@@ -60,5 +64,9 @@ int regexec(const regex_t *re, const char *string, size_t nmatch, regmatch_t pma
             int flags);
 size_t regerror(int error, const regex_t *re, char *buffer, size_t size);
 void regfree(regex_t *re);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

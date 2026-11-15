@@ -55,25 +55,38 @@ static void enqueue(const struct sys_input_event *e)
     wait_queue_wake_all(&waiters);
 }
 
+/* The keys held on any keyboard, as INPUT_* bits. */
+static uint8_t modifiers_now(void)
+{
+    uint8_t held = keyboard_modifiers_held();
+    return (uint8_t)((held & KEYBOARD_CTRL ? INPUT_CTRL : 0) |
+                     (held & KEYBOARD_SHIFT ? INPUT_SHIFT : 0) |
+                     (held & KEYBOARD_ALT ? INPUT_ALT : 0));
+}
+
 void winput_pointer(int x, int y, uint8_t buttons)
 {
     struct sys_input_event e = {0};
     e.type = INPUT_POINTER;
     e.buttons = buttons;
-    uint8_t held = keyboard_modifiers_held();
-    e.modifiers = (uint8_t)((held & KEYBOARD_CTRL ? INPUT_CTRL : 0) |
-                            (held & KEYBOARD_SHIFT ? INPUT_SHIFT : 0) |
-                            (held & KEYBOARD_ALT ? INPUT_ALT : 0));
+    e.modifiers = modifiers_now();
     e.x = x < 0 ? 0 : (uint16_t)x;
     e.y = y < 0 ? 0 : (uint16_t)y;
     enqueue(&e);
 }
 
-void winput_wheel(int x, int y, int steps)
+static int8_t wheel_steps(int steps)
+{
+    return (int8_t)(steps < -127 ? -127 : steps > 127 ? 127 : steps);
+}
+
+void winput_wheel(int x, int y, int steps, int steps_x)
 {
     struct sys_input_event e = {0};
     e.type = INPUT_WHEEL;
-    e.key = (uint8_t)(int8_t)(steps < -127 ? -127 : steps > 127 ? 127 : steps);
+    e.key = (uint8_t)wheel_steps(steps);
+    e.buttons = (uint8_t)wheel_steps(steps_x);         /* (68m-1) the horizontal wheel */
+    e.modifiers = modifiers_now();                    /* (Shift + wheel: windowd's) */
     e.x = x < 0 ? 0 : (uint16_t)x;
     e.y = y < 0 ? 0 : (uint16_t)y;
     enqueue(&e);

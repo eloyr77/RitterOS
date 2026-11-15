@@ -18,6 +18,10 @@
 #ifndef RITTEROS_TLS_H
 #define RITTEROS_TLS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -66,5 +70,9 @@ const char *tls_error(struct tls *ctx);
 const char *tls_conn_version(struct tls *ctx);
 const char *tls_conn_cipher(struct tls *ctx);
 const char *tls_conn_servername(struct tls *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

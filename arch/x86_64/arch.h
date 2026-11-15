@@ -48,6 +48,7 @@ static inline void arch_wait_for_interrupt(void)
 /* Disable interrupts and return whether they were enabled (RFLAGS.IF). */
 /* timer.c: the time stamp counter's frequency, measured by apic.c. */
 void timer_set_counter_hz(uint64_t hz);
+void x86_tick_counter_hz(uint64_t hz);     /* (68u) apic.c: the tick's period at that rate */
 
 /* (37g-1) Sleep's pieces in the x86 code: the counter carried over
  * (timer.c), the serial line set up again (uart.c) and receiving

@@ -24,7 +24,7 @@ struct local;
 
 /* Give a new endpoint the name it will listen on (before local_listen), for
  * user uid (local_peer_uid tells it to its clients). *l must be 0. 0 or ERR_*. */
-int local_bind(struct local **l, const char *name, int uid);
+int local_bind(struct local **l, const char *name, int uid, const char *program, bool packets);
 
 /* Register the bound name and start accepting (backlog clamped to 1..128).
  * ERR_ADDRINUSE if the name is taken. 0 or ERR_*. */
@@ -33,7 +33,7 @@ int local_listen(struct local **l, int backlog);
 /* Connect a new endpoint to a listener's name. *l must be 0. The connection
  * is live at once (the server picks it up with local_accept).
  * ERR_CONNREFUSED if nobody listens on that name. 0 or ERR_*. */
-int local_connect(struct local **l, const char *name, int uid);
+int local_connect(struct local **l, const char *name, int uid, const char *program, bool packets);
 
 /* Take the next pending connection as a new endpoint (*out). Waits until one
  * arrives or the thread is stopped. 0 or ERR_*. */
@@ -51,6 +51,25 @@ void local_shutdown(struct local *l, bool read, bool write);
  * is left, or -ERR_* (timeout_ms 0: wait as long as it takes). */
 int64_t local_recv(struct local *l, void *data, size_t size, uint32_t timeout_ms);
 
+/* (43b-2) Things passed with the bytes (descriptors: process.c's open
+ * files), see localsock.c: at most LOCAL_ITEMS_MAX a message; the dropper
+ * lets go of one nobody will receive. local_pair: a connected pair
+ * without a name (socketpair). */
+#define LOCAL_ITEMS_MAX 64
+int64_t local_send_with(struct local *l, const void *data, size_t length, uint32_t timeout_ms,
+                        void *const *items, int count);
+int64_t local_recv_with(struct local *l, void *data, size_t size, uint32_t timeout_ms,
+                        void **items, int max, int *got, bool *cut, bool *trunc);
+void local_set_dropper(void (*drop)(void *item));
+int local_pair(struct local **a, struct local **b, int uid, const char *program, bool packets);
+
+/* (45b) Packet connections (SOCK_SEQPACKET: packets true at bind, connect
+ * and pair): each send is one message, kept whole (at most
+ * LOCAL_PACKET_MAX bytes, else ERR_MSGSIZE), each receive one message
+ * (*trunc: it was longer than the buffer, the rest dropped). A packet
+ * socket connects only to a packet listener (ERR_PROTOTYPE). */
+#define LOCAL_PACKET_MAX (64 * 1024)
+
 /* Pass a shared buffer to the peer / take one the peer passed (fd-passing,
  * like Unix SCM_RIGHTS). The queued reference is the caller's to manage:
  * send takes a held ref (and returns ERR_AGAIN, not consuming it, when the
@@ -66,6 +85,10 @@ const char *local_name(struct local *l);
  * listener's who bound the name), or -1 when not connected: how a server and
  * its clients tell who they talk to (the window system, 15k). */
 int local_peer_uid(struct local *l);
+/* (70c) The program at the other end, as local_peer_uid (the path its
+ * process ran when it connected or bound the name), or 0. Kept with the
+ * connection: valid while the caller holds the endpoint. */
+const char *local_peer_program(struct local *l);
 
 /* Close an endpoint: a listener leaves the registry and refuses its pending
  * connections; a connected endpoint tells its peer it is gone. */

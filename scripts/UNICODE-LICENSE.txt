@@ -18,7 +18,7 @@ user's agreed exception to RitterOS's public-domain rule (roadmap item 9,
 confirmed 2026-10-25).
 
 Also under this notice (roadmap item 27, step 27s, accepted by the user
-2026-10-26): the English names in user/lib/js/intl.c, iBrowser's and js's
+2026-10-26): the English names in user/lib/js/intl.c, js's
 Intl -- time zone names ("Eastern Standard Time", "EST"), unit and
 currency names and symbols, the likely-subtag entries and the date and
 number patterns -- which follow the Unicode Common Locale Data Repository

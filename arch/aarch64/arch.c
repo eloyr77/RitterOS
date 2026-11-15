@@ -11,6 +11,9 @@ const char arch_crash_kinds[] = "ud align pc sp";
 
 #define SCTLR_A  (1ULL << 1)            /* alignment check of every access */
 #define SCTLR_SA (1ULL << 3)            /* SP alignment check at EL1 */
+#define SCTLR_UCT (1ULL << 15)          /* (45d) programs may read CTR_EL0 (cache line sizes) */
+#define SCTLR_UCI (1ULL << 26)          /* (45d) and clean caches (DC CVAU, IC IVAU): a JIT's
+                                         * new code made runnable (__clear_cache), as Linux */
 
 void arch_cpu_init(void)
 {
@@ -21,8 +24,8 @@ void arch_cpu_init(void)
     arch_this_cpu()->exception_stack = (uint64_t)exception_stack_top;
     /* Fault on loads and stores through a misaligned stack pointer: the ABI
      * keeps SP 16-byte aligned, so a misaligned one means a broken stack. */
-    write_sysreg(SCTLR_EL1, read_sysreg(SCTLR_EL1) | SCTLR_SA);
-    isb();
+    write_sysreg(SCTLR_EL1, read_sysreg(SCTLR_EL1) | SCTLR_SA | SCTLR_UCT | SCTLR_UCI);
+    isb();                                  /* (the other cores start with this core's) */
     kprintf("  exceptions:    vector table %p (VBAR_EL1), running at EL%u\n",
             (void *)exception_vectors, current_el());
     kprintf("                 kernel stack SP_EL0, exception stack SP_EL1 %p - %p\n",

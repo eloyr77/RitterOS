@@ -17,7 +17,7 @@ back when `windowd` ends. `windowd` came in step 15e (its interaction in
 It starts on demand, not at the boot: `windowd &` at the prompt, or a
 line `windowd` in your `~/.config/login` (then the desktop comes up at
 each login at the machine, and the prompt is there when you leave it).
-When it starts it opens one program, the file browser `owl` by default,
+When it starts it opens one program, the file browser `Owl` by default,
 from which you open terminals and other apps; when that program ends the
 desktop stays up.
 
@@ -28,7 +28,7 @@ a button at the bottom of the screen, `X` closes it (its program ends).
 A window always opens on the screen, made smaller if it does not fit.
 Right-clicking the desktop's background opens the desktop menu: every app
 bundle `/system/<arch>/apps/NAME.program` (42b), by the name in its `info`
-(**Terminal**, **owl**, **Image viewer**...), and **Close window
+(**Terminal**, **Owl**, **Image viewer**...), and **Close window
 server**, which gives the screen back to the text console. Ctrl + click is a right-click
 everywhere. **Ctrl-Alt-Delete** leaves the window system even when a
 program holding the screen is hung (the kernel ends it). `windowd` also
@@ -60,12 +60,21 @@ accent = 5E81AC
 
 | Key | Meaning |
 |---|---|
-| `startup = PROGRAM [ARGUMENTS]` | what opens with the desktop (`owl` when not set; empty: nothing). A bare name is an app of `/system/<arch>/apps`, else a program of `/system/<arch>/bin` |
+| `startup = PROGRAM [ARGUMENTS]` | what opens with the desktop (`Owl` when not set; empty: nothing). A bare name is an app of `/system/<arch>/apps`, else a program of `/system/<arch>/bin` |
 | `double_click = MS` | two presses within MS milliseconds (100-5000; 500 when not set) and 4 pixels are a double click |
 | `click_steady = off` | clicks exactly where the pointer is; on when not set, which holds a touchpad's slow creep around a click |
 | `refresh = auto` or `= HZ` | (65e-34b) how many frames a second it draws at most: `auto` (when not set) the screen's own rate from the monitor's EDID, else 60; a number (10-1000) for a monitor whose EDID is missing or wrong |
-| `theme = dark` or `light` | (41g-5) the colours of the desktop, frames, menus and the programs' windows (libwidget's, `owl`'s, `term`'s): dark (Nord's polar night) when not set, light (its snow storm); read when windowd and each program start |
+| `theme = dark` or `light` | (41g-5) the colours of the desktop, frames, menus and the programs' windows (libwidget's, `Owl`'s, `Term`'s): dark (Nord's polar night) when not set, light (its snow storm); read when windowd and each program start, and again when asked (below) |
 | `accent = RRGGBB` | (41g-5) the colour of what is in front and chosen: the title bar of the window in front, menus' chosen items, selections, focus rings, progress; the theme's (`5E81AC`, a blue) when not set |
+
+(69b) windowd reads these settings again when a program asks it
+(`window_settings_reload`: the settings app, after a change): the colours,
+`double_click`, `click_steady` and `refresh` are used at once (the desktop,
+frames and menus drawn again; a new `refresh` switches between a rate of
+its own and the screen's vertical blanks and page flips), and every window
+is told (WINDOW_SETTINGS), so its program draws again with the new colours
+and text size (libwidget's windows, `Owl`, `Term`, `Imageview`
+do). `startup` counts only when windowd starts.
 
 Since 65e-34b changes are drawn once per frame: a change after a quiet
 moment shows at once, and what changes meanwhile (a dragged window, the
@@ -84,7 +93,7 @@ When the screen's mode changes (`displays set`, 66b-5), windowd follows at
 once: a back buffer of the new size, every window kept on the new screen,
 maximized windows asked to fill it, the frame rate the new mode's (unless
 `refresh` sets one), and everything drawn again (`windowd: screen now
-1920x1080`). A terminal (`term`) grows to at most 170 columns and 60 rows,
+1920x1080`). A terminal (`Term`) grows to at most 170 columns and 60 rows,
 so on a large screen it does not fill it.
 
 When the screen goes off after a while without input (37e: `screen_off`
@@ -145,6 +154,11 @@ Other lines:
   (60.000 Hz)` (66d-3); `windowd: page flipping stopped (WHY): copying to
   the screen` if a flip fails.
 - `windowd: refresh = VALUE: not auto or 10-1000 (frames a second)`.
+- (69b) `windowd: settings read again: the light theme, accent BF616A,
+  double_click 700 ms, click_steady on` when a program asked, and after a
+  new `refresh`: `windowd: refresh = a rate: 30.000 frames a second, by the
+  timer` (or `refresh = auto: ...`, `at the vertical blanks`, `page
+  flipping`).
 - `windowd: screen now WxH` after a mode change, or `windowd: no back
   buffer for WxH` (it keeps drawing for the old size).
 - `windowd: cannot start PROGRAM: WHY` when `startup`'s program cannot be
@@ -166,5 +180,5 @@ ritteros:/home/anna$ echo windowd > .config/login
 
 ## See also
 
-[`term`](term.md), [`owl`](owl.md), [`ibrowser`](ibrowser.md),
-[`imageview`](imageview.md), [`reel`](reel.md), [`notify`](notify.md), [`wshot`](wshot.md), [`wsend`](wsend.md), [`elf`](elf.md)
+[`Term`](Term.md), [`Owl`](Owl.md),
+[`Imageview`](Imageview.md), [`Reel`](Reel.md), [`notify`](notify.md), [`wshot`](wshot.md), [`wsend`](wsend.md), [`elf`](elf.md)

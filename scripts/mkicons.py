@@ -41,18 +41,6 @@ def circle(cx, cy, r):
     return lambda x, y: (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
-def ring(cx, cy, r, w):
-    return lambda x, y: (r - w) ** 2 <= (x - cx) ** 2 + (y - cy) ** 2 <= r * r
-
-
-def ellipse_ring(cx, cy, rx, ry, w):
-    def inside(x, y):
-        d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
-        d2 = ((x - cx) / max(rx - w, 0.01)) ** 2 + ((y - cy) / max(ry - w, 0.01)) ** 2
-        return d <= 1 and d2 >= 1
-    return inside
-
-
 def polygon(points):
     """Inside a polygon (even-odd crossings)."""
     def inside(x, y):
@@ -79,7 +67,7 @@ def stroke(x0, y0, x1, y1, w):
 
 ICONS = {
     # a terminal: a dark screen in a grey frame, a green prompt and a cursor
-    'term': [
+    'Term': [
         (rounded(2, 4, 30, 28, 3), 'grey'),
         (rounded(4, 6, 28, 26, 2), 'night'),
         (stroke(8, 11, 13, 15.5, 2.2), 'green'),
@@ -87,13 +75,13 @@ ICONS = {
         (rounded(15, 19, 22, 21, 0.5), 'snow'),
     ],
     # owl, the file browser: a folder
-    'owl': [
+    'Owl': [
         (rounded(3, 6, 14, 12, 1.5), 'orange'),
         (rounded(3, 9, 29, 27, 2), 'orange'),
         (rounded(3, 12, 29, 27, 2), 'yellow'),
     ],
     # the image viewer: a picture of a hill under a sun, in a light frame
-    'imageview': [
+    'Imageview': [
         (rounded(2, 5, 30, 27, 2), 'snow'),
         (rounded(4, 7, 28, 25, 1), 'blue'),
         (circle(21, 12.5, 3), 'yellow'),
@@ -101,19 +89,16 @@ ICONS = {
          'green'),
     ],
     # the video player: a red disc with a white play triangle
-    'reel': [
+    'Reel': [
         (circle(16, 16, 14), 'red'),
         (polygon([(12.5, 9.5), (12.5, 22.5), (23, 16)]), 'snow'),
     ],
-    # iBrowser: a globe with its lines
-    'ibrowser': [
-        (circle(16, 16, 14), 'deep'),
-        (ring(16, 16, 14, 1.6), 'frost'),
-        (ellipse_ring(16, 16, 6.5, 14, 1.4), 'frost'),
-        (both(circle(16, 16, 13), rounded(2, 15.3, 30, 16.7, 0)), 'frost'),
-        (both(circle(16, 16, 13), rounded(2, 9.3, 30, 10.6, 0)), 'frost'),
-        (both(circle(16, 16, 13), rounded(2, 21.4, 30, 22.7, 0)), 'frost'),
-        (both(circle(16, 16, 13), rounded(15.3, 2, 16.7, 30, 0)), 'frost'),
+    # settings (69c): a gear, eight teeth round a wheel with a hole
+    'Settings': [(stroke(16 + 9 * math.cos(k * math.pi / 4), 16 + 9 * math.sin(k * math.pi / 4),
+                         16 + 14 * math.cos(k * math.pi / 4), 16 + 14 * math.sin(k * math.pi / 4), 5),
+                  'blue') for k in range(8)] + [
+        (circle(16, 16, 10.5), 'blue'),
+        (circle(16, 16, 4.5), 'night'),
     ],
 }
 

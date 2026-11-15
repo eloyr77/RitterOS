@@ -200,3 +200,52 @@ int32_t hid_units_per_mm(const struct hid_field *f)
         return 0;
     return (int32_t)(((int64_t)range * 1000 + um / 2) / um);
 }
+
+bool hid_pointer_find(const struct hid_field *fields, int n, struct hid_pointer *p)
+{
+    memset(p, 0, sizeof(*p));
+    const struct hid_field *x = 0;
+    for (int i = 0; i < n && !x; i++)
+        if (fields[i].kind == HID_INPUT && fields[i].page == 0x01 && fields[i].usage == 0x30 &&
+            (fields[i].flags & HID_RELATIVE) && !(fields[i].flags & HID_CONSTANT))
+            x = &fields[i];
+    if (!x)
+        return false;
+    uint8_t id = x->report_id;
+    const struct hid_field *y = hid_find(fields, n, id, HID_INPUT, 0x01, 0x31, 0);
+    if (!y || !(y->flags & HID_RELATIVE))
+        return false;
+    p->report_id = id;
+    p->bytes = hid_report_bytes(fields, n, id, HID_INPUT);
+    p->x = *x, p->y = *y;
+    const struct hid_field *f = hid_find(fields, n, id, HID_INPUT, 0x01, 0x38, 0);
+    if (f)
+        p->wheel = *f;
+    if ((f = hid_find(fields, n, id, HID_INPUT, 0x0C, 0x238, 0)))
+        p->pan = *f;
+    for (int b = 0; b < 3; b++)
+        if ((f = hid_find(fields, n, id, HID_INPUT, 0x09, (uint16_t)(b + 1), 0)))
+            p->button[b] = *f;
+    return true;
+}
+
+bool hid_pointer_read(const struct hid_pointer *p, const uint8_t *report, size_t len,
+                      int *dx, int *dy, int *wheel, int *pan, uint8_t *buttons)
+{
+    if (p->report_id) {
+        if (len < 1 || report[0] != p->report_id)
+            return false;
+        report++, len--;
+    }
+    if (len < p->bytes)
+        return false;
+    *dx = hid_value(&p->x, report, len);
+    *dy = hid_value(&p->y, report, len);
+    *wheel = p->wheel.size ? hid_value(&p->wheel, report, len) : 0;
+    *pan = p->pan.size ? hid_value(&p->pan, report, len) : 0;
+    *buttons = 0;
+    for (int b = 0; b < 3; b++)
+        if (p->button[b].size && hid_value(&p->button[b], report, len))
+            *buttons |= (uint8_t)(1u << b);
+    return true;
+}

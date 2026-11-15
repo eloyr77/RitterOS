@@ -1,0 +1,13 @@
+# libdraw.pc (43d): libdraw.so.1, for builds outside the tree
+# (sdk/ritteros.cmake and sdk/ritteros.meson set arch).
+prefix=${pcfiledir}/../..
+arch=x86_64
+includedir=${prefix}/user/include
+libdir=${prefix}/build/system/${arch}/lib
+
+Name: libdraw
+Description: RitterOS's 2D drawing (shapes, curves, gradients, images)
+Version: 1
+Requires: ritteros
+Cflags: -I${includedir}
+Libs: ${libdir}/libdraw.so.1

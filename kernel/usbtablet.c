@@ -142,7 +142,7 @@ static void on_report(void *context, const uint8_t *data, uint32_t length)
     uint8_t buttons = (uint8_t)get_bits(data, p->btn_bit, p->btn_count);
     int wheel = p->have_wheel ? sign_extend(get_bits(data, p->wheel_bit, p->wheel_size),
                                             p->wheel_size) : 0;
-    mouse_absolute(u->m, x, y, p->x_max, p->y_max, wheel, buttons);
+    mouse_absolute(u->m, x, y, p->x_max, p->y_max, wheel, 0, buttons);
 }
 
 bool usbtablet_attach(struct usb_device *dev, const struct usb_interface_descriptor *interface,

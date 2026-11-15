@@ -4,7 +4,7 @@
 ld [-o FILE] [OPTION]... FILE...
 ld [-o FILE] [-L DIR]... [-lNAME]... [--as-needed] [-dynamic-linker PATH]
    [-static | -shared [-soname NAME] [--version-script FILE] | --no-dynamic-linker | --efi]
-   [-T SCRIPT] [-z KEYWORD]... FILE...
+   [-rpath FOLDERS]... [-T SCRIPT] [-z KEYWORD]... FILE...
 ```
 
 RitterOS's linker (since step 60), the one `cc` runs: it links ELF
@@ -56,6 +56,8 @@ symbol table.
 | `-static` | a program without the loader or shared libraries (ET_EXEC): every address filled in when linking |
 | `-shared` | a shared library (linked at 0) |
 | `-soname NAME`, `-soname=NAME` | the name programs record for the library |
+| `-rpath FOLDERS`, `-rpath=FOLDERS`, `-R FOLDERS` | (43e) folders where ld.so looks for the libraries first (DT_RUNPATH; several `-rpath`s are joined with `:`): `'$ORIGIN/lib'` is the `lib` folder beside the program, an app's own libraries in its bundle |
+| `--enable-new-dtags`, `--disable-new-dtags` | `-rpath` written as DT_RUNPATH (the default) or as the older DT_RPATH |
 | `--version-script FILE`, `--version-script=FILE` | the functions a library exports (`{ global: a; b; local: *; };`); the rest stay inside |
 | `--no-dynamic-linker` | a position-independent file that loads itself (ld.so); per-thread data is refused |
 | `--efi` | a UEFI application (PE32+): the objects laid out as lld-link does (ImageBase 0x140000000; .text, .rdata, .data, .reloc), the entry point `efi_main`, a base relocation for every 64-bit address |

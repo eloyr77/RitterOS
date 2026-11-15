@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include "ritteros.h"                   /* config_get */
 #include <unistd.h>
 #include "wfont.h"
 #include "wfont_tables.h"
@@ -611,13 +612,21 @@ static struct font *open_scalable(const char *path, int size)
 
 /* (41d) The user's text size: text_size in ~/.config/windows, else in
  * /system/config/windows (as windowd reads its settings), 8-64, 15 if not
- * set; read once. (windowd writes the user's file when it is missing: no
- * program draws without windowd.) */
+ * set; read once, and (69b) again after WINDOW_SETTINGS (window.c's
+ * to_event forgets it). (windowd writes the user's file when it is missing:
+ * no program draws without windowd.) */
 #define TEXT_SIZE_DEFAULT 15
+
+static int text_size;
+
+void __ritteros_wfont_size_forget(void)
+{
+    __atomic_store_n(&text_size, 0, __ATOMIC_RELEASE);
+}
 
 static int user_text_size(void)
 {
-    static int size;
+    int size = __atomic_load_n(&text_size, __ATOMIC_ACQUIRE);
     if (size)
         return size;
     char value[32], mine[300];
@@ -631,6 +640,7 @@ static int user_text_size(void)
         r = config_get("/system/config/windows", "text_size", value, sizeof(value));
     int v = r > 0 ? atoi(value) : 0;
     size = v >= 8 && v <= 64 ? v : TEXT_SIZE_DEFAULT;
+    __atomic_store_n(&text_size, size, __ATOMIC_RELEASE);
     return size;
 }
 

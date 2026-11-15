@@ -140,9 +140,12 @@ void terminal_receive(uint8_t byte)
     /* Ctrl-C stops a foreground job that takes the signal; the byte goes
      * nowhere. If the foreground ignores it (the shell at its prompt), it is
      * input like any other byte: as a signal it was lost when it came
-     * before the shell started reading (typed right after the prompt). */
+     * before the shell started reading (typed right after the prompt).
+     * (44b) Ctrl-Z (VSUSP) the same with SIGTSTP: the job stops. */
     if (byte == 0x03 && isig && foreground && process_signal_group(foreground, SIGINT)) {
         /* stopped */
+    } else if (byte == 0x1A && isig && foreground && process_signal_group(foreground, SIGTSTP)) {
+        /* (44b) stopped */
     } else {
         uint64_t state = spin_lock(&input_lock);
         bool full = input_head - input_tail == INPUT_SIZE;
@@ -687,7 +690,7 @@ static void run_program(const char *path, const char *name, const char *args)
         kprintf("%s: out of memory\n", path);
         return;
     }
-    process_wait(0, pid, &status, false);
+    process_wait(0, pid, &status, 0);
     foreground = 0;
     int signal = status & 0x7F;                 /* see common/syscalls.h */
     if (signal == SIGINT)
@@ -881,7 +884,7 @@ static void run_login(void)
         return;
     }
     kprintf("  login:         %s, process %d\n", LOGIN, pid);
-    process_wait(0, pid, &status, false);
+    process_wait(0, pid, &status, 0);
     foreground = 0;
     int signal = status & 0x7F;
     if (signal)

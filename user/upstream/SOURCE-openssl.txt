@@ -1,0 +1,22 @@
+RitterOS's OpenSSL (46b): /system/<arch>/lib/libcrypto.so.3 and
+libssl.so.3, the program /system/<arch>/bin/openssl, and the headers
+/system/include/openssl/.
+
+It is OpenSSL 3.5.9 (the 3.5 long-term support series) by the OpenSSL
+Project, built unchanged from its source archive
+(https://github.com/openssl/openssl/releases/download/openssl-3.5.9/
+openssl-3.5.9.tar.gz, SHA-256 in user/upstream/versions), which
+scripts/setup-toolchain.sh downloads into tools/src: none of its sources
+are kept in this repository. Only the build is RitterOS's: its own
+Configure with a target of RitterOS's (user/upstream/openssl.conf:
+upstream's base Unix template, pthreads, dlopen, the assembly for x86-64
+and AArch64), the options in the Makefile's "OpenSSL" part (no loadable
+modules: no legacy provider, no engines; OPENSSLDIR /system/config/openssl,
+whose cert.pem is a link to /system/certs/cacert.pem), and the program's
+help line (user/upstream/openssl-help.c, linked into it).
+
+Licence: the Apache License 2.0 (user/upstream/LICENCE-openssl.txt,
+OpenSSL's LICENSE.txt; installed as /system/doc/licences/openssl.txt),
+compatible with the GPL version 3; taking it in was agreed for item 46
+(2026-11-12).
+Upstream: https://openssl-library.org, https://github.com/openssl/openssl

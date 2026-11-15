@@ -357,6 +357,28 @@ void window_flush(struct window *win)
     write_full(win->sock, &m, sizeof(m));
 }
 
+void window_flush_rect(struct window *win, int x, int y, int w, int h)
+{
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x >= win->w || y >= win->h)
+        return;
+    if (w > win->w - x)
+        w = win->w - x;
+    if (h > win->h - y)
+        h = win->h - y;
+    if (w <= 0 || h <= 0)                       /* nothing of it in the window */
+        return;
+    struct wmsg m = { WMSG_DAMAGE, (uint32_t)x | (uint32_t)y << 16, (uint32_t)w | (uint32_t)h << 16, 0 };
+    write_full(win->sock, &m, sizeof(m));
+}
+
 /* (41f-6) The text that follows a WMSG_DROP, read as soon as the message is
  * (so a drop kept while the clipboard is awaited is whole), into
  * win->drop; what is past WINDOW_CLIPBOARD_MAX is read and dropped. */
@@ -444,6 +466,9 @@ int window_clipboard_get(struct window *win, char *buf, size_t size)
 
 /* A message from windowd as an event: 1 with *ev filled, 0 for none (read
  * past), -1 when the window is done. */
+static int colors_ready;
+void __ritteros_wfont_size_forget(void);        /* (wfont.c) */
+
 static int to_event(struct window *win, const struct wmsg *mp, struct window_event *ev)
 {
     const struct wmsg m = *mp;
@@ -464,8 +489,8 @@ static int to_event(struct window *win, const struct wmsg *mp, struct window_eve
     }
     if (m.type == WMSG_SCROLL) {
         ev->type = WINDOW_SCROLL;
-        ev->y = (int)(int32_t)m.a;  /* steps, negative up */
-        ev->x = 0;
+        ev->y = (int16_t)(m.a & 0xFFFF);        /* steps, negative up */
+        ev->x = (int16_t)(m.a >> 16);           /* (68m-1) sideways, positive to the right */
         ev->buttons = 0;
         ev->key = 0;
         return 1;
@@ -521,6 +546,14 @@ static int to_event(struct window *win, const struct wmsg *mp, struct window_eve
         ev->buttons = 0;
         return 1;
     }
+    if (m.type == WMSG_SETTINGS) {              /* (69b) the colours and text size read again */
+        __atomic_store_n(&colors_ready, 0, __ATOMIC_RELEASE);
+        __ritteros_wfont_size_forget();
+        ev->type = WINDOW_SETTINGS;
+        ev->x = ev->y = ev->key = ev->menu = 0;
+        ev->buttons = 0;
+        return 1;
+    }
     if (m.type == WMSG_FOCUS) {
         ev->type = WINDOW_FOCUS;
         ev->key = m.a ? 1 : 0;
@@ -569,6 +602,12 @@ int window_timer(struct window *win, int ms, int id)
     win->timers[free_at].every = (uint64_t)ms * 1000000;
     win->timers[free_at].next = now_ns() + win->timers[free_at].every;
     return 0;
+}
+
+int window_settings_reload(struct window *win)
+{
+    struct wmsg m = { WMSG_SETTINGS, 0, 0, 0 };
+    return win && write_full(win->sock, &m, sizeof(m)) == 0 ? 0 : -1;
 }
 
 void window_set_cursor(struct window *win, int shape)
@@ -669,11 +708,12 @@ static int windows_key(const char *key, char *value, size_t size)
     return r;
 }
 
+static int colors_ready;                /* (69b) cleared by WMSG_SETTINGS: read again */
+
 uint32_t window_color(int which)
 {
     static uint32_t colors[THEME_COLORS];
-    static int ready;
-    if (!__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) {     /* (two threads at once make the same) */
+    if (!__atomic_load_n(&colors_ready, __ATOMIC_ACQUIRE)) {   /* (two threads at once make the same) */
         char value[32];
         const uint32_t *t = windows_key("theme", value, sizeof(value)) > 0 && !strcasecmp(value, "light")
                                     ? theme_light : theme_dark;
@@ -686,7 +726,7 @@ uint32_t window_color(int which)
                 c[WINDOW_COLOR_ACCENT] = c[WINDOW_COLOR_SELECTION] = (uint32_t)a;
         }
         memcpy(colors, c, sizeof(colors));
-        __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(&colors_ready, 1, __ATOMIC_RELEASE);
     }
     return which >= 0 && which < (int)THEME_COLORS ? colors[which] : colors[WINDOW_COLOR_TEXT];
 }
