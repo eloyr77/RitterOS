@@ -515,6 +515,7 @@ constant	INPUT_POINTER	1
 constant	INPUT_SCREEN	5
 constant	INPUT_SHIFT	0x02
 constant	INPUT_WHEEL	3
+constant	INPUT_WHEEL_FINE	7
 constant	IPPROTO_ICMP	1
 constant	IPPROTO_ICMPV6	58
 constant	IPPROTO_IP	0
@@ -600,6 +601,7 @@ constant	MADV_WILLNEED	MADVISE_WILLNEED
 constant	MAP_ANON	MAP_ANONYMOUS
 constant	MAP_ANONYMOUS	MMAP_ANONYMOUS
 constant	MAP_FAILED	((void *)-1)
+constant	MAP_FILE	0
 constant	MAP_FIXED	MMAP_FIXED
 constant	MAP_NORESERVE	0x4000
 constant	MAP_PRIVATE	MMAP_PRIVATE
@@ -1440,6 +1442,7 @@ constant	si_uid	__fields.__proc.si_uid
 constant	st_atime	st_atim.tv_sec
 constant	st_ctime	st_ctim.tv_sec
 constant	st_mtime	st_mtim.tv_sec
+constant	static_assert	_Static_assert
 constant	stderr	(ritteros_stderr())
 constant	stdin	(ritteros_stdin())
 constant	stdout	(ritteros_stdout())

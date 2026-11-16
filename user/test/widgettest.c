@@ -16,7 +16,7 @@
  * table under them, a button Done; each row chosen printed (tabs as |),
  * then the values. (41f-3) `widgettest hover`: a plain window prints its
  * WINDOW_ENTER and WINDOW_LEAVE events (four, or 10 seconds). (41e-4)
- * `widgettest editor`: a five-line editor, a one-line entry, Done; their
+ * `widgettest editor [secret]` (71e: the entry secret): a five-line editor, a one-line entry, Done; their
  * texts (newlines as |) and the entry's cursor printed at the end.
  * (41f-4) `widgettest text`: a plain window prints its WINDOW_TEXT
  * characters (three, or 10 seconds). (41e-5) `widgettest dialog`: a window
@@ -242,7 +242,7 @@ static int entry(void)
     return 0;
 }
 
-static int editors(void)
+static int editors(int secret)
 {
     struct window *win = window_open(360, 240, "editor");
     if (!win) {
@@ -251,6 +251,8 @@ static int editors(void)
     }
     struct widget *root = widget_column(), *ed = widget_editor("", 5), *entry = widget_editor("", 1);
     struct widget *done = widget_button("Done");
+    if (secret)
+        widget_secret(entry, 1);                /* (71e) the entry a password's */
     widget_add(root, ed);
     widget_add(root, entry);
     widget_add(root, done);
@@ -433,7 +435,7 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "entry"))
         return entry();
     if (argc > 1 && !strcmp(argv[1], "editor"))
-        return editors();
+        return editors(argc > 2 && !strcmp(argv[2], "secret"));
     if (argc > 1 && !strcmp(argv[1], "text"))
         return text_events();
     if (argc > 1 && !strcmp(argv[1], "rows"))

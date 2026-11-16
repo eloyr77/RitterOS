@@ -1,0 +1,8 @@
+#!/bin/sh
+# zig-clang (71b, the browser agent's request 5): zig's clang as one
+# program, the C, C++ and assembler compiler sdk/ritteros.cmake names.
+# CMake's compiler with an argument (zig + clang) is lost by projects that
+# run ${CMAKE_C_COMPILER} themselves (libpng's -E: zig said "unknown
+# command"). The checkout is this file's ../; RITTEROS_ZIG another zig.
+here=$(cd "$(dirname "$0")/.." && pwd)
+exec "${RITTEROS_ZIG:-$here/tools/zig/zig}" clang "$@"

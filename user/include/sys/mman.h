@@ -38,6 +38,8 @@ extern "C" {
                                          * replacing the mappings there */
 #define MAP_ANONYMOUS   MMAP_ANONYMOUS  /* zeroed memory: fd and offset are not used */
 #define MAP_ANON        MAP_ANONYMOUS
+#define MAP_FILE        0               /* (71a) a file's mapping: the default; Linux's, the
+                                         * BSDs' and the Mac's are 0 too (WebKit uses it) */
 #define MAP_NORESERVE   0x4000          /* (45c) taken, nothing more: no memory is reserved
                                          * ahead anyway (a page costs memory from its first
                                          * touch), so large PROT_NONE reservations are free */

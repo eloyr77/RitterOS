@@ -30,7 +30,8 @@ Right-clicking the desktop's background opens the desktop menu: every app
 bundle `/system/<arch>/apps/NAME.program` (42b), by the name in its `info`
 (**Terminal**, **Owl**, **Image viewer**...), and **Close window
 server**, which gives the screen back to the text console. Ctrl + click is a right-click
-everywhere. **Ctrl-Alt-Delete** leaves the window system even when a
+everywhere. (71c) A press that chooses a menu's item, or closes a menu,
+is windowd's alone: the window under the menu never gets it. **Ctrl-Alt-Delete** leaves the window system even when a
 program holding the screen is hung (the kernel ends it). `windowd` also
 decides what a double click is and keeps the clipboard (up to 64 KiB)
 for its user's programs. It shows notifications (a program's

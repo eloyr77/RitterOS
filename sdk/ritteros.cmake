@@ -37,14 +37,13 @@ get_filename_component(RITTEROS_ZIG_LIB "${CMAKE_MATCH_1}" ABSOLUTE BASE_DIR "${
 set(CMAKE_SYSTEM_NAME RitterOS)                 # (sdk/cmake/Platform/RitterOS.cmake)
 set(CMAKE_SYSTEM_PROCESSOR ${RITTEROS_ARCH})
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
-set(CMAKE_C_COMPILER "${RITTEROS_ZIG}")
-set(CMAKE_C_COMPILER_ARG1 clang)
-set(CMAKE_CXX_COMPILER "${RITTEROS_ZIG}")
-set(CMAKE_CXX_COMPILER_ARG1 clang)                  # (zig has no clang++: clang takes .cpp as C++)
+# (71b) One program, sdk/zig-clang (zig's clang): projects that run the
+# compiler themselves drop a compiler's argument (libpng's -E).
+set(CMAKE_C_COMPILER "${RITTEROS_DIR}/sdk/zig-clang")
+set(CMAKE_CXX_COMPILER "${RITTEROS_DIR}/sdk/zig-clang")   # (no clang++: clang takes .cpp as C++)
 set(CMAKE_C_COMPILER_TARGET ${RITTEROS_ARCH}-unknown-none-elf)
 set(CMAKE_CXX_COMPILER_TARGET ${RITTEROS_ARCH}-unknown-none-elf)
-set(CMAKE_ASM_COMPILER "${RITTEROS_ZIG}")
-set(CMAKE_ASM_COMPILER_ARG1 clang)
+set(CMAKE_ASM_COMPILER "${RITTEROS_DIR}/sdk/zig-clang")
 set(CMAKE_ASM_COMPILER_TARGET ${RITTEROS_ARCH}-unknown-none-elf)
 
 set(_lib "${RITTEROS_DIR}/build/system/${RITTEROS_ARCH}/lib")
@@ -71,7 +70,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # shared), (43e) looking for libraries in $ORIGIN/lib first (an app's own,
 # in its bundle's lib); C++ ones with the frames' index and the C++
 # libraries.
-set(_ld "${RITTEROS_ZIG} ld.lld")
+# (71b) lld through sdk/ritteros-ld --plain: -pthread (in static libraries'
+# pkg-config files, request 6) dropped; -lm, -lpthread, -ldl, -lrt are
+# make sdk's empty archives (all in libritteros).
+set(_ld "${RITTEROS_DIR}/sdk/ritteros-ld --plain -L ${RITTEROS_DIR}/build/sdk/${RITTEROS_ARCH}/lib")
 set(_exe "-T ${RITTEROS_DIR}/user/user.ld -nostdlib -z max-page-size=4096 -pie -dynamic-linker /system/${RITTEROS_ARCH}/lib/ld.so -z now -z relro -z nocopyreloc --hash-style=sysv")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-rpath '$ORIGIN/lib'")   # (as a flag: each generator quotes it its way)
 set(CMAKE_C_LINK_EXECUTABLE "${_ld} ${_exe} <LINK_FLAGS> -o <TARGET> ${RITTEROS_START} <OBJECTS> <LINK_LIBRARIES> --as-needed ${RITTEROS_SHARED_LIBS} --no-as-needed ${RITTEROS_LIB_PIC}")

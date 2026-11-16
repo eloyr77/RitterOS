@@ -224,7 +224,7 @@ static void fscheck(void *arg)
 {
     struct ritterfs *fs = arg;
     uint64_t started = arch_counter();
-    bool ok = ritterfs_check(fs);
+    bool ok = ritterfs_check_metadata(fs);          /* (70h) */
     /* (37e-1b) The kernel's missing settings files, written after the
      * check (a change would wait for it in the boot), not on a disk it
      * found wrong. */
@@ -492,7 +492,7 @@ __attribute__((noreturn)) void kernel_main(struct boot_info *handover)
                 kprintf("  RitterFS check: beside the boot (the thread fscheck)\n");
             } else {
                 fscheck_running = false;
-                if (ritterfs_check(fs))             /* (no thread: as before, first) */
+                if (ritterfs_check_metadata(fs))    /* (no thread: as before, first) */
                     settings_write_missing(mounts_root());
                 swap_settings(selftest);
             }

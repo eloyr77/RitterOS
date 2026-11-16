@@ -4,6 +4,7 @@
  *                  prints "wfield: enter 'TEXT'" and ends
  *   wfield paste   prints what the clipboard holds and ends (another program
  *                  than the one that copied: the clipboard is windowd's)
+ *   wfield secret  (71e) the field secret (window_field_set_secret)
  */
 #include <stdio.h>
 #include <string.h>
@@ -25,6 +26,8 @@ int main(int argc, char **argv)
         return 0;
     }
     struct window_field *f = window_field_new(win, 10, 10, 380);
+    if (argc > 1 && !strcmp(argv[1], "secret"))
+        window_field_set_secret(f, 1);
     window_field_draw(f);
     window_flush(win);
     printf("wfield: ready\n");

@@ -120,6 +120,16 @@ void mouse_event(struct mouse *m, int dx, int dy, int wheel, int pan, uint8_t bu
     notify(m, wheel, pan, buttons);
 }
 
+void mouse_scroll_fine(struct mouse *m, int fine, int pan_fine)
+{
+    if (!fine && !pan_fine)
+        return;
+    if (blank_input() || m->woke)               /* (37e: as notify's) */
+        return;
+    if (winput_captured())
+        winput_wheel_fine(-fine, pan_fine);     /* (the window server's: positive down) */
+}
+
 void mouse_absolute(struct mouse *m, int x, int y, int x_range, int y_range, int wheel,
                     int pan, uint8_t buttons)
 {

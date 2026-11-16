@@ -84,6 +84,12 @@ struct widget *widget_tree(const char *lines);
  * text, widget_value its cursor (a byte of the text); widget_set_text puts
  * the cursor at the end; its function is called at every change. */
 struct widget *widget_editor(const char *utf8, int lines);
+/* (71e) A secret editor (a password): each character shown as a bullet,
+ * the cursor and the selection on them; copying and cutting refused,
+ * pasting taken, a double click choosing all. widget_text and
+ * widget_value give the real text and a byte of it. on 1: secret, 0:
+ * shown again; any other widget is left alone. */
+void widget_secret(struct widget *w, int on);
 
 /* (41e-5) Dialogs over a program's window (window_dialog_open: the window
  * takes no input meanwhile), sized to their text, run until answered (they

@@ -12,6 +12,10 @@
  * Shift is known from the physical keys (WINDOW_KEY_DOWN/UP); the rest
  * from the bytes the keys type (WINDOW_KEY), as a terminal gets them.
  * Text is UTF-8; the cursor never stands inside a character.
+ * (71e, the browser agent's request 17) A secret field (a password) shows a
+ * bullet for each character, the cursor and the selection on the bullets;
+ * copying and cutting are refused (pasting is not), and a double click
+ * chooses all of it (word ends would tell where its spaces are).
  */
 #include <stdbool.h>
 #include <stdlib.h>
@@ -29,6 +33,7 @@ struct window_field {
     size_t len, cursor, anchor;         /* the selection lies between anchor and cursor */
     size_t first;                       /* the first character shown (a byte index) */
     int focused, dragging, shift, esc;  /* esc: 0, 1 after ESC, 2 after ESC [ */
+    int secret;                         /* (71e) shown as bullets, never copied */
     char esc_digit;
 };
 
@@ -139,6 +144,8 @@ static void insert(struct window_field *f, const char *s, size_t n)
 
 static void copy(struct window_field *f)
 {
+    if (f->secret)                              /* (71e) a secret is not copied */
+        return;
     size_t a, b;
     selection(f, &a, &b);
     if (b > a)
@@ -205,7 +212,10 @@ void window_field_draw(struct window_field *f)
     char one[8];
     for (size_t i = f->first; i < f->len && col < show; i = next_char(f, i), col++) {
         size_t n = next_char(f, i) - i;
-        memcpy(one, f->text + i, n);
+        if (f->secret)
+            memcpy(one, "\xE2\x80\xA2", n = 3);  /* (71e) a bullet, U+2022 */
+        else
+            memcpy(one, f->text + i, n);
         one[n] = 0;
         bool selected = f->focused && i >= a && i < b;
         window_text(win, f->x + PAD + col * cell(), ty, one, selected ? sel_fg : fg,
@@ -277,6 +287,8 @@ static int key(struct window_field *f, int byte)
         copy(f);
         return 0;
     case 0x18:                                  /* Ctrl+X */
+        if (f->secret)                          /* (71e) not cut either: it stays */
+            return 0;
         copy(f);
         delete_selection(f);
         return changed(f);
@@ -317,6 +329,8 @@ int window_field_event(struct window_field *f, const struct window_event *ev)
                 a = prev_char(f, a);
             while (b < f->len && is_word(f->text[b]))
                 b = next_char(f, b);
+            if (f->secret)                      /* (71e) all of it */
+                a = 0, b = f->len;
             f->anchor = a, f->cursor = b;
             f->dragging = 0;
         }
@@ -386,4 +400,11 @@ void window_field_focus(struct window_field *f, int on)
 int window_field_focused(const struct window_field *f)
 {
     return f->focused;
+}
+
+/* (71e) Shown as bullets, never copied or cut (on: 1), or as text (0). */
+void window_field_set_secret(struct window_field *f, int on)
+{
+    f->secret = on != 0;
+    changed(f);                                 /* (drawn the new way) */
 }

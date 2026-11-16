@@ -915,8 +915,15 @@ $(SDK_LINK_DIR)/$(basename $(notdir $(1))): $(1)
 	ln -sf ../../../system/$(ARCH)/lib/$(notdir $(1)) $$@
 endef
 $(foreach l,$(UPSTREAM_LIBS),$(eval $(call sdk_link,$(l))))
+# (71b, the browser agent's request 6) -lm, -lpthread, -ldl, -lrt: empty
+# archives beside the link names (as Linux and the BSDs ship them): what
+# those libraries hold elsewhere is libritteros's.
+SDK_STUBS    := $(addprefix $(SDK_LINK_DIR)/,libm.a libpthread.a libdl.a librt.a)
+$(SDK_STUBS):
+	@mkdir -p $(dir $@)
+	rm -f $@ && $(ZIG) ar rcs $@
 UPSTREAM_SDK_FILES := $(UPSTREAM_HEADERS) $(BUILD)/upstream/openssl-headers $(BUILD)/upstream/netlibs-headers \
-                      $(BUILD)/upstream/curl-headers $(SDK_LINKS)
+                      $(BUILD)/upstream/curl-headers $(SDK_LINKS) $(SDK_STUBS)
 sdk-arch: $(UPSTREAM_SDK_FILES)
 $(SYSTEM)/doc/licences/curl.txt: user/upstream/LICENCE-curl.txt $(CURL_SRC)/CMakeLists.txt
 	@cmp -s $< $(CURL_SRC)/COPYING || { echo "curl's COPYING differs from $<" >&2; exit 1; }

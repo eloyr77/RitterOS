@@ -33,7 +33,8 @@ struct window;
                                  * up (away from the user); a list moves 3 rows a step (15o);
                                  * (68m-1) x = steps sideways, positive to the right (a
                                  * horizontal wheel, two fingers on a touchpad, or Shift with
-                                 * the wheel); either may be 0 */
+                                 * the wheel); either may be 0; (71f) `key`, `menu` the pointer's
+                                 * place in the window (x, y) */
 #define WINDOW_KEY_DOWN 8       /* a physical key pressed: `key` is its WKEY_* number (the USB
                                  * HID usage ID), modifiers too; once, not repeated (15p) */
 #define WINDOW_KEY_UP   9       /* that key released (also when the window loses the front) */
@@ -51,6 +52,12 @@ struct window;
 #define WINDOW_SETTINGS 16      /* (69b) the window system's settings changed (theme, accent,
                                  * text size...): window_color and wfont_open(path, 0) give the
                                  * new ones now; draw again with them */
+#define WINDOW_SCROLL_FINE 17   /* (71f) instead of WINDOW_SCROLL once window_scroll_fine asked
+                                 * for it: y the amount down (negative up), x sideways (positive
+                                 * to the right), in 1/WINDOW_SCROLL_UNIT of a wheel's notch; a
+                                 * touchpad's every movement comes so, a wheel's notch as 120;
+                                 * `key`, `menu` the pointer's place in the window (x, y) */
+#define WINDOW_SCROLL_UNIT 120  /* (71f) a wheel's notch in WINDOW_SCROLL_FINE's amounts */
 
 /* Physical keys (WINDOW_KEY_DOWN/UP): the USB HID usage IDs, the same for
  * every keyboard and layout (where the key is, not what it types: WKEY_A
@@ -280,6 +287,10 @@ int window_settings_reload(struct window *win);
  * window_minimize: the window goes to a taskbar button, as by its - box;
  * the user brings it back. */
 void window_fullscreen(struct window *win, int on);
+/* (71f) on 1: scrolling comes as WINDOW_SCROLL_FINE (as fine as the device
+ * gives it, for smooth scrolling); 0 (the default): WINDOW_SCROLL's whole
+ * notches, a touchpad's movement added up into them. */
+void window_scroll_fine(struct window *win, int on);
 void window_minimize(struct window *win);
 
 /* (41f-6) Drag and drop between programs. window_drag, called while the
@@ -354,6 +365,11 @@ const char *window_field_text(const struct window_field *f);
 void window_field_set_text(struct window_field *f, const char *utf8);
 void window_field_focus(struct window_field *f, int on);
 int window_field_focused(const struct window_field *f);
+/* (71e) A secret field (a password): each character shown as a bullet (the
+ * cursor and the selection on them), copying and cutting refused, pasting
+ * taken, a double click choosing all; window_field_text still gives the
+ * text. on 1: secret, 0: shown again. */
+void window_field_set_secret(struct window_field *f, int on);
 
 /* The "Open file" dialog every app shares: a window of its own listing
  * `folder` (0 or not a folder: "/"), titled `title` (0: "Open"). The user

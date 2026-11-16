@@ -27,6 +27,12 @@ static bool read_raw(struct ritterfs *fs, uint64_t block, void *buf)
     return fs->dev->read(fs->dev, block * fs->sectors_per_block, fs->sectors_per_block, buf);
 }
 
+/* (70i) count blocks in a row from block, in one request. */
+static bool read_raw_run(struct ritterfs *fs, uint64_t block, uint32_t count, void *buf)
+{
+    return fs->dev->read(fs->dev, block * fs->sectors_per_block, count * fs->sectors_per_block, buf);
+}
+
 /* struct rfs_volume callbacks: the volume is the first member of struct
  * ritterfs. Normal reading goes through the cache; the check and scrub call
  * read_raw themselves. */
@@ -134,6 +140,10 @@ struct ritterfs *ritterfs_mount(struct block_device *dev)
 
 /* --- consistency check ------------------------------------------------------- */
 
+#define CHECK_AHEAD  64             /* (70i) blocks read ahead per tree level */
+#define CHECK_RUN    32             /* blocks at most in one request */
+#define CHECK_LEVELS 8              /* tree levels read ahead (deeper ones block by block) */
+
 struct check {
     struct ritterfs *fs;            /* the state being walked: live, or a snapshot's view */
     uint8_t *seen;                  /* one bit per block: reached from the superblock */
@@ -151,6 +161,18 @@ struct check {
     uint64_t objects;               /* size of the three arrays */
     uint64_t dir;                   /* directory being checked */
     uint64_t fixed_blocks;          /* (35a) data blocks of the fixed file being walked */
+    bool metadata_only;             /* (70h) data blocks claimed, not read (the boot's check) */
+    uint64_t data_claimed;          /* (70h) how many */
+    /* (70i) Blocks read ahead for one tree level: a node's children (both
+     * copies), sorted, each run of neighbours read in one request. */
+    struct check_ahead {
+        uint64_t block[CHECK_AHEAD];
+        bool ok[CHECK_AHEAD];
+        int count;
+        uint8_t *data;              /* CHECK_AHEAD blocks, in block[]'s order */
+    } ahead[CHECK_LEVELS];
+    uint8_t *scratch;               /* (70i) a second copy, read beside the first */
+    uint64_t reads, read_blocks;    /* (70i) requests to the disk, and their blocks */
 };
 
 __attribute__((format(printf, 2, 3)))
@@ -211,10 +233,60 @@ static void claim(struct check *c, uint64_t block, uint64_t object, uint64_t bir
     c->seen[block / 8] |= bitmask;
 }
 
+/* (70i) Block `block`: from level `at`'s blocks read ahead (at < 0: none),
+ * else one request of its own (also when its run's request failed, so an
+ * error names the block). */
+static bool check_read(struct check *c, int at, uint64_t block, void *buf)
+{
+    if (at >= 0) {
+        struct check_ahead *a = &c->ahead[at];
+        for (int i = 0; i < a->count; i++)
+            if (a->block[i] == block && a->ok[i]) {
+                memcpy(buf, a->data + (size_t)i * RFS_BLOCK_SIZE, RFS_BLOCK_SIZE);
+                return true;
+            }
+    }
+    c->reads++;
+    c->read_blocks++;
+    return read_raw(c->fs, block, buf);
+}
+
+/* (70i) Reads the blocks of level `at` ahead: sorted, without repeats, each
+ * run of neighbours in one request (at most CHECK_RUN blocks). Without the
+ * memory for it nothing is read ahead. */
+static void check_read_ahead(struct check *c, int at, const uint64_t *blocks, int n)
+{
+    struct check_ahead *a = &c->ahead[at];
+    a->count = 0;
+    if (!a->data && !(a->data = kmalloc((size_t)CHECK_AHEAD * RFS_BLOCK_SIZE)))
+        return;
+    for (int i = 0; i < n && a->count < CHECK_AHEAD; i++) {
+        int j = a->count;
+        while (j > 0 && a->block[j - 1] > blocks[i])
+            j--;
+        if (j > 0 && a->block[j - 1] == blocks[i])
+            continue;
+        memmove(&a->block[j + 1], &a->block[j], (size_t)(a->count - j) * sizeof(a->block[0]));
+        a->block[j] = blocks[i];
+        a->count++;
+    }
+    for (int i = 0; i < a->count;) {
+        int len = 1;
+        while (i + len < a->count && len < CHECK_RUN && a->block[i + len] == a->block[i] + len)
+            len++;
+        bool ok = read_raw_run(c->fs, a->block[i], (uint32_t)len, a->data + (size_t)i * RFS_BLOCK_SIZE);
+        c->reads++;
+        c->read_blocks += (uint64_t)len;
+        for (int k = i; k < i + len; k++)
+            a->ok[k] = ok;
+        i += len;
+    }
+}
+
 /* Verify one pointer: claim its blocks and check every copy. (35a) A fixed
  * file's data block (fixed) is only claimed: it is written in place. */
 static bool check_pointer(struct check *c, const struct rfs_pointer *p, bool meta, bool fixed,
-                          uint64_t object, void *buf)
+                          uint64_t object, void *buf, int at)
 {
     if (meta && !p->address2)
         problem(c, "object %lu: metadata block %lu has no second copy", object, p->address);
@@ -227,20 +299,38 @@ static bool check_pointer(struct check *c, const struct rfs_pointer *p, bool met
         c->fixed_blocks++;
         return true;
     }
+    /* (70h) The boot's check reads only metadata: a data block is claimed
+     * (the bitmap's count stays exact), its checksum left to every read of
+     * it and to scrub, which read whole disks. After the fixed file's own
+     * branch: its blocks are counted there (70i: before, a swap file was
+     * reported as all holes). */
+    if (!meta && c->metadata_only) {
+        claim(c, p->address, object, p->birth);
+        if (p->address2)
+            claim(c, p->address2, object, p->birth);
+        c->data_claimed++;
+        return true;
+    }
+    /* (70i) Each copy read once: the first into buf, the second beside it
+     * (taken when the first is bad); before, the first was read again. */
     bool good = false;
     uint64_t copies[2] = { p->address, p->address2 };
     for (int i = 0; i < 2 && copies[i]; i++) {
+        uint8_t *into = i == 0 ? buf : c->scratch;
         claim(c, copies[i], object, p->birth);
-        if (read_raw(c->fs, copies[i], buf) && crc32c(buf, RFS_BLOCK_SIZE) == p->checksum)
+        if (into && check_read(c, at, copies[i], into) && crc32c(into, RFS_BLOCK_SIZE) == p->checksum) {
+            if (!good && into != buf)
+                memcpy(buf, into, RFS_BLOCK_SIZE);
             good = true;
-        else
+        } else {
             problem(c, "object %lu: copy at block %lu has a bad checksum", object, copies[i]);
+        }
     }
-    return good && rfs_read_pointer(&c->fs->vol, p, buf);
+    return good;
 }
 
 static void check_tree(struct check *c, const struct rfs_pointer *p, int level, bool meta,
-                       bool fixed, uint64_t object)
+                       bool fixed, uint64_t object, int at)
 {
     if (p->address == 0) {
         if (meta)
@@ -248,16 +338,40 @@ static void check_tree(struct check *c, const struct rfs_pointer *p, int level, 
         return;
     }
     uint8_t *buf = kmalloc(RFS_BLOCK_SIZE);
-    if (!buf || !check_pointer(c, p, meta || level > 0, fixed && level == 0, object, buf)) {
+    if (!buf || !check_pointer(c, p, meta || level > 0, fixed && level == 0, object, buf, at)) {
         kfree(buf);
         return;
     }
     if (level > 0) {
-        for (int i = 0; i < RFS_POINTERS_PER_BLOCK; i++) {
-            struct rfs_pointer child;
-            memcpy(&child, buf + i * 32, sizeof(child));
-            if (child.address || child.address2)
-                check_tree(c, &child, level - 1, meta, fixed, object);
+        /* (70i) The children a chunk at a time: the blocks that will be
+         * read (not claimed-only data leaves) read ahead first. */
+        int below = level - 1 < CHECK_LEVELS ? level - 1 : -1;
+        bool leaves_read = level - 1 > 0 || meta || (!c->metadata_only && !fixed);
+        for (int first = 0; first < RFS_POINTERS_PER_BLOCK; first += CHECK_AHEAD / 2) {
+            int last = first + CHECK_AHEAD / 2;
+            if (below >= 0 && leaves_read) {
+                uint64_t want[CHECK_AHEAD];
+                int n = 0;
+                for (int i = first; i < last; i++) {
+                    struct rfs_pointer child;
+                    memcpy(&child, buf + i * 32, sizeof(child));
+                    if (child.address)
+                        want[n++] = child.address;
+                    if (child.address2)
+                        want[n++] = child.address2;
+                }
+                if (n)
+                    check_read_ahead(c, below, want, n);
+                else
+                    c->ahead[below].count = 0;
+            }
+            for (int i = first; i < last; i++) {
+                struct rfs_pointer child;
+                memcpy(&child, buf + i * 32, sizeof(child));
+                if (child.address || child.address2)
+                    check_tree(c, &child, level - 1, meta, fixed, object,
+                               below >= 0 && leaves_read ? below : -1);
+            }
         }
     }
     kfree(buf);
@@ -273,7 +387,7 @@ static void check_object(struct check *c, const struct rfs_inode *ino, uint64_t 
     }
     c->fixed_blocks = 0;
     if (!(ino->flags & RFS_FLAG_INLINE))
-        check_tree(c, &ino->root, ino->height, rfs_is_metadata(ino->type), fixed, object);
+        check_tree(c, &ino->root, ino->height, rfs_is_metadata(ino->type), fixed, object, -1);
     if (fixed && c->fixed_blocks != ino->size / RFS_BLOCK_SIZE)
         problem(c, "object %lu: fixed file with holes (%lu of %lu blocks)", object,
                 c->fixed_blocks, ino->size / RFS_BLOCK_SIZE);
@@ -436,7 +550,7 @@ static void check_attributes(struct check *c, uint64_t *records, uint64_t *objec
     kfree(has);
 }
 
-static bool ritterfs_check_locked(struct ritterfs *fs)
+static bool ritterfs_check_locked(struct ritterfs *fs, bool metadata_only)
 {
     if (rfs_has_changes(fs)) {
         kprintf("                 check skipped: uncommitted changes\n");
@@ -445,6 +559,8 @@ static bool ritterfs_check_locked(struct ritterfs *fs)
     struct check c = {0};
     c.fs = c.live = fs;
     c.pinned = fs->vol.sb.pinned_generation;
+    c.metadata_only = metadata_only;
+    c.scratch = kmalloc(RFS_BLOCK_SIZE);
     uint64_t bitmap_bytes = (fs->vol.sb.block_count + 7) / 8;
     uint64_t slots = fs->vol.sb.table.size / sizeof(struct rfs_inode);
     c.objects = slots;
@@ -461,6 +577,7 @@ static bool ritterfs_check_locked(struct ritterfs *fs)
         kfree(c.links);
         kfree(c.refs);
         kfree(buf);
+        kfree(c.scratch);
         return false;
     }
 
@@ -558,9 +675,14 @@ static bool ritterfs_check_locked(struct ritterfs *fs)
     if (fs->vol.sb.attribute_object)
         check_attributes(&c, &attributes, &attributed);
 
-    kprintf("                 check: %lu objects, %lu blocks in use, root directory %lu entries: "
-            "%s\n", objects, marked, root_entries,
-            c.errors ? "PROBLEMS FOUND" : "all checksums ok (both copies), bitmap consistent");
+    if (c.errors || !metadata_only)
+        kprintf("                 check: %lu objects, %lu blocks in use, root directory %lu entries: "
+                "%s\n", objects, marked, root_entries,
+                c.errors ? "PROBLEMS FOUND" : "all checksums ok (both copies), bitmap consistent");
+    else
+        kprintf("                 check: %lu objects, %lu blocks in use, root directory %lu entries: "
+                "metadata checksums ok (both copies), %lu data blocks claimed (scrub reads them), "
+                "bitmap consistent\n", objects, marked, root_entries, c.data_claimed);
     if (walk.snapshots)
         kprintf("                 snapshots: %lu, their blocks checked; %lu block(s) kept only "
                 "for them, %lu awaiting a sweep\n", walk.snapshots, kept, unreached);
@@ -569,6 +691,11 @@ static bool ritterfs_check_locked(struct ritterfs *fs)
     if (c.shared || (pinned && !walk.snapshots))
         kprintf("                 copies: %lu block(s) shared, generations up to %lu pinned, "
                 "%lu awaiting a sweep\n", c.shared, c.pinned, unreached);
+    kprintf("                 reads: %lu request(s) for %lu block(s) of the trees\n", c.reads,
+            c.read_blocks);
+    for (int i = 0; i < CHECK_LEVELS; i++)
+        kfree(c.ahead[i].data);
+    kfree(c.scratch);
     kfree(buf);
     kfree(c.seen);
     kfree(c.state_seen);
@@ -581,7 +708,15 @@ static bool ritterfs_check_locked(struct ritterfs *fs)
 bool ritterfs_check(struct ritterfs *fs)
 {
     uint64_t hold = rfs_read_lock(fs);              /* (65e-36: it only reads) */
-    bool result = ritterfs_check_locked(fs);
+    bool result = ritterfs_check_locked(fs, false);
+    rfs_read_unlock(fs, hold);
+    return result;
+}
+
+bool ritterfs_check_metadata(struct ritterfs *fs)
+{
+    uint64_t hold = rfs_read_lock(fs);
+    bool result = ritterfs_check_locked(fs, true);
     rfs_read_unlock(fs, hold);
     return result;
 }

@@ -656,6 +656,12 @@ struct sys_pollfd {
                                  * its width and height; DISPLAY_INFO gives the rest */
 #define INPUT_BLANK     6       /* (37e) `key` 1: the screen goes off after a while without
                                  * input (draw nothing until 0); 0: it is on again */
+#define INPUT_WHEEL_FINE 7      /* (71f) scrolling finer than a wheel's notch (a touchpad's):
+                                 * x the amount down (negative up), y sideways (positive to the
+                                 * right), each an int16 in 1/120 of a notch; `modifiers` the
+                                 * keys held; the pointer is where the last INPUT_POINTER put it.
+                                 * A touchpad scrolls only so: whole notches are the window
+                                 * server's to make for programs that want them */
 struct sys_input_event {
     uint8_t type;               /* INPUT_POINTER or INPUT_KEY */
     uint8_t buttons;            /* INPUT_POINTER: buttons held (MOUSE_* bits) */

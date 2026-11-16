@@ -1,7 +1,7 @@
 # wsend: send keyboard and pointer input to a headless windowd (for tests)
 
 ```
-wsend click|right|move X Y | drag X1 Y1 X2 Y2 | type TEXT | key|down|up NAME | wait [TITLE]
+wsend click|right|move X Y | drag X1 Y1 X2 Y2 | wheel|fine X Y AMOUNT [SIDEWAYS] | type TEXT | key|down|up NAME | wait [TITLE]
 ```
 
 Sends input to the headless window server (`windowd headless WxH`, named
@@ -21,6 +21,16 @@ machine's keyboard and mouse.
   pointer moved to the second in steps of at most 16 pixels, let go there
   (a window's title bar moves the window; dragging in a program is that
   program's drag).
+- `wheel X Y STEPS [SIDEWAYS]` (71f): the pointer to (X, Y), then the
+  wheel turned STEPS notches (negative up, -127 to 127) and SIDEWAYS
+  (positive to the right): the window under the pointer gets
+  WINDOW_SCROLL with its place in the window.
+- `fine X Y AMOUNT [SIDEWAYS]` (71f): the same finer than a notch, as a
+  touchpad scrolls: AMOUNT in 1/120 of a notch (-32767 to 32767). A
+  program that asked for it (`window_scroll_fine`) gets the amounts as
+  WINDOW_SCROLL_FINE; any other one whole notches, windowd adding the
+  amounts up (what is left over goes into the next, unless 1 s passed:
+  a new gesture).
 - `type TEXT`: each byte of TEXT as a key's byte (UTF-8 too): what
   programs read as typed text (no physical keys: a game reading keys by
   their place sees none).

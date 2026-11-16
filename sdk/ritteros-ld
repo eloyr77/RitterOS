@@ -10,6 +10,18 @@
 # shared library the libraries it may use. The architecture is the
 # driver's -m (elf_x86_64 or aarch64linux); the checkout is this file's ../.
 here=$(cd "$(dirname "$0")/.." && pwd)
+# (71b) -pthread is not lld's (static libraries' pkg-config files carry it,
+# the browser agent's request 6): dropped; libritteros has the threads.
+# --plain first (sdk/ritteros.cmake's links): only that, then lld itself.
+plain=no
+[ "${1:-}" = --plain ] && { plain=yes; shift; }
+for a in "$@"; do
+    shift
+    [ "$a" = -pthread ] || set -- "$@" "$a"
+done
+if [ $plain = yes ]; then
+    exec "${RITTEROS_ZIG:-$here/tools/zig/zig}" ld.lld "$@"
+fi
 # (43e) Meson writes its build tree's folders into programs (its build
 # rpath: `$ORIGIN/` and this computer's paths, which `meson install` would
 # take out again, but RitterOS gets the files as built): a -rpath keeps only

@@ -85,4 +85,9 @@ char *strerror_l(int error, locale_t l);
 }
 #endif
 
+/* (71a) strcasecmp, strncasecmp and BSD's other names from <string.h>
+ * too, as glibc (by default), musl, the BSDs and the Mac give them: ported
+ * code counts on it (libjpeg-turbo's examples). */
+#include <strings.h>
+
 #endif

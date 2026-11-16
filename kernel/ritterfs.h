@@ -153,6 +153,12 @@ static inline bool ritterfs_lookup(struct ritterfs *fs, const char *path, uint64
  * check: every tree, both copies of all metadata, block ownership, the
  * bitmap, directory entries and link counts. Logs a summary. */
 bool ritterfs_check(struct ritterfs *fs);
+/* (70h) The same, but data blocks are only claimed, never read: the boot's
+ * check (it holds the file system to read throughout: reading every data
+ * block took the VivoBook 101 s, every change and every read behind one
+ * waiting). A data block's checksum is checked by every read of it and by
+ * scrub. */
+bool ritterfs_check_metadata(struct ritterfs *fs);
 
 /* --- snapshots (rfs_write.c, rfs_snapshot.c) ----------------------------------- */
 

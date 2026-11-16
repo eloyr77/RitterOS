@@ -164,7 +164,7 @@ kernel's interface; programs use the library's calls rather than raw
 
 ## Every function and macro
 
-1678 of them, by name. Each links to its header, where its comment says what it does. "system": the system's own (see above); do not use it outside RitterOS's tree.
+1688 of them, by name. Each links to its header, where its comment says what it does. "system": the system's own (see above); do not use it outside RitterOS's tree.
 
 | Name | For | Header | Declaration |
 |---|---|---|---|
@@ -1582,11 +1582,18 @@ kernel's interface; programs use the library's calls rather than raw
 | `thread_self` | apps | [`thread.h`](#thread-h) | `int thread_self(void)` |
 | `time` | apps | [`time.h`](#time-h) | `time_t time(time_t *t)` |
 | `timegm` | apps | [`time.h`](#time-h) | `time_t timegm(struct tm *tm)` |
+| `timeradd` | apps | [`sys/time.h`](#sys-time-h) | `#define timeradd(a, b, result)` |
+| `timerclear` | apps | [`sys/time.h`](#sys-time-h) | `#define timerclear(tv)` |
+| `timercmp` | apps | [`sys/time.h`](#sys-time-h) | `#define timercmp(a, b, CMP)` |
 | `timerfd_create` | apps | [`sys/timerfd.h`](#sys-timerfd-h) | `int timerfd_create(int clock, int flags)` |
 | `timerfd_gettime` | apps | [`sys/timerfd.h`](#sys-timerfd-h) | `int timerfd_gettime(int fd, struct itimerspec *value)` |
 | `timerfd_settime` | apps | [`sys/timerfd.h`](#sys-timerfd-h) | `int timerfd_settime(int fd, int flags, const struct itimerspec *value, struct itimerspec *old)` |
+| `timerisset` | apps | [`sys/time.h`](#sys-time-h) | `#define timerisset(tv)` |
+| `timersub` | apps | [`sys/time.h`](#sys-time-h) | `#define timersub(a, b, result)` |
 | `times` | apps | [`sys/times.h`](#sys-times-h) | `clock_t times(struct tms *t)` |
 | `timespec_get` | apps | [`time.h`](#time-h) | `int timespec_get(struct timespec *ts, int base)` |
+| `TIMESPEC_TO_TIMEVAL` | apps | [`sys/time.h`](#sys-time-h) | `#define TIMESPEC_TO_TIMEVAL(tv, ts)` |
+| `TIMEVAL_TO_TIMESPEC` | apps | [`sys/time.h`](#sys-time-h) | `#define TIMEVAL_TO_TIMESPEC(tv, ts)` |
 | `tls_client` | apps | [`tls.h`](#tls-h) | `struct tls *tls_client(void)` |
 | `tls_close` | apps | [`tls.h`](#tls-h) | `int tls_close(struct tls *ctx)` |
 | `tls_config_error` | apps | [`tls.h`](#tls-h) | `const char *tls_config_error(struct tls_config *config)` |
@@ -1767,6 +1774,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `widget_radio` | apps | [`widget.h`](#widget-h) | `struct widget *widget_radio(const char *utf8, struct widget *group, int on)` |
 | `widget_row` | apps | [`widget.h`](#widget-h) | `struct widget *widget_row(void)` |
 | `widget_run` | apps | [`widget.h`](#widget-h) | `int widget_run(struct window *win, struct widget *root)` |
+| `widget_secret` | apps | [`widget.h`](#widget-h) | `void widget_secret(struct widget *w, int on)` |
 | `widget_set_text` | apps | [`widget.h`](#widget-h) | `void widget_set_text(struct widget *w, const char *utf8)` |
 | `widget_set_value` | apps | [`widget.h`](#widget-h) | `void widget_set_value(struct widget *w, int value)` |
 | `widget_slider` | apps | [`widget.h`](#widget-h) | `struct widget *widget_slider(int min, int max, int value)` |
@@ -1801,6 +1809,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `window_field_height` | apps | [`window.h`](#window-h) | `int window_field_height(const struct window_field *f)` |
 | `window_field_new` | apps | [`window.h`](#window-h) | `struct window_field *window_field_new(struct window *win, int x, int y, int w)` |
 | `window_field_place` | apps | [`window.h`](#window-h) | `void window_field_place(struct window_field *f, int x, int y, int w)` |
+| `window_field_set_secret` | apps | [`window.h`](#window-h) | `void window_field_set_secret(struct window_field *f, int on)` |
 | `window_field_set_text` | apps | [`window.h`](#window-h) | `void window_field_set_text(struct window_field *f, const char *utf8)` |
 | `window_field_text` | apps | [`window.h`](#window-h) | `const char *window_field_text(const struct window_field *f)` |
 | `window_fill` | apps | [`window.h`](#window-h) | `void window_fill(struct window *win, int x, int y, int w, int h, uint32_t color)` |
@@ -1815,6 +1824,7 @@ kernel's interface; programs use the library's calls rather than raw
 | `window_popup_menu` | apps | [`window.h`](#window-h) | `int window_popup_menu(struct window *win, int x, int y, const struct window_menu_item *items, int count)` |
 | `window_resize` | apps | [`window.h`](#window-h) | `int window_resize(struct window *win, int w, int h)` |
 | `window_rgb` | apps | [`window.h`](#window-h) | `uint32_t window_rgb(struct window *win, int r, int g, int b)` |
+| `window_scroll_fine` | apps | [`window.h`](#window-h) | `void window_scroll_fine(struct window *win, int on)` |
 | `window_scrollbar` | apps | [`window.h`](#window-h) | `void window_scrollbar(struct window *win, int x, int y, int h, int first, int shown, int total)` |
 | `window_scrollbar_hit` | apps | [`window.h`](#window-h) | `int window_scrollbar_hit(int y, int h, int py, int shown, int total)` |
 | `window_set_cursor` | apps | [`window.h`](#window-h) | `void window_set_cursor(struct window *win, int shape)` |
@@ -2319,6 +2329,10 @@ typedef struct __locale_struct *locale_t;
 int strcoll_l(const char *a, const char *b, locale_t l);
 size_t strxfrm_l(char *dst, const char *src, size_t n, locale_t l);
 char *strerror_l(int error, locale_t l);
+
+/* (71a) strcasecmp, strncasecmp and BSD's other names from <string.h>
+ * too, as glibc (by default), musl, the BSDs and the Mac give them: ported
+ * code counts on it (libjpeg-turbo's examples). */
 ```
 
 <a id="strings-h"></a>
@@ -2413,6 +2427,12 @@ int toupper_l(int c, locale_t l);
 assert.h (22m): assert(expression) ends the program when the expression is false, saying which and where ("assertion failed: x > 0 (game.c:42, main)"), with exit code 134; NDEBUG defined before this header leaves every assert out. Not guarded: the header may come again with NDEBUG changed, as C allows.
 
 ```c
+/* (71a) C11's static_assert (C23 and C++ have it as a keyword). */
+#if !defined(__cplusplus) && !defined(static_assert) && \
+    (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L)
+#define static_assert _Static_assert
+#endif
+
 #undef assert
 #ifdef NDEBUG
 #define assert(expression) ((void)0)
@@ -4487,6 +4507,37 @@ int gettimeofday(struct timeval *tv, void *zone);
  * clock too); zone is not used. 0, or -1 with errno set. */
 int settimeofday(const struct timeval *tv, const void *zone);
 
+/* (71a) BSD's timeval arithmetic, as glibc, musl, the BSDs and the Mac
+ * have it (ported code counts on it: Fontconfig's timercmp). CMP is a
+ * comparison operator other than == and != for timercmp's seconds, any for
+ * the microseconds. The results stay normalized (0-999999 microseconds). */
+#define timerisset(tv)  ((tv)->tv_sec || (tv)->tv_usec)
+#define timerclear(tv)  ((tv)->tv_sec = (tv)->tv_usec = 0)
+#define timercmp(a, b, CMP) \
+    (((a)->tv_sec == (b)->tv_sec) ? ((a)->tv_usec CMP (b)->tv_usec) : ((a)->tv_sec CMP (b)->tv_sec))
+#define timeradd(a, b, result) \
+    do { \
+        (result)->tv_sec = (a)->tv_sec + (b)->tv_sec; \
+        (result)->tv_usec = (a)->tv_usec + (b)->tv_usec; \
+        if ((result)->tv_usec >= 1000000) { \
+            (result)->tv_sec++; \
+            (result)->tv_usec -= 1000000; \
+        } \
+    } while (0)
+#define timersub(a, b, result) \
+    do { \
+        (result)->tv_sec = (a)->tv_sec - (b)->tv_sec; \
+        (result)->tv_usec = (a)->tv_usec - (b)->tv_usec; \
+        if ((result)->tv_usec < 0) { \
+            (result)->tv_sec--; \
+            (result)->tv_usec += 1000000; \
+        } \
+    } while (0)
+#define TIMEVAL_TO_TIMESPEC(tv, ts) \
+    do { (ts)->tv_sec = (tv)->tv_sec; (ts)->tv_nsec = (tv)->tv_usec * 1000; } while (0)
+#define TIMESPEC_TO_TIMEVAL(tv, ts) \
+    do { (tv)->tv_sec = (ts)->tv_sec; (tv)->tv_usec = (ts)->tv_nsec / 1000; } while (0)
+
 /* (63m) A file's times in microseconds ([0] access, [1] modification; 0:
  * both now): utimensat's older form (sys/stat.h). */
 int utimes(const char *path, const struct timeval times[2]);
@@ -5279,6 +5330,8 @@ Memory mappings (step 22a): mmap and munmap as on Unix, a subset. Anonymous memo
                                          * replacing the mappings there */
 #define MAP_ANONYMOUS   MMAP_ANONYMOUS  /* zeroed memory: fd and offset are not used */
 #define MAP_ANON        MAP_ANONYMOUS
+#define MAP_FILE        0               /* (71a) a file's mapping: the default; Linux's, the
+                                         * BSDs' and the Mac's are 0 too (WebKit uses it) */
 #define MAP_NORESERVE   0x4000          /* (45c) taken, nothing more: no memory is reserved
                                          * ahead anyway (a page costs memory from its first
                                          * touch), so large PROT_NONE reservations are free */
@@ -7553,7 +7606,8 @@ struct window;
                                  * up (away from the user); a list moves 3 rows a step (15o);
                                  * (68m-1) x = steps sideways, positive to the right (a
                                  * horizontal wheel, two fingers on a touchpad, or Shift with
-                                 * the wheel); either may be 0 */
+                                 * the wheel); either may be 0; (71f) `key`, `menu` the pointer's
+                                 * place in the window (x, y) */
 #define WINDOW_KEY_DOWN 8       /* a physical key pressed: `key` is its WKEY_* number (the USB
                                  * HID usage ID), modifiers too; once, not repeated (15p) */
 #define WINDOW_KEY_UP   9       /* that key released (also when the window loses the front) */
@@ -7571,6 +7625,12 @@ struct window;
 #define WINDOW_SETTINGS 16      /* (69b) the window system's settings changed (theme, accent,
                                  * text size...): window_color and wfont_open(path, 0) give the
                                  * new ones now; draw again with them */
+#define WINDOW_SCROLL_FINE 17   /* (71f) instead of WINDOW_SCROLL once window_scroll_fine asked
+                                 * for it: y the amount down (negative up), x sideways (positive
+                                 * to the right), in 1/WINDOW_SCROLL_UNIT of a wheel's notch; a
+                                 * touchpad's every movement comes so, a wheel's notch as 120;
+                                 * `key`, `menu` the pointer's place in the window (x, y) */
+#define WINDOW_SCROLL_UNIT 120  /* (71f) a wheel's notch in WINDOW_SCROLL_FINE's amounts */
 
 /* Physical keys (WINDOW_KEY_DOWN/UP): the USB HID usage IDs, the same for
  * every keyboard and layout (where the key is, not what it types: WKEY_A
@@ -7800,6 +7860,10 @@ int window_settings_reload(struct window *win);
  * window_minimize: the window goes to a taskbar button, as by its - box;
  * the user brings it back. */
 void window_fullscreen(struct window *win, int on);
+/* (71f) on 1: scrolling comes as WINDOW_SCROLL_FINE (as fine as the device
+ * gives it, for smooth scrolling); 0 (the default): WINDOW_SCROLL's whole
+ * notches, a touchpad's movement added up into them. */
+void window_scroll_fine(struct window *win, int on);
 void window_minimize(struct window *win);
 
 /* (41f-6) Drag and drop between programs. window_drag, called while the
@@ -7874,6 +7938,11 @@ const char *window_field_text(const struct window_field *f);
 void window_field_set_text(struct window_field *f, const char *utf8);
 void window_field_focus(struct window_field *f, int on);
 int window_field_focused(const struct window_field *f);
+/* (71e) A secret field (a password): each character shown as a bullet (the
+ * cursor and the selection on them), copying and cutting refused, pasting
+ * taken, a double click choosing all; window_field_text still gives the
+ * text. on 1: secret, 0: shown again. */
+void window_field_set_secret(struct window_field *f, int on);
 
 /* The "Open file" dialog every app shares: a window of its own listing
  * `folder` (0 or not a folder: "/"), titled `title` (0: "Open"). The user
@@ -8178,6 +8247,12 @@ struct widget *widget_tree(const char *lines);
  * text, widget_value its cursor (a byte of the text); widget_set_text puts
  * the cursor at the end; its function is called at every change. */
 struct widget *widget_editor(const char *utf8, int lines);
+/* (71e) A secret editor (a password): each character shown as a bullet,
+ * the cursor and the selection on them; copying and cutting refused,
+ * pasting taken, a double click choosing all. widget_text and
+ * widget_value give the real text and a byte of it. on 1: secret, 0:
+ * shown again; any other widget is left alone. */
+void widget_secret(struct widget *w, int on);
 
 /* (41e-5) Dialogs over a program's window (window_dialog_open: the window
  * takes no input meanwhile), sized to their text, run until answered (they
@@ -8900,6 +8975,12 @@ The window protocol between windowd and its clients (step 15e). Clients connect 
                                  * (`wsend wait TITLE`): windowd answers WMSG_WINDOWS (a: how
                                  * many windows, c: the length of the text that follows), then
                                  * their titles, each ending in a newline */
+#define WMSG_SCROLL_FINE 32     /* (71f) client -> windowd: a: 1 send the scrolling as this
+                                 * message, 0 as WMSG_SCROLL's whole notches; windowd -> client:
+                                 * a: the amount down (int16 in bits 15-0, negative up) and
+                                 * sideways (bits 31-16, positive to the right) in 1/120 of a
+                                 * notch, b, c: the pointer in the window (a wheel's notch is
+                                 * 120; a touchpad's every movement) */
 #define WMSG_SETTINGS   31      /* (69b) client -> windowd: read the window system's settings
                                  * (~/.config/windows) again and use them; windowd -> each
                                  * window then: they changed (libwindow: WINDOW_SETTINGS) */
@@ -9573,6 +9654,12 @@ struct sys_pollfd {
                                  * its width and height; DISPLAY_INFO gives the rest */
 #define INPUT_BLANK     6       /* (37e) `key` 1: the screen goes off after a while without
                                  * input (draw nothing until 0); 0: it is on again */
+#define INPUT_WHEEL_FINE 7      /* (71f) scrolling finer than a wheel's notch (a touchpad's):
+                                 * x the amount down (negative up), y sideways (positive to the
+                                 * right), each an int16 in 1/120 of a notch; `modifiers` the
+                                 * keys held; the pointer is where the last INPUT_POINTER put it.
+                                 * A touchpad scrolls only so: whole notches are the window
+                                 * server's to make for programs that want them */
 struct sys_input_event {
     uint8_t type;               /* INPUT_POINTER or INPUT_KEY */
     uint8_t buttons;            /* INPUT_POINTER: buttons held (MOUSE_* bits) */

@@ -23,6 +23,37 @@ int gettimeofday(struct timeval *tv, void *zone);
  * clock too); zone is not used. 0, or -1 with errno set. */
 int settimeofday(const struct timeval *tv, const void *zone);
 
+/* (71a) BSD's timeval arithmetic, as glibc, musl, the BSDs and the Mac
+ * have it (ported code counts on it: Fontconfig's timercmp). CMP is a
+ * comparison operator other than == and != for timercmp's seconds, any for
+ * the microseconds. The results stay normalized (0-999999 microseconds). */
+#define timerisset(tv)  ((tv)->tv_sec || (tv)->tv_usec)
+#define timerclear(tv)  ((tv)->tv_sec = (tv)->tv_usec = 0)
+#define timercmp(a, b, CMP) \
+    (((a)->tv_sec == (b)->tv_sec) ? ((a)->tv_usec CMP (b)->tv_usec) : ((a)->tv_sec CMP (b)->tv_sec))
+#define timeradd(a, b, result) \
+    do { \
+        (result)->tv_sec = (a)->tv_sec + (b)->tv_sec; \
+        (result)->tv_usec = (a)->tv_usec + (b)->tv_usec; \
+        if ((result)->tv_usec >= 1000000) { \
+            (result)->tv_sec++; \
+            (result)->tv_usec -= 1000000; \
+        } \
+    } while (0)
+#define timersub(a, b, result) \
+    do { \
+        (result)->tv_sec = (a)->tv_sec - (b)->tv_sec; \
+        (result)->tv_usec = (a)->tv_usec - (b)->tv_usec; \
+        if ((result)->tv_usec < 0) { \
+            (result)->tv_sec--; \
+            (result)->tv_usec += 1000000; \
+        } \
+    } while (0)
+#define TIMEVAL_TO_TIMESPEC(tv, ts) \
+    do { (ts)->tv_sec = (tv)->tv_sec; (ts)->tv_nsec = (tv)->tv_usec * 1000; } while (0)
+#define TIMESPEC_TO_TIMEVAL(tv, ts) \
+    do { (tv)->tv_sec = (ts)->tv_sec; (tv)->tv_usec = (ts)->tv_nsec / 1000; } while (0)
+
 /* (63m) A file's times in microseconds ([0] access, [1] modification; 0:
  * both now): utimensat's older form (sys/stat.h). */
 int utimes(const char *path, const struct timeval times[2]);

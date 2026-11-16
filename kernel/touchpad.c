@@ -5,7 +5,7 @@
  *   grows with the speed (GAIN_* below: slow moves are precise, fast ones
  *   cross the screen), with the fractions kept;
  * - two fingers moving together scroll: a wheel step per SCROLL_MM of their
- *   mean movement, fingers up as the wheel down and (68m-1) fingers to the
+ *   mean movement, (71f) reported in 1/120 of a step at every frame, fingers up as the wheel down and (68m-1) fingers to the
  *   left as the horizontal wheel to the right (the user's: the content
  *   follows the fingers); each frame scrolls along the axis it moved more
  *   on, so a vertical scroll's sideways drift scrolls nothing;
@@ -62,7 +62,7 @@ struct touchpad {
     /* outputs */
     uint8_t buttons;
     int64_t fx, fy;                     /* pointer motion not yet reported, 1/256 pixel */
-    int64_t scroll, scroll_x;           /* units of scrolling not yet reported (y, x) */
+    int64_t scroll, scroll_x;           /* scrolling not yet reported (y, x), units x 120 */
     struct { uint64_t ms; int dx, dy; } moved[HISTORY];   /* recent pointer motion */
     int nmoved;
     int64_t hold;                       /* units the finger moved while the pointer is held */
@@ -81,16 +81,19 @@ struct touchpad *touchpad_new(struct mouse *m, int32_t x_units_per_mm, int32_t y
     return t;
 }
 
-static void emit_scroll(struct touchpad *t, int dx, int dy, int wheel, int pan)
+static void emit(struct touchpad *t, int dx, int dy, int wheel)
 {
     uint64_t state = arch_irq_save();           /* (the mouse layer expects interrupt context) */
-    mouse_event(t->mouse, dx, dy, wheel, pan, t->buttons);
+    mouse_event(t->mouse, dx, dy, wheel, 0, t->buttons);
     arch_irq_restore(state);
 }
 
-static void emit(struct touchpad *t, int dx, int dy, int wheel)
+/* (71f) Scrolling in 1/120 of a wheel step (up and right positive). */
+static void emit_fine(struct touchpad *t, int fine, int fine_x)
 {
-    emit_scroll(t, dx, dy, wheel, 0);
+    uint64_t state = arch_irq_save();
+    mouse_scroll_fine(t->mouse, fine, fine_x);
+    arch_irq_restore(state);
 }
 
 static const struct finger *previous(const struct touchpad *t, uint8_t id)
@@ -203,15 +206,15 @@ void touchpad_frame(struct touchpad *t, const struct touch_contact *c, int n, bo
          * on (in millimetres); fingers up (y falling) is the wheel down,
          * fingers to the left (x falling) the horizontal wheel to the right */
         if ((int64_t)magnitude(sum_dx) * t->yu > (int64_t)magnitude(sum_dy) * t->xu)
-            t->scroll_x -= sum_dx / moved;
+            t->scroll_x -= (int64_t)sum_dx * 120 / moved;
         else
-            t->scroll += sum_dy / moved;
+            t->scroll += (int64_t)sum_dy * 120 / moved;
         int32_t step = SCROLL_MM * t->yu, step_x = SCROLL_MM * t->xu;
-        int steps = (int)(t->scroll / step), steps_x = (int)(t->scroll_x / step_x);
-        if (steps || steps_x) {
-            t->scroll -= (int64_t)steps * step;
-            t->scroll_x -= (int64_t)steps_x * step_x;
-            emit_scroll(t, 0, 0, steps, steps_x);
+        int fine = (int)(t->scroll / step), fine_x = (int)(t->scroll_x / step_x);
+        if (fine || fine_x) {                   /* (71f) the remainder kept, as for steps */
+            t->scroll -= (int64_t)fine * step;
+            t->scroll_x -= (int64_t)fine_x * step_x;
+            emit_fine(t, fine, fine_x);
         }
     }
 

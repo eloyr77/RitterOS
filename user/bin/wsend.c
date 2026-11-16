@@ -18,6 +18,13 @@
  *                               bytes, the key let go
  *   wsend down NAME             (41h-5) only the press and its bytes: the key
  *   wsend up NAME               held until its `up` (games: walking, firing)
+ *   wsend wheel X Y STEPS [SIDEWAYS]
+ *                               (71f) the pointer to (X, Y), then the wheel
+ *                               turned STEPS notches (negative up) and
+ *                               SIDEWAYS (positive to the right)
+ *   wsend fine X Y AMOUNT [SIDEWAYS]
+ *                               (71f) the same finer than a notch, as a
+ *                               touchpad scrolls: in 1/120 of a notch
  *   wsend wait [TITLE]          (41h-6) until the windowd answers, or until a
  *                               window of that title is open (WMSG_WINDOWS);
  *                               at most 10 s (exit 1)
@@ -37,7 +44,7 @@
 #include "ritteros.h"
 #include "windowproto.h"
 
-PROGRAM_HELP("wsend click|right|move X Y | drag X1 Y1 X2 Y2 | type TEXT | key|down|up NAME | wait [TITLE]",
+PROGRAM_HELP("wsend click|right|move X Y | drag X1 Y1 X2 Y2 | wheel|fine X Y AMOUNT [SIDEWAYS] | type TEXT | key|down|up NAME | wait [TITLE]",
              "send keyboard and pointer input to a headless windowd (for tests)");
 
 static int sock = -1;
@@ -93,6 +100,17 @@ static int number(const char *s, int *out)
     return 1;
 }
 
+/* (71f) A signed amount within [-limit, limit]. */
+static int amount(const char *s, int limit, int *out)
+{
+    char *end;
+    long v = strtol(s, &end, 10);
+    if (end == s || *end || v < -limit || v > limit)
+        return 0;
+    *out = (int)v;
+    return 1;
+}
+
 static const struct { const char *name, *bytes; uint8_t usage; } key_names[] = {
     { "enter", "\r", 0x28 }, { "tab", "\t", 0x2B }, { "escape", "\033", 0x29 },
     { "backspace", "\177", 0x2A }, { "up", "\033[A", 0x52 }, { "down", "\033[B", 0x51 },
@@ -132,8 +150,8 @@ static bool find_key(const char *name, int *code, const char **bytes)
 
 static int usage(void)
 {
-    dprintf(2, "usage: wsend click|right|move X Y | drag X1 Y1 X2 Y2 | type TEXT | key|down|up NAME | "
-               "wait [TITLE]\n");
+    dprintf(2, "usage: wsend click|right|move X Y | drag X1 Y1 X2 Y2 | wheel|fine X Y AMOUNT [SIDEWAYS] | "
+               "type TEXT | key|down|up NAME | wait [TITLE]\n");
     return 2;
 }
 
@@ -205,7 +223,12 @@ int main(int argc, char **argv)
     const char *bytes = 0;
     int code = -1;                                  /* a named key's: pressed around its bytes */
     bool pointing = !strcmp(cmd, "click") || !strcmp(cmd, "right") || !strcmp(cmd, "move");
-    if (pointing ? argc != 4 || !number(argv[2], &p[0]) || !number(argv[3], &p[1])
+    bool wheel = !strcmp(cmd, "wheel") || !strcmp(cmd, "fine");     /* (71f) */
+    int limit = cmd[0] == 'w' ? 127 : 32767;
+    p[3] = 0;
+    if (wheel ? (argc != 5 && argc != 6) || !number(argv[2], &p[0]) || !number(argv[3], &p[1]) ||
+                    !amount(argv[4], limit, &p[2]) || (argc == 6 && !amount(argv[5], limit, &p[3]))
+        : pointing ? argc != 4 || !number(argv[2], &p[0]) || !number(argv[3], &p[1])
         : !strcmp(cmd, "drag") ? argc != 6 || !number(argv[2], &p[0]) || !number(argv[3], &p[1]) ||
                                      !number(argv[4], &p[2]) || !number(argv[5], &p[3])
         : !strcmp(cmd, "type") ? argc != 3
@@ -214,7 +237,7 @@ int main(int argc, char **argv)
         return usage();
     if (!strcmp(cmd, "type"))
         bytes = argv[2];
-    else if (!pointing && strcmp(cmd, "drag") && !find_key(argv[2], &code, &bytes)) {   /* key, down, up */
+    else if (!pointing && !wheel && strcmp(cmd, "drag") && !find_key(argv[2], &code, &bytes)) {   /* key, down, up */
         dprintf(2, "wsend: no key %s (a-z, 0-9, space, enter, tab, escape, backspace, up, down, "
                    "left, right, home, end, pageup, pagedown, insert, delete, ctrl, shift, alt, "
                    "f1-f12)\n", argv[2]);
@@ -240,6 +263,13 @@ int main(int argc, char **argv)
         r = keys(bytes);
     else if (!strcmp(cmd, "move"))
         r = pointer(0, p[0], p[1]);
+    else if (wheel && cmd[0] == 'w')                /* (71f) a notch: steps as signed bytes */
+        r = pointer(0, p[0], p[1]) ||
+            send_event(INPUT_WHEEL, (uint8_t)p[3], (uint8_t)p[2], p[0], p[1]);
+    else if (wheel)                                 /* (71f) fine: amounts as int16, the pointer
+                                                     * where the move put it */
+        r = pointer(0, p[0], p[1]) ||
+            send_event(INPUT_WHEEL_FINE, 0, 0, (uint16_t)p[2], (uint16_t)p[3]);
     else if (pointing) {                            /* click, right: there, down, up */
         int b = cmd[0] == 'c' ? MOUSE_LEFT : MOUSE_RIGHT;
         r = pointer(0, p[0], p[1]) || pointer(b, p[0], p[1]) || pointer(0, p[0], p[1]);

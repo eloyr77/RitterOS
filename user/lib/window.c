@@ -492,7 +492,17 @@ static int to_event(struct window *win, const struct wmsg *mp, struct window_eve
         ev->y = (int16_t)(m.a & 0xFFFF);        /* steps, negative up */
         ev->x = (int16_t)(m.a >> 16);           /* (68m-1) sideways, positive to the right */
         ev->buttons = 0;
-        ev->key = 0;
+        ev->key = (int)m.b;                     /* (71f) the pointer's place in the window */
+        ev->menu = (int)m.c;
+        return 1;
+    }
+    if (m.type == WMSG_SCROLL_FINE) {           /* (71f) in 1/120 of a notch */
+        ev->type = WINDOW_SCROLL_FINE;
+        ev->y = (int16_t)(m.a & 0xFFFF);
+        ev->x = (int16_t)(m.a >> 16);
+        ev->buttons = 0;
+        ev->key = (int)m.b;
+        ev->menu = (int)m.c;
         return 1;
     }
     if (m.type == WMSG_DOUBLE_CLICK) {
@@ -613,6 +623,13 @@ int window_settings_reload(struct window *win)
 void window_set_cursor(struct window *win, int shape)
 {
     struct wmsg m = { WMSG_CURSOR, (uint32_t)(shape < 0 ? 0 : shape), 0, 0 };
+    if (win)
+        write_full(win->sock, &m, sizeof(m));
+}
+
+void window_scroll_fine(struct window *win, int on)
+{
+    struct wmsg m = { WMSG_SCROLL_FINE, on ? 1u : 0u, 0, 0 };
     if (win)
         write_full(win->sock, &m, sizeof(m));
 }

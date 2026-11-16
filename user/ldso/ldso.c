@@ -205,6 +205,19 @@ static bool lookup(const char *name, uint64_t *value)
     return true;
 }
 
+/* (71d) What every initializer gets, as glibc's: argc, argv and the
+ * environment (an initializer declared without them ignores them: the
+ * calling conventions allow it). */
+static int init_argc;
+static char **init_argv, **init_envp;
+
+static void run_initializers(const struct object *o, char **envp)
+{
+    void (**init)(int, char **, char **) = (void (**)(int, char **, char **))o->init_array;
+    for (uint64_t k = 0; init && k < o->init_arraysz / sizeof(*init); k++)
+        init[k](init_argc, init_argv, envp);
+}
+
 #if defined(__aarch64__)
 uint64_t ldso_tlsdesc_static(void);     /* ldso.S: a descriptor's function, x0 = [x0 + 8] */
 #endif
@@ -539,11 +552,13 @@ static void *dl_open(const char *file, int flags, char *error, size_t size)
         if (objects[i].tls_module && (!tls_add || tls_add(&tls_list[objects[i].tls_module - 1]) < 0))
             fail("%s: no room for its per-thread data", objects[i].name);
     catching = false;
-    for (int i = count - 1; i >= before; i--) {   /* their initializers */
-        void (**init)(void) = (void (**)(void))objects[i].init_array;
-        for (uint64_t k = 0; init && k < objects[i].init_arraysz / sizeof(*init); k++)
-            init[k]();
-    }
+    /* their initializers, (71d) with the environment as it is now */
+    uint64_t at_env;
+    char **envp = init_envp;
+    if (lookup("__ritteros_environ", &at_env))
+        envp = *((char ***(*)(void))at_env)();
+    for (int i = count - 1; i >= before; i--)
+        run_initializers(&objects[i], envp);
     objects[before].refs = 1;
     return &objects[before];
 }
@@ -776,12 +791,19 @@ uint64_t ldso_main(uint64_t *sp)
     uint64_t at_query;
     if (lookup("__ritteros_dl_setup2", &at_query))       /* (43a-4) */
         ((int (*)(const struct ritteros_dl_query *))at_query)(&dl_query);
+    /* (71d) The C library's start before any initializer: the environment
+     * (getenv), the program's name and the auxiliary vector are there, as on
+     * Linux (it finds the per-thread data set up and stops there; the
+     * program's own start code calls it again, finding the same). */
+    uint64_t at_start;
+    if (lookup("__ritteros_start", &at_start))
+        ((void (*)(long *))at_start)((long *)sp);
+    init_argc = argc;
+    init_argv = argv;
+    init_envp = argv + argc + 1;
     /* The libraries' initializers, if any, then (43c) the program's own
      * (C++'s static objects), last as Linux's loader runs them. */
-    for (int i = count - 1; i >= 0; i--) {
-        void (**init)(void) = (void (**)(void))objects[i].init_array;
-        for (uint64_t k = 0; init && k < objects[i].init_arraysz / sizeof(*init); k++)
-            init[k]();
-    }
+    for (int i = count - 1; i >= 0; i--)
+        run_initializers(&objects[i], init_envp);
     return entry;
 }

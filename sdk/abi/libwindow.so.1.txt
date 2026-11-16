@@ -29,6 +29,8 @@ constant	WINDOW_POINTER	1
 constant	WINDOW_RESIZE	4
 constant	WINDOW_SCROLL	7
 constant	WINDOW_SCROLLBAR_W	12
+constant	WINDOW_SCROLL_FINE	17
+constant	WINDOW_SCROLL_UNIT	120
 constant	WINDOW_SETTINGS	16
 constant	WINDOW_TEXT	14
 constant	WINDOW_TIMER	10
@@ -151,6 +153,7 @@ function	window_field_free	void window_field_free(struct window_field *f)
 function	window_field_height	int window_field_height(const struct window_field *f)
 function	window_field_new	struct window_field *window_field_new(struct window *win, int x, int y, int w)
 function	window_field_place	void window_field_place(struct window_field *f, int x, int y, int w)
+function	window_field_set_secret	void window_field_set_secret(struct window_field *f, int on)
 function	window_field_set_text	void window_field_set_text(struct window_field *f, const char *utf8)
 function	window_field_text	const char *window_field_text(const struct window_field *f)
 function	window_fill	void window_fill(struct window *win, int x, int y, int w, int h, uint32_t color)
@@ -165,6 +168,7 @@ function	window_pixels	uint32_t *window_pixels(struct window *win)
 function	window_popup_menu	int window_popup_menu(struct window *win, int x, int y, const struct window_menu_item *items, int count)
 function	window_resize	int window_resize(struct window *win, int w, int h)
 function	window_rgb	uint32_t window_rgb(struct window *win, int r, int g, int b)
+function	window_scroll_fine	void window_scroll_fine(struct window *win, int on)
 function	window_scrollbar	void window_scrollbar(struct window *win, int x, int y, int h, int first, int shown, int total)
 function	window_scrollbar_hit	int window_scrollbar_hit(int y, int h, int py, int shown, int total)
 function	window_set_cursor	void window_set_cursor(struct window *win, int shape)

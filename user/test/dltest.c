@@ -5,16 +5,30 @@
  * thread's own (two threads counting from the initial value), opening it
  * again gives the same handle, dlclose works, a missing symbol and a missing
  * file fail with dlerror's message (and dlerror once only), and dlsym on
- * RTLD_DEFAULT finds a libritteros function. Built statically too
+ * RTLD_DEFAULT finds a libritteros function. (71d) Its own constructor and
+ * the library's run with the environment there (getenv) and get argc, argv
+ * and envp, as glibc gives them. Built statically too
  * (dltest-static): there dlopen fails, "no dynamic loader".
  */
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <thread.h>
 
 static int failures;
+
+/* (71d) Run by ld.so before main. */
+static int early_argc = -1, early_home;
+static char **early_envp;
+__attribute__((constructor)) static void early(int argc, char **argv, char **envp)
+{
+    (void)argv;
+    early_argc = argc;
+    early_home = getenv("HOME") != 0;
+    early_envp = envp;
+}
 static int (*count)(void);
 
 static void result(const char *name, int ok, const char *detail)
@@ -47,6 +61,10 @@ int main(int argc, char **argv)
     const char *(*name)(char *, int) = (const char *(*)(char *, int))dlsym(h, "plug_name");
     count = (int (*)(void))dlsym(h, "plug_count");
     result("loaded, its constructor ran", ready && ready() == 1, "");
+    result("the program's constructor had the environment and argc (71d)",
+           early_home && early_argc == argc && early_envp && early_envp[0], "");
+    int (*env)(void) = (int (*)(void))dlsym(h, "plug_env");
+    result("the library's constructor had the environment (71d)", env && env() == 1, "");
     char buf[32];
     result("a function, and libritteros through it", add && add(20, 22) == 42 && name &&
            strcmp(name(buf, sizeof(buf)), "plug 22") == 0, "");

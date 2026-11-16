@@ -4035,7 +4035,9 @@ One finger moves the pointer (slow movements precisely, fast ones farther);
 a tap is a click; **two fingers** tapping or pressing are the **right
 button** (context menus); two fingers moving up or down **scroll**, the
 content following the fingers, and sideways scroll sideways (each moment
-along the way they moved more, so a scroll up or down does not drift);
+along the way they moved more, so a scroll up or down does not drift;
+a wheel's notch is 3 mm: programs that scroll smoothly get every
+movement, the others a notch at a time);
 three fingers do nothing yet. A press of the
 pad stays where you aimed: the pointer's creep as the finger presses is
 taken back, the pointer stays while the pad is held until the finger moves

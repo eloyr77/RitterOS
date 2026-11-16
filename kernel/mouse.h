@@ -43,6 +43,11 @@ const char *mouse_name(const struct mouse *m);
  * context. */
 void mouse_event(struct mouse *m, int dx, int dy, int wheel, int pan, uint8_t buttons);
 
+/* (71f) Scrolling finer than a notch, as a touchpad's: `fine` up (positive,
+ * as the wheel's) and `pan_fine` to the right, in 1/120 of a notch.
+ * Interrupt context. */
+void mouse_scroll_fine(struct mouse *m, int fine, int pan_fine);
+
 /* The pointer is at an absolute position: x in [0, x_range], y in [0, y_range]
  * (as an absolute pointing device such as a USB tablet reports), scaled to the
  * screen. Otherwise like mouse_event. Interrupt context. */

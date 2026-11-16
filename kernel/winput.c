@@ -92,6 +92,21 @@ void winput_wheel(int x, int y, int steps, int steps_x)
     enqueue(&e);
 }
 
+static uint16_t fine_amount(int fine)
+{
+    return (uint16_t)(int16_t)(fine < -32767 ? -32767 : fine > 32767 ? 32767 : fine);
+}
+
+void winput_wheel_fine(int fine, int fine_x)
+{
+    struct sys_input_event e = {0};
+    e.type = INPUT_WHEEL_FINE;
+    e.modifiers = modifiers_now();                    /* (Shift: sideways, windowd's) */
+    e.x = fine_amount(fine);
+    e.y = fine_amount(fine_x);
+    enqueue(&e);
+}
+
 void winput_keycode(uint8_t usage, bool down)
 {
     struct sys_input_event e = {0};

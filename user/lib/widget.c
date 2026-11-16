@@ -84,6 +84,11 @@ struct widget {
      * of the selection (bytes), the first line shown (top), its lines'
      * count, a one-line editor's sideways scroll, Up/Down's column */
     int cur, anchor, lines, scroll_x, prefer_x;
+    /* (71e) a secret editor (a password): `text` holds a bullet (U+2022, 3
+     * bytes) per character, which is what is drawn and edited, and `real`
+     * the text itself, changed with it at the same character */
+    bool secret;
+    char *real;
     /* (41e-5) a dialog's root: the button Escape presses, the one with the
      * keyboard at the start */
     struct widget *cancel, *start;
@@ -107,6 +112,44 @@ static struct widget *make(enum kind kind, const char *text)
     }
     w->group = w;
     return w;
+}
+
+/* (71e) A secret editor's places: a byte of its bullets <-> a byte of the
+ * real text (the same character), and n characters as bullets. */
+#define BULLET "\xE2\x80\xA2"
+static int secret_real_at(const struct widget *w, int shown)
+{
+    int chars = shown / 3, at = 0;
+    const char *s = w->real;
+    while (s[at] && chars > 0) {
+        at++;
+        while (s[at] && (s[at] & 0xC0) == 0x80)
+            at++;
+        chars--;
+    }
+    return at;
+}
+
+static int secret_shown_at(const struct widget *w, int real)
+{
+    int chars = 0;
+    for (int i = 0; i < real && w->real[i]; i++)
+        chars += (w->real[i] & 0xC0) != 0x80;
+    return 3 * chars;
+}
+
+static char *secret_bullets(const char *real, int n)
+{
+    int chars = 0;
+    for (int i = 0; i < n; i++)
+        chars += (real[i] & 0xC0) != 0x80;
+    char *b = malloc((size_t)chars * 3 + 1);
+    if (b) {
+        for (int i = 0; i < chars; i++)
+            memcpy(b + 3 * i, BULLET, 3);
+        b[3 * chars] = 0;
+    }
+    return b;
 }
 
 struct widget *widget_row(void) { return make(ROW, 0); }
@@ -292,6 +335,8 @@ void widget_on(struct widget *w, void (*fn)(struct widget *w, void *data), void 
 
 int widget_value(const struct widget *w)
 {
+    if (w && w->kind == EDITOR && w->secret)
+        return secret_real_at(w, w->cur);       /* (71e) a byte of the real text */
     return w ? (w->kind == EDITOR ? w->cur : w->value) : 0;
 }
 
@@ -343,6 +388,10 @@ void widget_set_value(struct widget *w, int value)
                w->kind != TABS && w->kind != PAGES && !rows_kind(w) && w->kind != EDITOR))
         return;
     if (w->kind == EDITOR) {
+        if (w->secret) {                        /* (71e) given in the real text */
+            int n = (int)strlen(w->real);
+            value = secret_shown_at(w, value < 0 ? 0 : value > n ? n : value);
+        }
         w->cur = w->anchor = clamp_value(w, value);
         changed(w, false);
         return;
@@ -361,6 +410,8 @@ const char *widget_text(const struct widget *w)
 {
     if (w && rows_kind(w))                      /* (41e-3) the chosen row's text, or "" */
         return w->value >= 0 && w->value < data_rows(w) ? w->items[w->value + (w->kind == TABLE)] : "";
+    if (w && w->kind == EDITOR && w->secret)    /* (71e) the text, not its bullets */
+        return w->real;
     return w && w->text ? w->text : "";
 }
 
@@ -380,6 +431,16 @@ void widget_set_text(struct widget *w, const char *utf8)
             for (char *c = w->text; *c; c++)
                 if (*c == '\n')
                     *c = ' ';
+        if (w->secret) {                        /* (71e) kept real, shown as bullets */
+            char *shown = secret_bullets(w->text, (int)strlen(w->text));
+            if (!shown)
+                return;
+            if (w->real)
+                explicit_bzero(w->real, strlen(w->real));
+            free(w->real);
+            w->real = w->text;
+            w->text = shown;
+        }
         w->cur = w->anchor = (int)strlen(w->text);
         w->top = w->scroll_x = 0;
         changed(w, false);
@@ -415,6 +476,10 @@ void widget_free(struct widget *root)
     free(root->level);
     free(root->open);
     free(root->text);
+    if (root->real) {                           /* (71e) a secret editor's text */
+        explicit_bzero(root->real, strlen(root->real));
+        free(root->real);
+    }
     free(root);
 }
 
@@ -1027,6 +1092,27 @@ static void edited(struct run *r, struct widget *w)
 static void edit_insert(struct run *r, struct widget *w, const char *s, int n)
 {
     int lo = w->cur < w->anchor ? w->cur : w->anchor, hi = w->cur < w->anchor ? w->anchor : w->cur;
+    char *shown = 0;
+    if (w->secret) {                            /* (71e) the real text first, then bullets */
+        int rlo = secret_real_at(w, lo), rhi = secret_real_at(w, hi), rlen = (int)strlen(w->real);
+        char *t = malloc((size_t)(rlen - (rhi - rlo) + n) + 1);
+        shown = secret_bullets(s, n);
+        if (!t || !shown) {
+            free(t), free(shown);
+            return;
+        }
+        memcpy(t, w->real, (size_t)rlo);
+        memcpy(t + rlo, s, (size_t)n);
+        for (int i = 0; w->lines == 1 && i < n; i++)
+            if (t[rlo + i] == '\n' || t[rlo + i] == '\r')
+                t[rlo + i] = ' ';
+        memcpy(t + rlo + n, w->real + rhi, (size_t)(rlen - rhi) + 1);
+        explicit_bzero(w->real, (size_t)rlen);
+        free(w->real);
+        w->real = t;
+        s = shown;
+        n = (int)strlen(shown);
+    }
     int len = (int)strlen(w->text);
     char *t = malloc((size_t)(len - (hi - lo) + n) + 1);
     if (!t)
@@ -1041,6 +1127,7 @@ static void edit_insert(struct run *r, struct widget *w, const char *s, int n)
     w->text = t;
     w->cur = w->anchor = lo + n;
     w->prefer_x = -1;
+    free(shown);
     edited(r, w);
 }
 
@@ -1107,9 +1194,11 @@ static bool edit_key(struct run *r, struct widget *w, int key)
         w->cur = len;
         changed(w, false);
     } else if (r->ctrl && (key == WKEY_C || key == WKEY_X)) {
-        if (hi > lo)
+        if (w->secret)
+            ;                                   /* (71e) a secret is never copied or cut */
+        else if (hi > lo)
             window_clipboard_set(r->win, w->text + lo, (size_t)(hi - lo));
-        if (key == WKEY_X && hi > lo)
+        if (key == WKEY_X && hi > lo && !w->secret)
             edit_insert(r, w, "", 0);
     } else if (r->ctrl && key == WKEY_V) {
         char *paste = malloc(PASTE_MAX);
@@ -1177,6 +1266,8 @@ static void edit_word(struct run *r, struct widget *w, int at)
         a--;
     while (b < len && word_char(w->text[b]))
         b++;
+    if (w->secret)                              /* (71e) all of it: no word ends shown */
+        a = 0, b = len;
     w->anchor = a;
     w->cur = b;
     r->blink = true;
@@ -1784,4 +1875,31 @@ void widget_message(struct window *parent, const char *title, const char *text)
 int widget_question(struct window *parent, const char *title, const char *text, const char *yes, const char *no)
 {
     return dialog(parent, title, text, yes ? yes : "Yes", no ? no : "No");
+}
+
+/* (71e) A secret editor: its text shown as bullets, never copied or cut. */
+void widget_secret(struct widget *w, int on)
+{
+    if (!w || w->kind != EDITOR || (on != 0) == w->secret)
+        return;
+    if (on) {
+        char *shown = secret_bullets(w->text, (int)strlen(w->text));
+        if (!shown)
+            return;
+        w->real = w->text;
+        w->text = shown;
+        w->secret = true;
+        w->cur = secret_shown_at(w, w->cur);
+        w->anchor = secret_shown_at(w, w->anchor);
+    } else {
+        int cur = secret_real_at(w, w->cur), anchor = secret_real_at(w, w->anchor);
+        free(w->text);
+        w->text = w->real;
+        w->real = 0;
+        w->secret = false;
+        w->cur = cur;
+        w->anchor = anchor;
+    }
+    w->prefer_x = -1;
+    changed(w, false);
 }

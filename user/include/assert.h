@@ -5,6 +5,12 @@
  * every assert out. Not guarded: the header may come again with NDEBUG
  * changed, as C allows.
  */
+/* (71a) C11's static_assert (C23 and C++ have it as a keyword). */
+#if !defined(__cplusplus) && !defined(static_assert) && \
+    (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L)
+#define static_assert _Static_assert
+#endif
+
 #undef assert
 #ifdef NDEBUG
 #define assert(expression) ((void)0)

@@ -130,6 +130,9 @@ struct window {
     char *drop;                 /* (41f-6) a drop's text, sent after its WMSG_DROP (heap), or 0 */
     uint32_t drop_len;
     char app[64];               /* (41g-3) its program's name (getprogname): its app's icon */
+    int scroll_fine;            /* (71f) it asked for WMSG_SCROLL_FINE (window_scroll_fine) */
+    int fine_y, fine_x;         /* (71f) else fine scrolling not yet a whole notch */
+    uint64_t fine_us;           /* (71f) when the last fine scrolling came */
 };
 
 /* A rectangle of the screen (used for the dirty region and the resize outline). */
@@ -157,6 +160,12 @@ static int menu_idx = -1;       /* which top-level menu is open; -1 with menu_wi
 static struct wmenu popup;      /* a context menu (menu_win set, menu_idx == -1) */
 static int popup_x, popup_y;    /* a popup's top-left on the screen */
 static uint8_t prev_buttons;    /* to notice a button going down or up */
+/* (71c, the browser agent's request 8) A press an open menu took (an item
+ * chosen, the menu closed or another opened): every pointer event is
+ * windowd's until the buttons are up, so the press and its release never
+ * reach the window under the menu (a bookmark chosen also followed the
+ * page's link under it). */
+static int menu_press;
 static unsigned next_ticket, serving;   /* the lock between windowd's threads (take, give) */
 static int done_threads[16];    /* finished client threads, to reap (no thread_detach) */
 static int done_count;
@@ -1241,9 +1250,10 @@ static void input_take(int sock, struct wmsg m)
         if (headless) {
             struct sys_input_event e = { (uint8_t)m.a, (uint8_t)(m.a >> 8), (uint8_t)(m.a >> 16),
                                          (uint8_t)(m.a >> 24), (uint16_t)m.b, (uint16_t)(m.b >> 16) };
-            if (e.x >= screen.width)                 /* (on the screen, as a mouse's) */
+            if (e.type != INPUT_WHEEL_FINE && e.x >= screen.width)   /* (on the screen, as a
+                                                     * mouse's; (71f) fine: amounts) */
                 e.x = (uint16_t)(screen.width - 1);
-            if (e.y >= screen.height)
+            if (e.type != INPUT_WHEEL_FINE && e.y >= screen.height)
                 e.y = (uint16_t)(screen.height - 1);
             input_event(e);
             /* Answered once what it made went out to the programs: windowd
@@ -1971,6 +1981,7 @@ static void input_event(struct sys_input_event e)
             int hit = tb >= 0 ? -1 : window_at(e.x, e.y);
             if (menu_win >= 0) {                         /* a menu is open: close it */
                 menu_win = menu_idx = -1;
+                menu_press = 1;                         /* (71c) */
                 composite_all();
             } else if (hit < 0 && tb < 0) {              /* the desktop background: its menu */
                 open_desktop_menu(e.x, e.y);
@@ -1979,6 +1990,7 @@ static void input_event(struct sys_input_event e)
                 composite_rect(dirty);
             }
         } else if (down && menu_win >= 0) {              /* a menu is open */
+            menu_press = 1;                             /* (71c) the menu's, to its release */
             int di = dropdown_hit(e.x, e.y);
             if (di >= 0) {                              /* chose an item */
                 struct wmenu_item *items;
@@ -2134,7 +2146,10 @@ static void input_event(struct sys_input_event e)
             composite_rect(dirty);                      /* a plain move */
         }
         int foc = focused_window();
-        if (foc >= 0 && menu_win < 0) {             /* no event to the app while a menu is open */
+        if (menu_press) {                           /* (71c) a menu's press: not the app's */
+            if (!(e.buttons & (MOUSE_LEFT | MOUSE_RIGHT)))
+                menu_press = 0;                     /* (its release, the last kept) */
+        } else if (foc >= 0 && menu_win < 0) {      /* no event to the app while a menu is open */
             to = foc;
             m.type = WMSG_POINTER;
             m.a = (uint32_t)(e.x - content_left(foc));
@@ -2155,17 +2170,40 @@ static void input_event(struct sys_input_event e)
             m.a = e.key;
             m.b = e.buttons ? 1 : 0;
         }
-    } else if (e.type == INPUT_WHEEL) {               /* (15o) to the window under the pointer */
-        int under = window_at(e.x, e.y);
-        int steps = (int8_t)e.key, steps_x = (int8_t)e.buttons;   /* (68m-1) and sideways */
-        if ((e.modifiers & INPUT_SHIFT) && !steps_x)  /* Shift + the wheel: sideways, down */
-            steps_x = steps, steps = 0;               /* to the right (as macOS, GTK) */
+    } else if (e.type == INPUT_WHEEL || e.type == INPUT_WHEEL_FINE) {   /* (15o) to the window
+                                                     * under the pointer; (71f) fine: a touchpad's */
+        int fine = e.type == INPUT_WHEEL_FINE;
+        int px = fine ? cursor_x : e.x, py = fine ? cursor_y : e.y;
+        int under = window_at(px, py);
+        /* in 1/120 of a notch (WINDOW_SCROLL_UNIT; windowd has no window.h) */
+        int amount = fine ? (int16_t)e.x : (int8_t)e.key * 120;
+        int amount_x = fine ? (int16_t)e.y : (int8_t)e.buttons * 120;   /* (68m-1) sideways */
+        if ((e.modifiers & INPUT_SHIFT) && !amount_x)  /* Shift + the wheel: sideways, down */
+            amount_x = amount, amount = 0;            /* to the right (as macOS, GTK) */
         if (under >= 0 && menu_win < 0 && !windows[under].minimized) {
-            to = under;
-            m.type = WMSG_SCROLL;
-            m.a = (uint16_t)steps | (uint32_t)(uint16_t)steps_x << 16;
-            m.b = (uint32_t)(e.x - content_left(under));
-            m.c = (uint32_t)(e.y - content_top(under));
+            struct window *u = &windows[under];
+            int steps = amount / 120, steps_x = amount_x / 120;
+            if (u->scroll_fine) {                     /* (71f) as it came */
+                steps = amount < -32767 ? -32767 : amount > 32767 ? 32767 : amount;
+                steps_x = amount_x < -32767 ? -32767 : amount_x > 32767 ? 32767 : amount_x;
+            } else if (fine) {                        /* (71f) whole notches, the rest kept for
+                                                       * the next (a new gesture, after 1 s
+                                                       * without, starts at 0) */
+                uint64_t t = now_us();
+                if (t - u->fine_us > 1000000)
+                    u->fine_y = u->fine_x = 0;
+                u->fine_us = t;
+                u->fine_y += amount, u->fine_x += amount_x;
+                steps = u->fine_y / 120, steps_x = u->fine_x / 120;
+                u->fine_y -= steps * 120, u->fine_x -= steps_x * 120;
+            }
+            if (u->scroll_fine || steps || steps_x) {
+                to = under;
+                m.type = u->scroll_fine ? WMSG_SCROLL_FINE : WMSG_SCROLL;
+                m.a = (uint16_t)steps | (uint32_t)(uint16_t)steps_x << 16;
+                m.b = (uint32_t)(px - content_left(under));
+                m.c = (uint32_t)(py - content_top(under));
+            }
         }
     } else if (e.type == INPUT_KEY) {
         int foc = focused_window();
@@ -2471,6 +2509,7 @@ static void client_work(int sock)
         windows[id].min_w = windows[id].min_h = windows[id].max_w = windows[id].max_h = 0;
         windows[id].cursor = 0;
         windows[id].fullscreen = 0;
+        windows[id].scroll_fine = windows[id].fine_y = windows[id].fine_x = 0;
         memcpy(windows[id].app, app, sizeof(app));
         windows[id].parent = parent >= 0 && parent < MAX_WINDOWS && windows[parent].used && parent != id ? parent : -1;
         if (windows[id].parent >= 0) {               /* (41f-5) centred over its window */
@@ -2541,6 +2580,10 @@ static void client_work(int sock)
             clip_send(id, sock);
         } else if (m.type == WMSG_SETTINGS) {        /* (69b) the settings changed: read again */
             settings_again();
+        } else if (m.type == WMSG_SCROLL_FINE) {     /* (71f) fine scrolling wanted, or not */
+            take();
+            windows[id].scroll_fine = m.a != 0;
+            give();
         } else if (m.type == WMSG_CURSOR) {          /* (41f-4) the pointer's shape over its content */
             take();
             windows[id].cursor = (int)m.a;

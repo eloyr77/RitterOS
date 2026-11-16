@@ -93,6 +93,12 @@ extern "C" {
                                  * (`wsend wait TITLE`): windowd answers WMSG_WINDOWS (a: how
                                  * many windows, c: the length of the text that follows), then
                                  * their titles, each ending in a newline */
+#define WMSG_SCROLL_FINE 32     /* (71f) client -> windowd: a: 1 send the scrolling as this
+                                 * message, 0 as WMSG_SCROLL's whole notches; windowd -> client:
+                                 * a: the amount down (int16 in bits 15-0, negative up) and
+                                 * sideways (bits 31-16, positive to the right) in 1/120 of a
+                                 * notch, b, c: the pointer in the window (a wheel's notch is
+                                 * 120; a touchpad's every movement) */
 #define WMSG_SETTINGS   31      /* (69b) client -> windowd: read the window system's settings
                                  * (~/.config/windows) again and use them; windowd -> each
                                  * window then: they changed (libwindow: WINDOW_SETTINGS) */

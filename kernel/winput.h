@@ -24,6 +24,9 @@ void winput_pointer(int x, int y, uint8_t buttons);
 /* The mouse wheel turned (interrupt context): steps, negative up, and
  * (68m-1) steps_x of the horizontal wheel, positive to the right. */
 void winput_wheel(int x, int y, int steps, int steps_x);
+/* (71f) Scrolling finer than a notch (interrupt context): INPUT_WHEEL_FINE,
+ * fine down (negative up) and fine_x to the right, in 1/120 of a notch. */
+void winput_wheel_fine(int fine, int fine_x);
 
 /* A physical key (its USB HID usage ID) pressed or released (interrupt
  * context): games need both, and the modifiers alone (15p). */

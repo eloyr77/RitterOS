@@ -66,8 +66,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <strings.h>
+#include <string.h>                      /* (71a) strcasecmp from it alone, as glibc */
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -468,6 +467,27 @@ static void ported(const char *folder)
 
 /* (43a-2) Locales: C.UTF-8's characters, classes and widths, a thread's
  * own locale, and iconv; compared with the Mac where it does the same. */
+/* (71a, the browser agent's requests 2, 3, 13) BSD's timeval macros,
+ * MAP_FILE and C11's static_assert, as glibc, musl, the BSDs and the Mac
+ * have them. */
+static_assert(sizeof(struct timeval) >= 2 * sizeof(int), "a timeval holds two numbers");
+static void bsd_time(void)
+{
+    struct timeval a = { 5, 900000 }, b = { 3, 200000 }, sum, diff, zero;
+    struct timespec ts;
+    timeradd(&a, &b, &sum);
+    timersub(&b, &a, &diff);
+    timerclear(&zero);
+    TIMEVAL_TO_TIMESPEC(&a, &ts);
+    struct timeval back;
+    TIMESPEC_TO_TIMEVAL(&back, &ts);
+    printf(T "timeradd %ld.%06ld timersub %ld.%06ld cmp < %d > %d == %d isset %d %d spec %ld.%09ld back %ld.%06ld MAP_FILE %d\n",
+           (long)sum.tv_sec, (long)sum.tv_usec, (long)diff.tv_sec, (long)diff.tv_usec,
+           timercmp(&b, &a, <), timercmp(&b, &a, >), timercmp(&a, &a, ==), timerisset(&a) != 0,
+           timerisset(&zero) != 0, (long)ts.tv_sec, ts.tv_nsec, (long)back.tv_sec, (long)back.tv_usec,
+           MAP_FILE);
+}
+
 static void locales(void)
 {
     printf(T "43a-2 setlocale %s", setlocale(LC_CTYPE, "en_US.UTF-8"));
@@ -1636,6 +1656,7 @@ int main(int argc, char **argv)
            pad[3], pad[4], pad[5], cat);
     free(dup);
     free(ndup);
+    bsd_time();                                 /* (71a) */
     printf(T "strcasecmp %d %d %d strncasecmp %d %d\n", sign(strcasecmp("Hello", "hELLO")),
            sign(strcasecmp("abc", "ABD")), sign(strcasecmp("b", "A")),
            sign(strncasecmp("STCFN033", "stcfn044", 5)), sign(strncasecmp("ab", "AC", 2)));

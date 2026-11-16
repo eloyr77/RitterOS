@@ -499,7 +499,9 @@ boot_checks() {
 
     # RitterFS: the kernel's mount and check must agree with the host's checker.
     expect "RitterFS:      nvme0n1p2 'RitterOS', UUID $(guid RITTERFS_UUID)"
-    expect "all checksums ok (both copies), bitmap consistent"
+    # (70h) the boot's check reads metadata only; data blocks are claimed
+    expect "metadata checksums ok (both copies), "
+    expect " data blocks claimed (scrub reads them), bitmap consistent"
     reject "problem:"
     expect "/test/data/large.bin                      1048699 bytes, tree height 2"
     expect "/test/data/sparse.bin                     2097152 bytes, tree height 2"
@@ -880,7 +882,7 @@ quick_boot_test() {
     boot ${P}quick "$image" "RitterOS kernel: boot complete"
     expect "Cmdline:   (none)"
     expect_line "  self-tests:    skipped (\"selftest\" on the command line runs them)"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "metadata checksums ok (both copies), "
     reject "self-test passed"                       # memory and heap
     reject "2 threads computing in the kernel"      # the scheduler
     reject "testing exceptions"
@@ -5424,6 +5426,9 @@ wmin_test() {
 # menu bar ("File" with Open=1, Quit=2); windowd draws it. Clicking "File" opens
 # a dropdown; clicking "Open" sends the client WMSG_MENU, which it prints as
 # `wmenu: menu 1`. The pointer is driven over QMP. Proven by not clicking an item.
+# (71c) A menu choice's press stays windowd's (the agent's request 8): only
+# a plain click in the content reaches wmenu (`wmenu: press at`); proven by a
+# windowd that sent the press on.
 wmenu_session() {
     local n=1 t="/system/$ARCH_NAME/test/wmenu" mon="$WORK/monitor.sock" q="$WORK/qmp.sock"
     local curx cury
@@ -5458,6 +5463,10 @@ wmenu_session() {
     moveto 160 192                                       # the "Copy" item in the popup
     qmp "$(btn true)" "$(btn false)"                     # choose it
     serial_wait "wmenu: menu 3" 1 10
+    sleep 0.5
+    moveto 152 200                                       # (71c) a plain click in the content
+    qmp "$(btn true)" "$(btn false)"
+    serial_wait "wmenu: press at" 1 10
 }
 
 wmenu_test() {
@@ -5477,6 +5486,11 @@ wmenu_test() {
     expect "wmenu: menu 1"                                                           # choosing it sent WMSG_MENU
     check_screen region-158-185-36-15-255-255-255 $w $h "$WORK/${P}wmenu-ctx.ppm"    # the context menu's "Copy"
     expect "wmenu: menu 3"                                                           # a right-click popup item chosen
+    # (71c) the two items' presses (over the content) stayed windowd's: only
+    # the plain click reached the window
+    check "a menu choice's press is not the window's: one press reached it (71c)" \
+          "$(grep -c "^wmenu: press at" <<<"$TEXT") presses: $(grep "^wmenu: press at" <<<"$TEXT" | tr '\n' '|')" \
+          test "$(grep -c "^wmenu: press at" <<<"$TEXT")" = 1
     reject "panic"
     show_log_on_failure $before
 }
@@ -6847,7 +6861,7 @@ wsend_shell_test() {
     SERIAL_SCRIPT=wsend_session
     boot ${P}wsend "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
-    expect "usage: wsend click|right|move X Y | drag X1 Y1 X2 Y2 | type TEXT | key|down|up NAME | wait [TITLE]"
+    expect "usage: wsend click|right|move X Y | drag X1 Y1 X2 Y2 | wheel|fine X Y AMOUNT [SIDEWAYS] | type TEXT | key|down|up NAME | wait [TITLE]"
     expect "wsend: no window server at /tmp/w1 (waited 10 s)"      # (41h-6)
     expect "early-rc=1"
     expect "up-rc=0"
@@ -8769,17 +8783,28 @@ check_function_exists(ritteros_no_such_function HAVE_NO_SUCH_FUNCTION)
 check_library_exists(m log2 "" HAVE_LIB_M)
 check_c_source_compiles("int f(void) { return 0; }" HAVE_NO_MAIN)
 check_symbol_exists(poll "poll.h" HAVE_POLL_SYMBOL)
-foreach(v HAVE_GETADDRINFO HAVE_PTHREAD_CREATE HAVE_NO_SUCH_FUNCTION HAVE_LIB_M HAVE_NO_MAIN HAVE_POLL_SYMBOL)
+# (71b) The compiler run by the project itself, as libpng runs it (-E)
+execute_process(COMMAND ${CMAKE_C_COMPILER} -E -x c /dev/null RESULT_VARIABLE e OUTPUT_QUIET ERROR_QUIET)
+if(e EQUAL 0)
+    set(HAVE_COMPILER_E 1)
+endif()
+foreach(v HAVE_GETADDRINFO HAVE_PTHREAD_CREATE HAVE_NO_SUCH_FUNCTION HAVE_LIB_M HAVE_NO_MAIN HAVE_POLL_SYMBOL HAVE_COMPILER_E)
     if(${v})
         message(STATUS "check ${v} yes")
     else()
         message(STATUS "check ${v} no")
     endif()
 endforeach()
+# (71b) LINKER: options, -pthread and -lm -lpthread -ldl -lrt in a link
+file(WRITE ${CMAKE_BINARY_DIR}/main.c "#include <math.h>\nint main(void) { return (int)log2(1.0); }\n")
+add_executable(linkopts ${CMAKE_BINARY_DIR}/main.c)
+target_link_options(linkopts PRIVATE "LINKER:--no-undefined" "LINKER:-z,now" -pthread)
+target_link_libraries(linkopts m pthread dl rt)
 CMAKE
     ( export PATH="$ROOT/tools/venv/bin:$PATH"
       cmake -S "$WORK/${P}sdk-checks" -B "$WORK/${P}sdk-checks/build" -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$ROOT/sdk/ritteros.cmake" -DRITTEROS_ARCH=$ARCH_NAME ) \
+            -DCMAKE_TOOLCHAIN_FILE="$ROOT/sdk/ritteros.cmake" -DRITTEROS_ARCH=$ARCH_NAME &&
+      cmake --build "$WORK/${P}sdk-checks/build"; echo "build exit $?" ) \
         >"$WORK/${P}sdk-checks.log" 2>&1
     QEMU_EXTRA="-netdev user,id=net0,hostfwd=tcp:127.0.0.1:$NET_SSH_PORT-:22"
     QEMU_EXTRA+=" -device e1000,netdev=net0,mac=52:54:00:12:34:56"
@@ -8809,12 +8834,17 @@ LINES
 check HAVE_GETADDRINFO yes
 check HAVE_PTHREAD_CREATE yes
 check HAVE_NO_SUCH_FUNCTION no
-check HAVE_LIB_M no
+check HAVE_LIB_M yes
 check HAVE_NO_MAIN no
 check HAVE_POLL_SYMBOL yes
+check HAVE_COMPILER_E yes
 LINES
-    compare "CMake's checks link with RitterOS's libraries (46d-1: a function there, one not, no libm, no main)" \
+    compare "CMake's checks link with RitterOS's libraries (46d-1: a function there, one not, no main; 71b: libm's stub, the compiler run alone)" \
             "$want" "$(sed -n 's/^-- \(check .*\)/\1/p' "$WORK/${P}sdk-checks.log")"
+    check "a CMake program with LINKER: options, -pthread and -lm -lpthread -ldl -lrt links (71b), needing only libritteros" \
+          "$(tail -5 "$WORK/${P}sdk-checks.log")" \
+          eval 'grep -qx "build exit 0" "$WORK/${P}sdk-checks.log" &&
+                python3 "$ROOT/scripts/elfneeded.py" "$WORK/${P}sdk-checks/build/linkopts" | grep -q "needs libritteros.so.1;"' 
     local v_ssl v_zlib v_brotli v_nghttp2 v_psl v_curl
     v_ssl=$(sed -n 's/^OPENSSL_VER=//p' "$ROOT/user/upstream/versions")
     v_zlib=$(sed -n 's/^ZLIB_VER=//p' "$ROOT/user/upstream/versions")
@@ -12315,6 +12345,156 @@ wfield_shell_test() {
     show_log_on_failure $before
 }
 
+# secret_session / secret_shell_test (71e, the browser agent's request 17):
+# secret text, in a headless windowd driven by wsend. wfield first copies
+# "known" (Ctrl+A, Ctrl+C: the clipboard's); `wfield secret` takes
+# "secret1", Ctrl+A, then Ctrl+C and Ctrl+X refused (the clipboard still
+# "known", the text still there), End, "!": bullets drawn (wshot, the
+# font's U+2022 at the text's place), Enter gives the real text. `widgettest
+# editor secret`'s entry the same through libwidget (its Ctrl keys
+# physical ones): "pw 1", Ctrl+A/C/X refused, End, "!": the real text and
+# its cursor a byte of it; the clipboard still "known". Proven by a field
+# and an editor that copied.
+secret_session() {
+    local n=1
+    prompt_wait $n
+    serial_type 'sh /test/secret.sh\r'
+    serial_wait "secret-done" 1 120
+    n=$((n + 1)); prompt_wait $n 30
+}
+
+secret_shell_test() {
+    local image before t="/system/$ARCH_NAME/test" png ppm
+    image=$(make_image ${P}secret "")
+    cat >"$WORK/${P}secret.sh" <<SCRIPT
+export WINDOW_SOCKET=/tmp/w1
+windowd headless 800x600 & wsend wait
+c1=\$(printf '\\001'); c3=\$(printf '\\003'); c24=\$(printf '\\030')
+$t/wfield & wsend wait wfield
+wsend click 118 143; wsend type known; wsend type "\$c1"; wsend type "\$c3"; wsend key enter
+sleep 1
+$t/wfield secret & wsend wait wfield
+wsend click 118 143; wsend type secret1; wsend type "\$c1"; wsend type "\$c3"; wsend type "\$c24"
+wsend key end; wsend type '!'; wsend move 600 500; sleep 0.5; wshot /tmp/s1.png
+wsend key enter; sleep 1
+$t/wfield paste
+$t/widgettest editor secret & wsend wait editor
+wsend key tab; wsend key tab; wsend type 'pw 1'
+wsend down ctrl; wsend key a; wsend key c; wsend key x; wsend up ctrl
+wsend key end; wsend type '!'; wsend move 600 500; sleep 0.5; wshot /tmp/s2.png
+wsend key tab; wsend key enter; sleep 1
+$t/wfield paste
+echo secret-done
+SCRIPT
+    $RFS put "$image" $RFS_PART /test/secret.sh "$WORK/${P}secret.sh" >/dev/null || exit 1
+    before=$failures
+    SERIAL_SCRIPT=secret_session
+    boot ${P}secret "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    expect_line "wfield: enter 'known'"
+    expect_line "wfield: enter 'secret1!'"
+    check "Ctrl+C refused in the secret field and the editor: the clipboard still 'known' (twice)" \
+          "$(grep "^wfield: clipboard" <<<"$TEXT" | tr '\n' '|')" \
+          test "$(grep -cx "wfield: clipboard 'known' (5 bytes)" <<<"$TEXT")" = 2
+    expect_line "widgettest: run 1, editor , entry pw 1!, cursor 5"
+    for png in s1 s2; do
+        $RFS cat "$image" $RFS_PART /tmp/$png.png >"$WORK/${P}secret-$png.png"
+        python3 - "$ROOT/scripts" "$WORK/${P}secret-$png.png" "$WORK/${P}secret-$png.ppm" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import pngcheck
+w, h, ch, pix = pngcheck.decode_png(open(sys.argv[2], "rb").read())
+rgb = pix if ch == 3 else b"".join(pix[i:i + 3] for i in range(0, len(pix), 4))
+open(sys.argv[3], "wb").write(b"P6\n%d %d\n255\n" % (w, h) + rgb)
+PY
+    done
+    check_screen "textat-118-137-regular-46.52.64-255.255.255-$(printf '\xe2\x80\xa2%.0s' 1 2 3 4 5 6 7 8)" \
+                 800 600 "$WORK/${P}secret-s1.ppm"
+    # the editor's entry (its box from 112,244 to 312,268): five dots, none
+    # higher or wider than 5 pixels (letters, p's tail, are larger)
+    local dots
+    dots=$(python3 - "$WORK/${P}secret-s2.ppm" <<'PY'
+import sys
+data = open(sys.argv[1], "rb").read()
+parts = data.split(b"\n", 3)
+w, h = map(int, parts[1].split())
+pix = parts[3]
+bright = {(x, y) for y in range(246, 267) for x in range(114, 310)
+          if min(pix[(y * w + x) * 3:(y * w + x) * 3 + 3]) > 150}
+seen, sizes = set(), []
+for p in sorted(bright):
+    if p in seen:
+        continue
+    stack, xs, ys = [p], [], []
+    seen.add(p)
+    while stack:
+        x, y = stack.pop()
+        xs.append(x), ys.append(y)
+        for q in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if q in bright and q not in seen:
+                seen.add(q)
+                stack.append(q)
+    sizes.append((max(xs) - min(xs) + 1, max(ys) - min(ys) + 1))
+print(len(sizes), all(a <= 5 and b <= 5 for a, b in sizes))
+PY
+)
+    compare "the secret entry shows five dots, no letters (71e)" "5 True" "$dots"
+    reject "panic"
+    show_log_on_failure $before
+}
+
+# finescroll_session / finescroll_shell_test (71f, the browser agent's
+# request 7): scrolling with the pointer's place and finer than a notch, in
+# a headless windowd driven by `wsend wheel` and `wsend fine` (no QEMU
+# touchpad). wclicks (content at 104,124) prints each WINDOW_SCROLL with its
+# place: two notches down at 150,150; one up and three right; fine 50 (less
+# than a notch: nothing), fine 70 (with the 50 kept, one notch), fine -30
+# up and 130 right (one notch right). `wclicks 1 fine` (window_scroll_fine) gets
+# WINDOW_SCROLL_FINE: 50, a wheel's notch up as -120, -7 up and 9 right
+# (negative amounts as windowd takes them). wsend refuses a wheel past 127.
+# Proven by libwindow without the place, a windowd that clamps amounts and
+# one that keeps no rest.
+finescroll_session() {
+    local n=1
+    prompt_wait $n
+    serial_type 'sh /test/finescroll.sh\r'
+    serial_wait "finescroll-done" 1 120
+    n=$((n + 1)); prompt_wait $n 30
+}
+
+finescroll_shell_test() {
+    local image before t="/system/$ARCH_NAME/test"
+    image=$(make_image ${P}finescroll "")
+    cat >"$WORK/${P}finescroll.sh" <<SCRIPT
+export WINDOW_SOCKET=/tmp/w1
+windowd headless 800x600 & wsend wait
+$t/wclicks 1 & wsend wait wclicks
+wsend wheel 150 150 2; wsend wheel 150 150 -1 3
+wsend fine 160 170 50; wsend fine 160 170 70; wsend fine 160 170 -30 130
+wsend click 150 150; sleep 1
+$t/wclicks 1 fine & wsend wait wclicks
+wsend fine 160 170 50; wsend wheel 150 150 -1; wsend fine 160 170 -7 9
+wsend click 150 150; sleep 1
+wsend wheel 150 150 200; echo "past-rc=\$?"
+echo finescroll-done
+SCRIPT
+    $RFS put "$image" $RFS_PART /test/finescroll.sh "$WORK/${P}finescroll.sh" >/dev/null || exit 1
+    before=$failures
+    SERIAL_SCRIPT=finescroll_session
+    boot ${P}finescroll "$image" "RitterOS kernel: boot complete"
+    SERIAL_SCRIPT=
+    compare "WINDOW_SCROLL: notches with the pointer's place, fine amounts added up (71f)" \
+            "$(printf 'wclicks: scroll 0,2 at 46,26\nwclicks: scroll 3,-1 at 46,26\nwclicks: scroll 0,1 at 56,46\nwclicks: scroll 1,0 at 56,46')" \
+            "$(grep -a '^wclicks: scroll' <<<"$TEXT")"
+    compare "WINDOW_SCROLL_FINE: amounts in 1/120 of a notch with the place (71f)" \
+            "$(printf 'wclicks: fine 0,50 at 56,46\nwclicks: fine 0,-120 at 46,26\nwclicks: fine 9,-7 at 56,46')" \
+            "$(grep -a '^wclicks: fine' <<<"$TEXT")"
+    expect_line "usage: wsend click|right|move X Y | drag X1 Y1 X2 Y2 | wheel|fine X Y AMOUNT [SIDEWAYS] | type TEXT | key|down|up NAME | wait [TITLE]"
+    expect_line "past-rc=2"
+    reject "panic"
+    show_log_on_failure $before
+}
+
 # drawtest_host DIR: drawtest and libdraw built on the Mac (41b) into DIR,
 # against draw.h and media.h alone (never user/include); 1 when it does not
 # build.
@@ -13240,7 +13420,8 @@ wsteady_shell_test() {
 # each WINDOW_SCROLL; x86's PS/2 mouse is an IntelliMouse Explorer (two
 # wheels): wheel-right, then wheel-left, are x 1 and -1; on both, Shift with
 # the wheel down is x 1 (windowd's rule). Proven by a kernel that drops the
-# horizontal wheel and a windowd without the Shift rule. (68m-2) `widgettest
+# horizontal wheel and a windowd without the Shift rule. (71f) Each with the
+# pointer's place in the window. (68m-2) `widgettest
 # entry` (80 digits in a one-line entry, wider than it): three sideways steps
 # (Shift with the wheel), then a click at its left edge lands 96 pixels in.
 # Proven by an entry without the sideways steps. (69k: iBrowser's WheelEvent
@@ -13335,8 +13516,10 @@ wscroll_shell_test() {
           eval 'grep -aq "^term: scrolled back 6 of [0-9][0-9]* lines" <<<"$TEXT"'
     check "its bar's top: the whole scrollback" "$(grep -a 'term: scrolled back' <<<"$TEXT" | tail -1)" \
           eval 'grep -a "^term: scrolled back" <<<"$TEXT" | tail -1 | grep -qE "back ([0-9]+) of \1 lines"'
-    want="wclicks: scroll 1,0"                         # (68m-1) Shift with the wheel down
-    [ "$ARCH_NAME" = x86_64 ] && want=$(printf 'wclicks: scroll 1,0\nwclicks: scroll -1,0\nwclicks: scroll 1,0')
+    want="wclicks: scroll 1,0 at 215,95"               # (68m-1) Shift with the wheel down;
+                                                       # (71f) the pointer at 399,300's
+                                                       # pixel (399,299): the content's 215,95
+    [ "$ARCH_NAME" = x86_64 ] && want=$(printf 'wclicks: scroll 1,0 at 215,95\nwclicks: scroll -1,0 at 215,95\nwclicks: scroll 1,0 at 215,95')
     compare "sideways: the horizontal wheel and Shift with the wheel (68m-1)" "$want" \
             "$(grep -a '^wclicks: scroll' <<<"$TEXT")"
     expect_line "widgettest: run 1, entry cursor 11"   # (68m-2: 96 pixels in)
@@ -13853,7 +14036,9 @@ tls_shell_test() {
 # a missing symbol and a missing file fail with dlerror's message, RTLD_DEFAULT
 # finds snprintf, dlclose works. dltest-static has no ld.so: dlopen fails with
 # a message. Proven by an ld.so whose dlopen links nothing (no relocations:
-# the test library's first call faults).
+# the test library's first call faults). (71d) dltest's own constructor and
+# libplug's see the environment (getenv("HOME")) and get argc, argv, envp;
+# proven by an ld.so that ran the initializers before the C library's start.
 dl_session() {
     local n=1 asked=0 t="/system/$ARCH_NAME/test"
     prompt_wait $n
@@ -13867,7 +14052,8 @@ dl_shell_test() {
     SERIAL_SCRIPT=dl_session
     boot ${P}dl "$image" "RitterOS kernel: boot complete"
     SERIAL_SCRIPT=
-    for name in "loaded, its constructor ran" "a function, and libritteros through it" \
+    for name in "loaded, its constructor ran" "the program's constructor had the environment and argc (71d)" \
+                "the library's constructor had the environment (71d)" "a function, and libritteros through it" \
                 "its per-thread data" "opened again: the same handle" "a missing symbol" \
                 "a missing file" "RTLD_DEFAULT finds snprintf" "dlclose"; do
         expect "dltest: $name: ok"
@@ -18990,7 +19176,7 @@ swap_shell_test() {
     SERIAL_SCRIPT=
     expect_line "  swap:          on, /system/swap: 16 MiB (4096 pages in ${runs:-?} run(s)), XTS-AES-256 with a new key"
     expect_line "  swap:          self-test: 4096 of 4096 pages read back as written (0 writes failed), 0 readable on the disk"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     compare "swap (on at the boot)" "swap: on, /system/swap: 16 MiB (4096 pages), 0 in use; since the boot 4096 pages written, 4096 read" \
             "$(command_output 'swap')"
     expect_line "rm: /system/swap: Device or resource busy"
@@ -19192,7 +19378,7 @@ PY
     before=$failures
     boot ${P}fswrite-reboot "$image" "RitterOS kernel: boot complete"
     expect "generation 6 (slot A)"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect "RitterFS files: 309 verified against /test/manifest.txt (3384 KiB): all match"
     show_log_on_failure $before
 
@@ -19278,7 +19464,7 @@ PY
     set_cmdline ${P}fssnap ""
     before=$failures
     boot ${P}fssnap-reboot "$image" "RitterOS kernel: boot complete"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect_line "                 snapshots: 1, their blocks checked; $host_kept block(s) kept only for them, 0 awaiting a sweep"
     reject "PROBLEMS FOUND"
     show_log_on_failure $before
@@ -19633,7 +19819,7 @@ PY
           "host: '$host'" eval '[ -n "$host_copies" ] && [ "$host_shared" = 0 ]'
     before=$failures
     boot ${P}fscopy-reboot "$image" "RitterOS kernel: boot complete"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     read shared pinned awaiting <<<"$host_copies"
     expect_line "                 copies: $shared block(s) shared, generations up to $pinned pinned, $awaiting awaiting a sweep"
     reject "PROBLEMS FOUND"
@@ -19704,7 +19890,7 @@ PY
     # After a reboot the kernel agrees with the host.
     before=$failures
     boot ${P}fsattr-reboot "$image" "RitterOS kernel: boot complete"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect_line "                 attributes: 4 on 4 object(s)"
     reject "PROBLEMS FOUND"
     show_log_on_failure $before
@@ -19758,7 +19944,7 @@ PY
         gen=$(sed -n 's/^RitterFS check: generation \([0-9]*\).*/\1/p' <<<"$host")
         # The kernel's own check at mount verified the previous round's state.
         if [ -n "$last" ] && [[ "$host" == *"all checksums ok, bitmap consistent" ]] &&
-           grep -qF "all checksums ok (both copies), bitmap consistent" <<<"$TEXT" &&
+           grep -qF "checksums ok (both copies), " <<<"$TEXT" &&
            ! grep -qF "torture: done" <<<"$TEXT" &&
            [ -n "$gen" ] && { [ "$gen" -eq "$last" ] || [ "$gen" -eq $((last + 1)) ]; }; then
             echo "PASS  $NAME: killed after $commits commits; disk consistent at generation $gen (last reported $last)"
@@ -19773,7 +19959,7 @@ PY
     set_cmdline ${P}torture ""
     before=$failures
     boot ${P}torture-final "$image" "RitterOS kernel: boot complete"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect "RitterFS files: 309 verified against /test/manifest.txt (3384 KiB): all match"
     show_log_on_failure $before
 
@@ -19897,7 +20083,7 @@ usb_boot_test() {
     expect_line "  usb0 port 3:   USB 3 device connected, SuperSpeed (5 Gbit/s)"
     expect_line "  usbdisk0:      'QEMU' 'QEMU HARDDISK' rev 2.5+ on usb0 port 3, 2097152 blocks of 512 bytes (1024 MiB), bulk-only, LUN 0 of 1"
     expect_line "  system partition: usbdisk0p2, where the bootloader found the kernel"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect "RitterFS files: 309 verified against /test/manifest.txt (3384 KiB): all match"
     expect_line "  login:         /system/$ARCH_NAME/bin/login, process 1"
     expect_line "Hello from RitterFS!"
@@ -20104,7 +20290,7 @@ usb_late_test() {
     expect "  system partition: found after "
     expect_line "  system partition: usbdisk0p2, where the bootloader found the kernel"
     expect_line "  system partition: nvme0n1p2 has the same GPT GUID as usbdisk0p2 (a copied disk?); using usbdisk0p2"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect_line "  login:         /system/$ARCH_NAME/bin/login, process 1"
     # The first start wrote root's password to the stick, not to the copy.
     copied=$($RFS ls "$copy" $RFS_PART /system/config | awk '{print $2}' | tr '\n' ' ')
@@ -20237,7 +20423,7 @@ sata_boot_test() {
           eval '[[ "$host" == *"all checksums ok, bitmap consistent" ]]'
     expect "GPT:           sata0: protective MBR, disk GUID $(guid DISK_GUID)"
     expect_line "  system partition: sata0p2, where the bootloader found the kernel"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect "RitterFS files: 309 verified against /test/manifest.txt (3384 KiB): all match"
     expect_line "  login:         /system/$ARCH_NAME/bin/login, process 1"
     compare "ls /system/$ARCH_NAME/bin vs host" \
@@ -20287,7 +20473,7 @@ sata_disk_test() {
     expect_line "  RitterOS partition: sata0p2, 1961984 blocks"
     expect_line "  RitterOS partition: sata1p2, 1961984 blocks"
     local checks
-    checks=$(grep -c "all checksums ok (both copies), bitmap consistent" <<<"$TEXT")
+    checks=$(grep -c ", bitmap consistent" <<<"$TEXT")
     check "RitterFS checked on the boot disk and both SATA disks: $checks" \
           "RitterFS checked $checks time(s), expected 3" test "$checks" = 3
     expect_line "  disk test:     sata0p2 (958 MiB), using LBA 1961855-1961983"
@@ -20345,13 +20531,13 @@ usb_hotplug_session() {
     # plugged in again on bus port 3 (another socket; port 1 has the hubs).
     monitors "drive_add 0 if=none,id=hotdisk,file=$stick,format=raw" \
              "device_add usb-storage,bus=xhci.0,port=2,drive=hotdisk,id=hotstick,serial=RITTERSTICK1"
-    serial_wait "all checksums ok (both copies), bitmap consistent" 2 20
+    serial_wait ", bitmap consistent" 2 20
     monitor "device_del hotstick"
     serial_wait "removed (its name stays reserved)" 2 10      # the keyboard, then the stick
     # A copy of the image file: QEMU may still hold the first one's lock.
     monitors "drive_add 0 if=none,id=hotdisk2,file=$stick.2,format=raw" \
              "device_add usb-storage,bus=xhci.0,port=3,drive=hotdisk2,id=hotstick2,serial=RITTERSTICK1"
-    serial_wait "all checksums ok (both copies), bitmap consistent" 3 20
+    serial_wait ", bitmap consistent" 3 20
     serial_type 'usb\r'
     prompt_wait 3
 }
@@ -20418,7 +20604,7 @@ usb_hubplug_session() {
     # A stick behind the same hub.
     monitors "drive_add 0 if=none,id=hubdisk,file=$stick,format=raw" \
              "device_add usb-storage,bus=xhci.0,port=1.3,drive=hubdisk,id=hubstick,serial=HUBSTICK"
-    serial_wait "all checksums ok (both copies), bitmap consistent" 2 30
+    serial_wait ", bitmap consistent" 2 30
     monitor "device_del hubstick"
     serial_wait "removed (its name stays reserved)" 2 10
     # A hub plugged in, a keyboard behind it, then the whole hub unplugged.
@@ -20511,7 +20697,7 @@ usb_storage_test() {
     expect "  RitterFS:      usbdisk1p2 'RitterOS'"
     # The full check of the boot disk and of both sticks, every block read.
     local checks
-    checks=$(grep -c "all checksums ok (both copies), bitmap consistent" <<<"$TEXT")
+    checks=$(grep -c ", bitmap consistent" <<<"$TEXT")
     check "RitterFS checked on the boot disk and both sticks: $checks" \
           "RitterFS checked $checks time(s), expected 3" test "$checks" = 3
     expect_line "  disk test:     usbdisk0p2 (958 MiB), using LBA 1961855-1961983"
@@ -20563,7 +20749,7 @@ kernel_tests() {
           eval '[[ "$put" == "$path: written"*"generation 2 (slot A)"*"all checksums ok, bitmap consistent" ]]'
     kernel_file_checks "$image"
     expect "kernel file:   $path on RitterFS, $(wc -c <"$changed" | tr -d ' ') bytes, file system generation 2"
-    expect "all checksums ok (both copies), bitmap consistent"
+    expect "checksums ok (both copies), "   # (70h: the boot's or a full check)
     expect "RitterOS kernel: boot complete"
     reject "problem:"
     reject "panic"

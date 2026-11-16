@@ -2,7 +2,8 @@
  * Test client for the menu system (step 19a). It opens a window with a menu
  * bar (one menu, "File", with "Open" = id 1 and "Quit" = id 2) and prints the
  * id of each menu item the user chooses. The test clicks the menu and an item
- * and checks the printed id.
+ * and checks the printed id. (71c) Every left press it gets is printed too:
+ * a menu's own press must not reach it.
  */
 #include <stdio.h>
 #include <unistd.h>
@@ -32,6 +33,8 @@ int main(void)
             if (ev.menu == 2)               /* Quit */
                 break;
         } else if (ev.type == WINDOW_POINTER) {
+            if ((ev.buttons & 1) && !(prev & 1))
+                printf("wmenu: press at %d,%d\n", ev.x, ev.y);
             if ((ev.buttons & 2) && !(prev & 2))    /* right button pressed: a context menu */
                 window_popup_menu(win, ev.x, ev.y, ctx, 2);
             prev = ev.buttons;

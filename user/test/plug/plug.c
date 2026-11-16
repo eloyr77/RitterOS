@@ -6,13 +6,21 @@
  * library it needs, already loaded).
  */
 #include <stdio.h>
+#include <stdlib.h>
 
-static int ready;
+static int ready, env_ok;
 static __thread int count = 5;
 
-__attribute__((constructor)) static void loaded(void)
+/* (71d) argc, argv, envp as glibc gives them; getenv works already. */
+__attribute__((constructor)) static void loaded(int argc, char **argv, char **envp)
 {
     ready = 1;
+    env_ok = getenv("HOME") != 0 && argc >= 1 && argv && argv[0] && envp && envp[0];
+}
+
+int plug_env(void)
+{
+    return env_ok;
 }
 
 int plug_ready(void)

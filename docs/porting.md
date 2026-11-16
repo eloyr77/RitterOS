@@ -183,6 +183,21 @@ every declaration):
   or member of those names compiles); `sys/time.h` gives `select` and
   `fd_set` too; `sys/ioctl.h` has `ioctl` with `FIONBIO`, `FIOCLEX` and
   `FIONCLEX` (others `ENOTTY`).
+- **Initializers as on Linux** (71d, the browser port's request 9):
+  `__attribute__((constructor))`, `DT_INIT_ARRAY` and C++'s static
+  objects run with the environment already there (`getenv` works, the
+  program's name, `getauxval`), and each gets `argc, argv, envp` as glibc
+  passes them (`dlopen`'s libraries the environment as it is then).
+- **The SDK's CMake as ports expect it** (71b, the browser port's
+  requests): one compiler program (`sdk/zig-clang`: projects that run the
+  compiler themselves), `LINKER:` options, `-pthread` and `-lm`,
+  `-lpthread`, `-ldl`, `-lrt` (empty archives: libritteros has it all).
+- **Headers as other systems have them** (71a, the browser port's
+  requests): `<string.h>` gives `<strings.h>`'s `strcasecmp` and the rest
+  too (as glibc by default); `<sys/time.h>` has BSD's `timerclear`,
+  `timerisset`, `timercmp`, `timeradd`, `timersub`, `TIMEVAL_TO_TIMESPEC`,
+  `TIMESPEC_TO_TIMEVAL`; `<sys/mman.h>` has `MAP_FILE` (0); `<assert.h>`
+  has C11's `static_assert`.
 - **Threads and the system** (43b-6): `pthread_setname_np`,
   `CLOCK_THREAD_CPUTIME_ID`, `getsid`, spawn's `addfchdir`, `getifaddrs`,
   `if_nametoindex`.
